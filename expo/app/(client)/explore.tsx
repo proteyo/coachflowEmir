@@ -849,17 +849,22 @@ export default function Explore() {
             >
               <Search color={muted} size={18} />
               <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder={txt.searchPlaceholder}
-                placeholderTextColor={muted}
-                style={{
-                  flex: 1,
-                  paddingVertical: 13,
-                  paddingHorizontal: 10,
-                  color: text,
-                }}
-              />
+  value={query}
+  onChangeText={setQuery}
+  placeholder={txt.searchPlaceholder}
+  placeholderTextColor="#94A3B8"
+  autoCapitalize="none"
+  autoCorrect={false}
+  selectionColor={primary}
+  style={{
+    flex: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 10,
+    color: "#0F172A",
+    fontSize: 16,
+    fontWeight: "600",
+  }}
+/>
             </View>
 
             <View style={{ gap: 10 }}>
