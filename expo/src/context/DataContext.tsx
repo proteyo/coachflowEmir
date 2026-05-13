@@ -2,9 +2,15 @@ import createContextHook from "@nkzw/create-context-hook";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useAuth } from "@/src/context/AuthContext";
 import { buildSeed } from "@/src/data/seed";
 import { apiGet } from "@/src/services/api";
-import { DBShape } from "@/src/types/models";
+import {
+  buildClientReminders,
+  cancelCoachFlowReminders,
+  syncReminders,
+} from "@/src/services/notifications";
+import { DBShape, SupplementDay } from "@/src/types/models";
 
 const DB_KEY = "coachflow:db:production:v1";
 const TOKEN_KEY = "coachflow:token";
@@ -16,6 +22,28 @@ function arr(value: any) {
   if (Array.isArray(value?.results)) return value.results;
 
   return [];
+}
+
+function getLocalDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalDayKey(date = new Date()): SupplementDay {
+  const days: SupplementDay[] = [
+    "Sun",
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+  ];
+
+  return days[date.getDay()];
 }
 
 function normalizeUser(user: any) {
@@ -61,7 +89,8 @@ function normalizeClientProfile(profile: any) {
     age: profile.age ?? undefined,
     fitnessLevel: profile.fitnessLevel ?? profile.fitness_level ?? "beginner",
     healthNotes: profile.healthNotes ?? profile.health_notes ?? undefined,
-    createdAt: profile.createdAt ?? profile.created_at ?? new Date().toISOString(),
+    createdAt:
+      profile.createdAt ?? profile.created_at ?? new Date().toISOString(),
   };
 }
 
@@ -238,11 +267,19 @@ function normalizeSupplementPlan(plan: any) {
 }
 
 function normalizeSupplementItem(item: any) {
-  const defaultDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const defaultDays: SupplementDay[] = [
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+    "Sun",
+  ];
 
   const rawDays = item.daysOfWeek ?? item.days_of_week;
 
-  let daysOfWeek = defaultDays;
+  let daysOfWeek: SupplementDay[] = defaultDays;
 
   if (Array.isArray(rawDays)) {
     daysOfWeek = rawDays.length > 0 ? rawDays : defaultDays;
@@ -258,13 +295,31 @@ function normalizeSupplementItem(item: any) {
     }
   }
 
+  const rawTimes = item.specificTimes ?? item.specific_times ?? [];
+
+  let specificTimes: string[] = [];
+
+  if (Array.isArray(rawTimes)) {
+    specificTimes = rawTimes.filter((value) => typeof value === "string");
+  } else if (typeof rawTimes === "string") {
+    try {
+      const parsed = JSON.parse(rawTimes);
+
+      if (Array.isArray(parsed)) {
+        specificTimes = parsed.filter((value) => typeof value === "string");
+      }
+    } catch {
+      specificTimes = [];
+    }
+  }
+
   return {
     id: String(item.id),
     planId: String(item.planId ?? item.plan_id),
     name: item.name,
     dosage: item.dosage,
     timesPerDay: Number(item.timesPerDay ?? item.times_per_day ?? 1),
-    specificTimes: item.specificTimes ?? item.specific_times ?? [],
+    specificTimes,
     daysOfWeek,
     notes: item.notes ?? undefined,
   };
@@ -274,9 +329,7 @@ function normalizeSupplementLog(log: any) {
   return {
     id: String(log.id),
     clientId: String(log.clientId ?? log.client_id),
-    supplementItemId: String(
-      log.supplementItemId ?? log.supplement_item_id,
-    ),
+    supplementItemId: String(log.supplementItemId ?? log.supplement_item_id),
     date: log.date,
     time: log.time,
     taken: Boolean(log.taken),
@@ -635,9 +688,12 @@ async function loadBackendDB(localDB: DBShape, token: string): Promise<DBShape> 
 }
 
 export const [DataProvider, useData] = createContextHook(() => {
+  const { user } = useAuth();
+
   const [db, setDB] = useState<DBShape | null>(null);
   const [ready, setReady] = useState(false);
   const lastTokenRef = useRef<string | null>(null);
+  const lastReminderSignatureRef = useRef<string>("");
 
   const persist = useCallback(async (next: DBShape) => {
     setDB(next);
@@ -700,6 +756,101 @@ export const [DataProvider, useData] = createContextHook(() => {
 
     return () => clearInterval(interval);
   }, [refreshFromBackend]);
+
+  useEffect(() => {
+    if (!ready || !db) {
+      return;
+    }
+
+    if (!user) {
+      if (lastReminderSignatureRef.current !== "no-user") {
+        lastReminderSignatureRef.current = "no-user";
+
+        cancelCoachFlowReminders().catch((error) =>
+          console.log("[notifications] cancel for no-user error", error),
+        );
+      }
+
+      return;
+    }
+
+    if (user.role !== "client") {
+      if (lastReminderSignatureRef.current !== "not-client") {
+        lastReminderSignatureRef.current = "not-client";
+
+        cancelCoachFlowReminders().catch((error) =>
+          console.log("[notifications] cancel for non-client error", error),
+        );
+      }
+
+      return;
+    }
+
+    const today = getLocalDateKey();
+    const dayKey = getLocalDayKey();
+
+    const settings = db.notifications.find((item) => item.userId === user.id);
+
+    const workoutsToday = db.workouts.filter(
+      (workout) =>
+        workout.clientId === user.id &&
+        workout.date === today &&
+        !workout.completed,
+    );
+
+    const clientPlanIds = new Set(
+      db.supplementPlans
+        .filter((plan) => plan.clientId === user.id)
+        .map((plan) => plan.id),
+    );
+
+    const supplements = db.supplementItems.filter((item) => {
+      if (!clientPlanIds.has(item.planId)) {
+        return false;
+      }
+
+      if (!Array.isArray(item.daysOfWeek) || item.daysOfWeek.length === 0) {
+        return true;
+      }
+
+      return item.daysOfWeek.includes(dayKey);
+    });
+
+    const reminders = buildClientReminders({
+      settings,
+      workoutsToday,
+      supplements,
+    });
+
+    const signature = JSON.stringify({
+      userId: user.id,
+      settings,
+      workoutsToday: workoutsToday.map((workout) => ({
+        id: workout.id,
+        date: workout.date,
+        time: workout.time,
+        name: workout.name,
+        completed: workout.completed,
+      })),
+      supplements: supplements.map((item) => ({
+        id: item.id,
+        name: item.name,
+        dosage: item.dosage,
+        specificTimes: item.specificTimes,
+        daysOfWeek: item.daysOfWeek,
+      })),
+    });
+
+    if (signature === lastReminderSignatureRef.current) {
+      return;
+    }
+
+    lastReminderSignatureRef.current = signature;
+
+    syncReminders(reminders).catch((error) =>
+      console.log("[notifications] sync reminders error", error),
+    );
+  }, [db, ready, user]);
 
   const update = useCallback((mutator: (data: DBShape) => DBShape) => {
     setDB((current) => {
