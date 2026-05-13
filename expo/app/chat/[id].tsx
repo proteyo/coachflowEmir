@@ -8,7 +8,7 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { Mic, Pause, Play, Send, Square, X } from "lucide-react-native";
+import { Mic, Pause, Play, Send, X } from "lucide-react-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -24,6 +24,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useData } from "@/src/context/DataContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
+import { apiPost, apiUploadFile, toAbsoluteUrl } from "@/src/services/api";
 import { Message } from "@/src/types/models";
 
 function fmtDur(ms: number) {
@@ -32,14 +33,30 @@ function fmtDur(ms: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function getMessageTime(msg: Message) {
+  const time = new Date(msg.createdAt).getTime();
+
+  if (!Number.isNaN(time)) {
+    return time;
+  }
+
+  const idNumber = Number(String(msg.id).replace(/\D/g, ""));
+
+  return Number.isNaN(idNumber) ? 0 : idNumber;
+}
+
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { theme } = useTheme();
   const { t } = useI18n();
-  const { user } = useAuth();
-  const { db, update } = useData();
+  const { user, token } = useAuth();
+  const { db, update, refreshFromBackend } = useData();
+
   const [text, setText] = useState<string>("");
+  const [sending, setSending] = useState<boolean>(false);
+  const [voiceSending, setVoiceSending] = useState<boolean>(false);
   const [recordingMs, setRecordingMs] = useState<number>(0);
+
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
 
@@ -49,11 +66,14 @@ export default function Chat() {
   useEffect(() => {
     (async () => {
       if (Platform.OS === "web") return;
+
       try {
         const status = await AudioModule.requestRecordingPermissionsAsync();
+
         if (!status.granted) {
           console.log("[chat] mic permission denied");
         }
+
         await setAudioModeAsync({
           playsInSilentMode: true,
           allowsRecording: true,
@@ -68,17 +88,20 @@ export default function Chat() {
 
   const thread: Message[] = useMemo(() => {
     if (!db || !user || !id) return [];
+
     return db.messages
       .filter(
         (m) =>
           (m.senderId === user.id && m.receiverId === id) ||
           (m.senderId === id && m.receiverId === user.id),
       )
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      .slice()
+      .sort((a, b) => getMessageTime(a) - getMessageTime(b));
   }, [db, user, id]);
 
   useEffect(() => {
     if (!user || !id) return;
+
     update((d) => ({
       ...d,
       messages: d.messages.map((m) =>
@@ -87,20 +110,57 @@ export default function Chat() {
     }));
   }, [id, user, update]);
 
-  const send = () => {
-    if (!text.trim() || !user || !id) return;
-    const newMsg: Message = {
-      id: `m_${Date.now()}`,
+  const send = async () => {
+    const content = text.trim();
+
+    if (!content || !user || !id || !token || sending) return;
+
+    const optimisticMsg: Message = {
+      id: `local_${Date.now()}`,
       senderId: user.id,
       receiverId: id,
-      content: text.trim(),
+      content,
       messageType: "text",
       read: false,
       createdAt: new Date().toISOString(),
     };
-    update((d) => ({ ...d, messages: [...d.messages, newMsg] }));
+
     setText("");
+    setSending(true);
+
+    update((d) => ({
+      ...d,
+      messages: [...d.messages, optimisticMsg],
+    }));
+
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+
+    try {
+      await apiPost(
+        "/messages",
+        {
+          receiver_id: id,
+          content,
+          message_type: "text",
+        },
+        { token },
+      );
+
+      await refreshFromBackend();
+
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 150);
+    } catch (e) {
+      console.log("[chat] send message err", e);
+
+      update((d) => ({
+        ...d,
+        messages: d.messages.filter((m) => m.id !== optimisticMsg.id),
+      }));
+
+      Alert.alert("Message error", "Could not send message. Please try again.");
+    } finally {
+      setSending(false);
+    }
   };
 
   const startRecord = async () => {
@@ -108,21 +168,32 @@ export default function Chat() {
       Alert.alert(t("messages.voiceWebUnsupported"));
       return;
     }
+
+    if (voiceSending) return;
+
     try {
       await recorder.prepareToRecordAsync();
       recorder.record();
+
       setRecordingMs(0);
-      recordTimer.current = setInterval(() => setRecordingMs((m) => m + 100), 100);
+
+      recordTimer.current = setInterval(() => {
+        setRecordingMs((m) => m + 100);
+      }, 100);
     } catch (e) {
       console.log("[chat] start record err", e);
+      Alert.alert("Voice error", "Could not start recording.");
     }
   };
 
   const cancelRecord = async () => {
     try {
       if (recordTimer.current) clearInterval(recordTimer.current);
+
       recordTimer.current = null;
+
       await recorder.stop();
+
       setRecordingMs(0);
     } catch (e) {
       console.log("[chat] cancel record err", e);
@@ -130,17 +201,26 @@ export default function Chat() {
   };
 
   const stopAndSend = async () => {
-    if (!user || !id) return;
+    if (!user || !id || !token || voiceSending) return;
+
     try {
       if (recordTimer.current) clearInterval(recordTimer.current);
+
       recordTimer.current = null;
+
       await recorder.stop();
+
       const uri = recorder.uri;
       const duration = recordingMs;
+
       setRecordingMs(0);
+
       if (!uri) return;
-      const newMsg: Message = {
-        id: `m_${Date.now()}`,
+
+      setVoiceSending(true);
+
+      const optimisticMsg: Message = {
+        id: `local_voice_${Date.now()}`,
         senderId: user.id,
         receiverId: id,
         content: t("messages.voiceMessage"),
@@ -150,10 +230,50 @@ export default function Chat() {
         read: false,
         createdAt: new Date().toISOString(),
       };
-      update((d) => ({ ...d, messages: [...d.messages, newMsg] }));
+
+      update((d) => ({
+        ...d,
+        messages: [...d.messages, optimisticMsg],
+      }));
+
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-    } catch (e) {
-      console.log("[chat] stop record err", e);
+
+      const uploadRes = await apiUploadFile("/uploads/voice", uri, "file", {
+        token,
+      });
+
+      const uploadedVoiceUrl = uploadRes.voiceUrl ?? uploadRes.voice_url;
+
+      if (!uploadedVoiceUrl) {
+        throw new Error("Backend did not return voice URL.");
+      }
+
+      await apiPost(
+        "/messages",
+        {
+          receiver_id: id,
+          content: t("messages.voiceMessage"),
+          message_type: "voice",
+          voice_url: uploadedVoiceUrl,
+          voice_duration_ms: duration,
+        },
+        { token },
+      );
+
+      await refreshFromBackend();
+
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 150);
+    } catch (e: any) {
+      console.log("[chat] stop/send voice err", e);
+
+      update((d) => ({
+        ...d,
+        messages: d.messages.filter((m) => !String(m.id).startsWith("local_voice_")),
+      }));
+
+      Alert.alert("Voice error", e?.message || "Could not send voice message.");
+    } finally {
+      setVoiceSending(false);
     }
   };
 
@@ -166,11 +286,16 @@ export default function Chat() {
           title: partner?.name ?? t("messages.title"),
           headerLeft: () => (
             <View style={{ marginRight: 8 }}>
-              <AppAvatar uri={partner?.avatarUrl} name={partner?.name} size={32} />
+              <AppAvatar
+                uri={toAbsoluteUrl(partner?.avatarUrl)}
+                name={partner?.name}
+                size={32}
+              />
             </View>
           ),
         }}
       />
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -184,12 +309,8 @@ export default function Chat() {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             const mine = item.senderId === user?.id;
-            return (
-              <MessageBubble
-                msg={item}
-                mine={mine}
-              />
-            );
+
+            return <MessageBubble msg={item} mine={mine} />;
           }}
         />
 
@@ -214,13 +335,18 @@ export default function Chat() {
                 backgroundColor: theme.colors.danger,
               }}
             />
+
             <AppText variant="bodyStrong">{t("messages.recording")}</AppText>
+
             <AppText variant="small" color={theme.colors.textMuted}>
               {fmtDur(recordingMs)}
             </AppText>
+
             <View style={{ flex: 1 }} />
+
             <Pressable
               onPress={cancelRecord}
+              disabled={voiceSending}
               style={{
                 width: 40,
                 height: 40,
@@ -228,17 +354,22 @@ export default function Chat() {
                 backgroundColor: theme.colors.surfaceAlt,
                 alignItems: "center",
                 justifyContent: "center",
+                opacity: voiceSending ? 0.5 : 1,
               }}
             >
               <X color={theme.colors.text} size={18} />
             </Pressable>
+
             <Pressable
               onPress={stopAndSend}
+              disabled={voiceSending}
               style={{
                 width: 44,
                 height: 44,
                 borderRadius: 22,
-                backgroundColor: theme.colors.primary,
+                backgroundColor: voiceSending
+                  ? theme.colors.textMuted
+                  : theme.colors.primary,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -278,14 +409,18 @@ export default function Chat() {
                 multiline
               />
             </View>
+
             {text.trim().length > 0 ? (
               <Pressable
                 onPress={send}
+                disabled={sending}
                 style={{
                   width: 44,
                   height: 44,
                   borderRadius: 22,
-                  backgroundColor: theme.colors.primary,
+                  backgroundColor: sending
+                    ? theme.colors.textMuted
+                    : theme.colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
@@ -295,11 +430,14 @@ export default function Chat() {
             ) : (
               <Pressable
                 onPress={startRecord}
+                disabled={voiceSending}
                 style={{
                   width: 44,
                   height: 44,
                   borderRadius: 22,
-                  backgroundColor: theme.colors.fire,
+                  backgroundColor: voiceSending
+                    ? theme.colors.textMuted
+                    : theme.colors.fire,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
@@ -317,6 +455,7 @@ export default function Chat() {
 function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
   const { theme } = useTheme();
   const isVoice = msg.messageType === "voice";
+
   return (
     <View
       style={{
@@ -335,10 +474,14 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
       {isVoice ? (
         <VoicePlayer msg={msg} mine={mine} />
       ) : (
-        <AppText variant="body" color={mine ? theme.colors.primaryContrast : theme.colors.text}>
+        <AppText
+          variant="body"
+          color={mine ? theme.colors.primaryContrast : theme.colors.text}
+        >
           {msg.content}
         </AppText>
       )}
+
       <AppText
         variant="caption"
         color={mine ? "rgba(255,255,255,0.7)" : theme.colors.textMuted}
@@ -355,11 +498,18 @@ function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
 
 function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
   const { theme } = useTheme();
-  const source = msg.voiceUrl && msg.voiceUrl !== "mock://voice" ? { uri: msg.voiceUrl } : null;
+
+  const source =
+    msg.voiceUrl && msg.voiceUrl !== "mock://voice"
+      ? { uri: toAbsoluteUrl(msg.voiceUrl) ?? msg.voiceUrl }
+      : null;
+
   const player = useAudioPlayer(source);
   const status = useAudioPlayerStatus(player);
+
   const total = msg.voiceDurationMs ?? 0;
   const playing = !!status?.playing;
+
   const progress =
     total > 0 && status?.currentTime
       ? Math.min(1, (status.currentTime * 1000) / total)
@@ -369,12 +519,14 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
 
   const toggle = () => {
     if (!source) return;
+
     if (playing) {
       player.pause();
     } else {
       if ((status?.currentTime ?? 0) >= ((status?.duration ?? 0) - 0.1) && status?.duration) {
         player.seekTo(0);
       }
+
       player.play();
     }
   };
@@ -391,6 +543,7 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
           backgroundColor: mine ? "rgba(255,255,255,0.25)" : theme.colors.surfaceAlt,
           alignItems: "center",
           justifyContent: "center",
+          opacity: source ? 1 : 0.45,
         }}
       >
         {playing ? (
@@ -399,11 +552,13 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
           <Play size={14} color={fg} fill={fg} />
         )}
       </Pressable>
+
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 2, height: 18 }}>
           {Array.from({ length: 22 }).map((_, i) => {
             const h = 4 + ((i * 7) % 14);
             const filled = i / 22 < progress;
+
             return (
               <View
                 key={i}
@@ -421,7 +576,11 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
             );
           })}
         </View>
-        <AppText variant="caption" color={mine ? "rgba(255,255,255,0.85)" : theme.colors.textMuted}>
+
+        <AppText
+          variant="caption"
+          color={mine ? "rgba(255,255,255,0.85)" : theme.colors.textMuted}
+        >
           {fmtDur(total)}
         </AppText>
       </View>

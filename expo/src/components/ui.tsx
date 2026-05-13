@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Pressable,
   PressableProps,
+  RefreshControlProps,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,14 +30,18 @@ export function ScreenContainer({
 }: {
   children: ReactNode;
   scroll?: boolean;
-  refreshControl?: React.ReactElement;
+  refreshControl?: React.ReactElement<RefreshControlProps>;
   padded?: boolean;
   edges?: ("top" | "bottom" | "left" | "right")[];
 }) {
   const { theme } = useTheme();
+
   const inner = (
-    <View style={{ flex: 1, paddingHorizontal: padded ? theme.spacing.lg : 0 }}>{children}</View>
+    <View style={{ flex: 1, paddingHorizontal: padded ? theme.spacing.lg : 0 }}>
+      {children}
+    </View>
   );
+
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.colors.bg }}
@@ -66,12 +71,14 @@ export function AppText({
 }: TextProps & { variant?: keyof typeof variants; color?: string }) {
   const { theme } = useTheme();
   const t = theme.typography[variant] ?? theme.typography.body;
+
   return (
     <Text {...rest} style={[t, { color: color ?? theme.colors.text }, style]}>
       {children}
     </Text>
   );
 }
+
 const variants = {
   display: 0,
   title: 0,
@@ -95,6 +102,7 @@ export function AppCard({
   variant?: "surface" | "elevated" | "outline";
 }) {
   const { theme } = useTheme();
+
   const base: ViewStyle = {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
@@ -102,6 +110,7 @@ export function AppCard({
     borderWidth: variant === "outline" ? 1 : 0,
     borderColor: theme.colors.border,
   };
+
   return (
     <View style={[base, variant === "elevated" ? theme.shadows.card : undefined, style]}>
       {children}
@@ -135,14 +144,38 @@ export function AppButton({
   const isDisabled = disabled || loading;
 
   const palette = useMemo(() => {
-    if (variant === "primary")
-      return { bg: theme.colors.primary, fg: theme.colors.primaryContrast, border: "transparent" };
-    if (variant === "danger")
-      return { bg: theme.colors.danger, fg: "#fff", border: "transparent" };
-    if (variant === "dark")
-      return { bg: theme.mode === "dark" ? "#0B1525" : "#0B1A2E", fg: "#fff", border: "transparent" };
-    if (variant === "ghost")
-      return { bg: "transparent", fg: theme.colors.text, border: "transparent" };
+    if (variant === "primary") {
+      return {
+        bg: theme.colors.primary,
+        fg: theme.colors.primaryContrast,
+        border: "transparent",
+      };
+    }
+
+    if (variant === "danger") {
+      return {
+        bg: theme.colors.danger,
+        fg: "#fff",
+        border: "transparent",
+      };
+    }
+
+    if (variant === "dark") {
+      return {
+        bg: theme.mode === "dark" ? "#0B1525" : "#0B1A2E",
+        fg: "#fff",
+        border: "transparent",
+      };
+    }
+
+    if (variant === "ghost") {
+      return {
+        bg: "transparent",
+        fg: theme.colors.text,
+        border: "transparent",
+      };
+    }
+
     return {
       bg: theme.colors.surfaceAlt,
       fg: theme.colors.text,
@@ -208,13 +241,19 @@ export function AppInput({
   rightIcon?: ReactNode;
 }) {
   const { theme } = useTheme();
+
   return (
     <View style={[{ gap: 6 }, containerStyle]}>
       {label ? (
-        <AppText variant="caption" color={theme.colors.textMuted} style={{ textTransform: "uppercase" }}>
+        <AppText
+          variant="caption"
+          color={theme.colors.textMuted}
+          style={{ textTransform: "uppercase" }}
+        >
           {label}
         </AppText>
       ) : null}
+
       <View
         style={{
           flexDirection: "row",
@@ -228,6 +267,7 @@ export function AppInput({
         }}
       >
         {leftIcon ? <View style={{ marginRight: 8 }}>{leftIcon}</View> : null}
+
         <TextInput
           placeholderTextColor={theme.colors.textFaint}
           style={[
@@ -241,8 +281,10 @@ export function AppInput({
           ]}
           {...rest}
         />
+
         {rightIcon ? <View style={{ marginLeft: 8 }}>{rightIcon}</View> : null}
       </View>
+
       {error ? (
         <AppText variant="small" color={theme.colors.danger}>
           {error}
@@ -264,12 +306,14 @@ export function AppAvatar({
   ring?: boolean;
 }) {
   const { theme } = useTheme();
+
   const initials = (name ?? "?")
     .split(" ")
     .map((s) => s[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
   return (
     <View
       style={{
@@ -307,6 +351,7 @@ export function AppChip({
   icon?: ReactNode;
 }) {
   const { theme } = useTheme();
+
   return (
     <Pressable
       onPress={onPress}
@@ -322,6 +367,7 @@ export function AppChip({
       })}
     >
       {icon}
+
       <Text
         style={{
           color: active ? theme.colors.primaryContrast : theme.colors.text,
@@ -349,6 +395,7 @@ export function StatCard({
   tone?: "default" | "primary" | "fire" | "warn";
 }) {
   const { theme } = useTheme();
+
   const bg =
     tone === "primary"
       ? theme.colors.primary
@@ -357,8 +404,10 @@ export function StatCard({
         : tone === "warn"
           ? theme.colors.warn
           : theme.colors.surface;
+
   const fg = tone === "default" ? theme.colors.text : "#fff";
   const sub = tone === "default" ? theme.colors.textMuted : "rgba(255,255,255,0.85)";
+
   return (
     <View
       style={{
@@ -372,14 +421,25 @@ export function StatCard({
       }}
     >
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text style={{ fontSize: 12, color: sub, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 }}>
+        <Text
+          style={{
+            fontSize: 12,
+            color: sub,
+            fontWeight: "600",
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
           {label}
         </Text>
+
         {icon}
       </View>
+
       <Text style={{ fontSize: 26, color: fg, fontWeight: "800", letterSpacing: -0.4 }}>
         {value}
       </Text>
+
       {hint ? <Text style={{ fontSize: 12, color: sub, fontWeight: "500" }}>{hint}</Text> : null}
     </View>
   );
@@ -387,6 +447,7 @@ export function StatCard({
 
 export function StreakPill({ count }: { count: number }) {
   const { theme } = useTheme();
+
   return (
     <View
       style={{
@@ -417,15 +478,19 @@ export function AppEmptyState({
   action?: ReactNode;
 }) {
   const { theme } = useTheme();
+
   return (
     <View style={{ alignItems: "center", padding: theme.spacing.xl, gap: 8 }}>
       {icon}
+
       <AppText variant="h3">{title}</AppText>
+
       {message ? (
         <AppText variant="small" color={theme.colors.textMuted} style={{ textAlign: "center" }}>
           {message}
         </AppText>
       ) : null}
+
       {action}
     </View>
   );
@@ -453,6 +518,7 @@ export function SectionHeader({
         {icon}
         <AppText variant="h2">{title}</AppText>
       </View>
+
       {action}
     </View>
   );
@@ -469,6 +535,7 @@ export function GradientHeader({
 }) {
   const { theme } = useTheme();
   const c = colors ?? (theme.gradients.hero as readonly [string, string]);
+
   return (
     <LinearGradient
       colors={c}
@@ -492,7 +559,9 @@ export function PressableScale(props: PressableProps & { children: ReactNode }) 
     <Pressable
       {...props}
       style={({ pressed }) => [
-        typeof props.style === "function" ? props.style({ pressed }) : props.style,
+        typeof props.style === "function"
+          ? props.style({ pressed, hovered: false })
+          : props.style,
         { transform: [{ scale: pressed ? 0.98 : 1 }] },
       ]}
     />
@@ -509,6 +578,7 @@ export const styles = StyleSheet.create({
 
 export function Divider({ vertical }: { vertical?: boolean }) {
   const { theme } = useTheme();
+
   return (
     <View
       style={
@@ -530,6 +600,7 @@ export function TabBarPill({
   onChange: (k: string) => void;
 }) {
   const { theme } = useTheme();
+
   return (
     <View
       style={{
@@ -541,6 +612,7 @@ export function TabBarPill({
     >
       {options.map((o) => {
         const isActive = active === o.key;
+
         return (
           <Pressable
             key={o.key}

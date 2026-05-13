@@ -49,14 +49,26 @@ export interface ClientProfile {
   createdAt: string;
 }
 
-export type SubscriptionStatus = "inactive" | "active" | "expired" | "cancelled";
+export type SubscriptionStatus =
+  | "inactive"
+  | "active"
+  | "expired"
+  | "cancelled";
+
+export type SubscriptionPlanCode =
+  | "free"
+  | "starter"
+  | "pro"
+  | "unlimited";
 
 export interface Subscription {
   id: string;
   coachId: string;
+  planCode: SubscriptionPlanCode;
   planName: string;
   price: number;
   currency: string;
+  clientLimit: number;
   status: SubscriptionStatus;
   startDate?: string;
   endDate?: string;
@@ -91,6 +103,15 @@ export interface WorkoutAssignment {
   durationMinutes?: number;
 }
 
+export type SupplementDay =
+  | "Mon"
+  | "Tue"
+  | "Wed"
+  | "Thu"
+  | "Fri"
+  | "Sat"
+  | "Sun";
+
 export interface SupplementItem {
   id: string;
   planId: string;
@@ -98,6 +119,7 @@ export interface SupplementItem {
   dosage: string;
   timesPerDay: number;
   specificTimes: string[]; // ["08:00", "13:00"]
+  daysOfWeek?: SupplementDay[];
   notes?: string;
 }
 
@@ -201,5 +223,8 @@ export interface DBShape {
   attendance: Attendance[];
   places: Place[];
   notifications: NotificationSetting[];
-  meta: { seeded: boolean; version: number };
+  meta: {
+    seeded: boolean;
+    version: number;
+  };
 }

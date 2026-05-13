@@ -1,45 +1,92 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { Dumbbell, Lock, Mail } from "lucide-react-native";
+import {
+  Dumbbell,
+  Eye,
+  EyeOff,
+  Languages,
+  Lock,
+  Mail,
+} from "lucide-react-native";
 import React, { useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
-import { AppButton, AppInput, AppText, ScreenContainer } from "@/src/components/ui";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  View,
+} from "react-native";
+import { LanguageModal } from "@/src/components/LanguageModal";
+import {
+  AppButton,
+  AppInput,
+  AppText,
+  ScreenContainer,
+} from "@/src/components/ui";
 import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
+import { LANGUAGES } from "@/src/i18n/translations";
 
 export default function Login() {
   const { theme } = useTheme();
-  const { t } = useI18n();
+  const { lang, setLanguage, t } = useI18n();
   const { login } = useAuth();
-  const [email, setEmail] = useState<string>("coach@demo.com");
-  const [password, setPassword] = useState<string>("demo123");
+
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
+  const [languageVisible, setLanguageVisible] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
+  const currentLanguage = LANGUAGES.find((item) => item.code === lang);
+
   const onSubmit = async () => {
     setError("");
-    if (!email || !password) {
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
       setError(t("auth.bothRequired"));
       return;
     }
-    setSubmitting(true);
-    const res = await login(email, password);
-    setSubmitting(false);
-    if (!res.ok) {
-      setError(res.error ?? t("auth.failedLogin"));
+
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+      setError(t("auth.emailInvalid"));
       return;
     }
-    router.replace("/");
-  };
 
-  const useDemo = (e: string) => {
-    setEmail(e);
-    setPassword("demo123");
+    try {
+      setSubmitting(true);
+
+      const res = await login(cleanEmail, password);
+
+      if (!res.ok) {
+        setError(res.error ?? t("auth.failedLogin"));
+        return;
+      }
+
+      router.replace("/");
+    } catch (e: any) {
+      console.log("[login] submit error", e);
+      setError(e?.message || t("auth.failedLogin"));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <ScreenContainer scroll padded={false} edges={["top"]}>
+      <LanguageModal
+        visible={languageVisible}
+        current={lang}
+        onClose={() => setLanguageVisible(false)}
+        onSelect={(code) => {
+          setLanguage(code);
+          setLanguageVisible(false);
+        }}
+      />
+
       <LinearGradient
         colors={theme.gradients.hero as readonly [string, string]}
         style={{
@@ -50,28 +97,65 @@ export default function Login() {
           borderBottomRightRadius: 32,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <View
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: "rgba(22,199,132,0.18)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Dumbbell color="#16C784" size={22} />
+            </View>
+
+            <AppText variant="h2" color="#fff">
+              CoachFlow
+            </AppText>
+          </View>
+
+          <Pressable
+            onPress={() => setLanguageVisible(true)}
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 14,
-              backgroundColor: "rgba(22,199,132,0.18)",
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
+              gap: 6,
+              paddingVertical: 8,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: "rgba(255,255,255,0.16)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.18)",
             }}
           >
-            <Dumbbell color="#16C784" size={22} />
-          </View>
-          <AppText variant="h2" color="#fff">
-            CoachFlow
-          </AppText>
+            <Languages color="#fff" size={16} />
+
+            <AppText variant="small" color="#fff" style={{ fontWeight: "800" }}>
+              {currentLanguage?.flag ?? "🌐"} {lang.toUpperCase()}
+            </AppText>
+          </Pressable>
         </View>
+
         <View style={{ marginTop: 28 }}>
           <AppText variant="display" color="#fff">
             {t("auth.welcomeBack")}
           </AppText>
-          <AppText variant="body" color="rgba(255,255,255,0.75)" style={{ marginTop: 6 }}>
+
+          <AppText
+            variant="body"
+            color="rgba(255,255,255,0.75)"
+            style={{ marginTop: 6 }}
+          >
             {t("auth.welcomeSub")}
           </AppText>
         </View>
@@ -85,30 +169,83 @@ export default function Login() {
           label={t("auth.email")}
           placeholder={t("auth.emailPlaceholder")}
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => {
+            setEmail(value);
+            setError("");
+          }}
           leftIcon={<Mail size={18} color={theme.colors.textMuted} />}
         />
+
         <AppInput
           label={t("auth.password")}
           placeholder="••••••••"
-          secureTextEntry
+          secureTextEntry={!passwordVisible}
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(value) => {
+            setPassword(value);
+            setError("");
+          }}
           leftIcon={<Lock size={18} color={theme.colors.textMuted} />}
+          rightIcon={
+            <Pressable
+              onPress={() => setPasswordVisible((v) => !v)}
+              hitSlop={10}
+            >
+              {passwordVisible ? (
+                <EyeOff size={18} color={theme.colors.textMuted} />
+              ) : (
+                <Eye size={18} color={theme.colors.textMuted} />
+              )}
+            </Pressable>
+          }
         />
+
+        <View style={{ alignItems: "flex-end", marginTop: -6 }}>
+          <Link href="/(auth)/forgot-password" asChild>
+            <Pressable hitSlop={10}>
+              <AppText
+                variant="small"
+                color={theme.colors.primary}
+                style={{ fontWeight: "700" }}
+              >
+                {t("auth.forgotPassword")}
+              </AppText>
+            </Pressable>
+          </Link>
+        </View>
+
         {error ? (
           <AppText variant="small" color={theme.colors.danger}>
             {error}
           </AppText>
         ) : null}
-        <AppButton title={t("auth.signIn")} size="lg" loading={submitting} onPress={onSubmit} fullWidth />
 
-        <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginTop: 4 }}>
+        <AppButton
+          title={submitting ? t("auth.signingIn") : t("auth.signIn")}
+          size="lg"
+          loading={submitting}
+          onPress={onSubmit}
+          fullWidth
+        />
+
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 6,
+            marginTop: 4,
+          }}
+        >
           <Link href="/(auth)/register" asChild>
-            <Pressable>
-              <AppText variant="small" color={theme.colors.primary} style={{ fontWeight: "700" }}>
+            <Pressable hitSlop={10}>
+              <AppText
+                variant="small"
+                color={theme.colors.primary}
+                style={{ fontWeight: "700" }}
+              >
                 {t("auth.noAccount")}
               </AppText>
             </Pressable>
@@ -118,37 +255,22 @@ export default function Login() {
         <View
           style={{
             marginTop: 18,
+            padding: 14,
             borderRadius: 16,
             backgroundColor: theme.colors.surfaceAlt,
-            padding: 14,
-            gap: 8,
+            borderWidth: 1,
+            borderColor: theme.colors.borderSoft,
           }}
         >
-          <AppText variant="caption" color={theme.colors.textMuted}>
-            {t("auth.demoAccounts")}
+          <AppText variant="bodyStrong">{t("auth.secureAccess")}</AppText>
+
+          <AppText
+            variant="small"
+            color={theme.colors.textMuted}
+            style={{ marginTop: 4 }}
+          >
+            {t("auth.secureAccessText")}
           </AppText>
-          {[
-            { e: "coach@demo.com", l: "Coach — Alex Mitchell" },
-            { e: "sarah@demo.com", l: "Client — Sarah Lee" },
-            { e: "mike@demo.com", l: "Client — Mike Chen" },
-            { e: "emma@demo.com", l: "Client — Emma Rivera" },
-          ].map((d) => (
-            <Pressable
-              key={d.e}
-              onPress={() => useDemo(d.e)}
-              style={({ pressed }) => ({
-                paddingVertical: 8,
-                opacity: pressed ? 0.7 : 1,
-                flexDirection: "row",
-                justifyContent: "space-between",
-              })}
-            >
-              <AppText variant="small">{d.l}</AppText>
-              <AppText variant="small" color={theme.colors.primary}>
-                {t("auth.use")}
-              </AppText>
-            </Pressable>
-          ))}
         </View>
       </KeyboardAvoidingView>
     </ScreenContainer>

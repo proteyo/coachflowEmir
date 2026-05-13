@@ -30,6 +30,7 @@ import { useData } from "@/src/context/DataContext";
 import { useSubscription } from "@/src/context/SubscriptionContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
+import { toAbsoluteUrl } from "@/src/services/api";
 
 export default function CoachDashboard() {
   const { theme } = useTheme();
@@ -42,14 +43,35 @@ export default function CoachDashboard() {
 
   const stats = useMemo(() => {
     if (!db || !user) return null;
+
     const clients = db.clientProfiles.filter((c) => c.coachId === user.id);
+    const linkedClientIds = new Set(clients.map((c) => c.userId));
+
     const todayWorkouts = db.workouts.filter(
-      (w) => w.coachId === user.id && w.date === today,
+      (w) =>
+        w.coachId === user.id &&
+        w.date === today &&
+        linkedClientIds.has(w.clientId),
     );
+
     const unread = db.messages.filter(
       (m) => m.receiverId === user.id && !m.read,
     ).length;
-    return { clients, todayWorkouts, unread };
+
+    const bestStreak = Math.max(
+      0,
+      ...db.streaks
+        .filter((s) => linkedClientIds.has(s.clientId))
+        .map((s) => s.currentStreak),
+    );
+
+    return {
+      clients,
+      linkedClientIds,
+      todayWorkouts,
+      unread,
+      bestStreak,
+    };
   }, [db, user, today]);
 
   if (!db || !user || !stats) return null;
@@ -69,10 +91,12 @@ export default function CoachDashboard() {
             <AppText variant="small" color="rgba(255,255,255,0.7)">
               {t("dashboard.welcomeBack")}
             </AppText>
+
             <AppText variant="title" color="#fff">
               {user.name.split(" ")[0]} 👋
             </AppText>
           </View>
+
           <Pressable
             onPress={() => router.push("/(coach)/messages")}
             style={{
@@ -85,6 +109,7 @@ export default function CoachDashboard() {
             }}
           >
             <Bell color="#fff" size={20} />
+
             {stats.unread > 0 ? (
               <View
                 style={{
@@ -119,24 +144,31 @@ export default function CoachDashboard() {
                   width: 36,
                   height: 36,
                   borderRadius: 12,
-                  backgroundColor: isActive ? "rgba(22,199,132,0.4)" : "rgba(255,176,32,0.4)",
+                  backgroundColor: isActive
+                    ? "rgba(22,199,132,0.4)"
+                    : "rgba(255,176,32,0.4)",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
                 <CreditCard color="#fff" size={18} />
               </View>
+
               <View>
                 <AppText variant="bodyStrong" color="#fff">
                   {isActive ? t("dashboard.activeRenews") : t("dashboard.subRequired")}
                 </AppText>
+
                 <AppText variant="small" color="rgba(255,255,255,0.7)">
                   {isActive && sub?.endDate
-                    ? `${t("dashboard.renewsOn")} ${new Date(sub.endDate).toDateString().slice(4, 10)}`
+                    ? `${t("dashboard.renewsOn")} ${new Date(sub.endDate)
+                        .toDateString()
+                        .slice(4, 10)}`
                     : t("dashboard.activate")}
                 </AppText>
               </View>
             </View>
+
             <ArrowRight color="#fff" size={18} />
           </Pressable>
         </View>
@@ -150,6 +182,7 @@ export default function CoachDashboard() {
             hint={t("dashboard.activeRoster")}
             icon={<Users color={theme.colors.primary} size={16} />}
           />
+
           <StatCard
             label={t("dashboard.todaySessions")}
             value={stats.todayWorkouts.length}
@@ -157,6 +190,7 @@ export default function CoachDashboard() {
             icon={<CalendarClock color={theme.colors.accent} size={16} />}
           />
         </View>
+
         <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
           <StatCard
             label={t("dashboard.unread")}
@@ -164,9 +198,10 @@ export default function CoachDashboard() {
             hint={t("dashboard.messagesLabel")}
             icon={<MessageCircle color={theme.colors.warn} size={16} />}
           />
+
           <StatCard
             label={t("dashboard.bestStreak")}
-            value={Math.max(0, ...db.streaks.map((s) => s.currentStreak))}
+            value={stats.bestStreak}
             hint={t("dashboard.days")}
             tone="fire"
             icon={<Flame color="#fff" size={16} />}
@@ -177,17 +212,20 @@ export default function CoachDashboard() {
           title={t("dashboard.quickActions")}
           icon={<TrendingUp color={theme.colors.primary} size={18} />}
         />
+
         <View style={{ flexDirection: "row", gap: 12 }}>
           <QuickAction
             label={t("dashboard.addClient")}
             icon={<Plus color="#fff" size={18} />}
             onPress={() => router.push("/add-client")}
           />
+
           <QuickAction
             label={t("dashboard.schedule")}
             icon={<CalendarClock color="#fff" size={18} />}
             onPress={() => router.push("/(coach)/calendar")}
           />
+
           <QuickAction
             label={t("dashboard.messages")}
             icon={<MessageCircle color="#fff" size={18} />}
@@ -199,6 +237,7 @@ export default function CoachDashboard() {
           title={t("dashboard.todaysSessions")}
           icon={<Activity color={theme.colors.primary} size={18} />}
         />
+
         {stats.todayWorkouts.length === 0 ? (
           <AppCard variant="outline">
             <AppText variant="small" color={theme.colors.textMuted}>
@@ -209,10 +248,18 @@ export default function CoachDashboard() {
           <View style={{ gap: 10 }}>
             {stats.todayWorkouts.map((w) => {
               const c = db.users.find((u) => u.id === w.clientId);
+
+              if (!c) return null;
+
               return (
                 <Pressable
                   key={w.id}
-                  onPress={() => router.push(`/client/${w.clientId}`)}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/client/[id]",
+                      params: { id: w.clientId },
+                    } as any)
+                  }
                 >
                   <AppCard variant="elevated">
                     <View
@@ -222,13 +269,21 @@ export default function CoachDashboard() {
                         gap: 12,
                       }}
                     >
-                      <AppAvatar uri={c?.avatarUrl} name={c?.name} size={48} />
+                      <AppAvatar
+                        uri={toAbsoluteUrl(c.avatarUrl)}
+                        name={c.name}
+                        size={48}
+                      />
+
                       <View style={{ flex: 1 }}>
-                        <AppText variant="bodyStrong">{c?.name}</AppText>
+                        <AppText variant="bodyStrong">{c.name}</AppText>
+
                         <AppText variant="small" color={theme.colors.textMuted}>
-                          {w.time ? `${w.time} · ` : ""}{w.name} · {w.durationMinutes}m
+                          {w.time ? `${w.time} · ` : ""}
+                          {w.name} · {w.durationMinutes}m
                         </AppText>
                       </View>
+
                       {w.completed ? (
                         <CheckCircle2 color={theme.colors.success} size={22} />
                       ) : (
@@ -246,25 +301,49 @@ export default function CoachDashboard() {
           title={t("dashboard.streaks")}
           icon={<Flame color={theme.colors.fire} size={18} />}
         />
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: "row", gap: 12 }}>
             {stats.clients.map((c) => {
               const u = db.users.find((x) => x.id === c.userId);
               const s = db.streaks.find((x) => x.clientId === c.userId);
+
+              if (!u) return null;
+
               return (
                 <Pressable
                   key={c.userId}
-                  onPress={() => router.push(`/client/${c.userId}`)}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/client/[id]",
+                      params: { id: c.userId },
+                    } as any)
+                  }
                   style={{ width: 140 }}
                 >
                   <AppCard variant="outline" padded>
-                    <AppAvatar uri={u?.avatarUrl} name={u?.name} size={48} />
-                    <AppText variant="bodyStrong" style={{ marginTop: 8 }} numberOfLines={1}>
-                      {u?.name.split(" ")[0]}
+                    <AppAvatar
+                      uri={toAbsoluteUrl(u.avatarUrl)}
+                      name={u.name}
+                      size={48}
+                    />
+
+                    <AppText
+                      variant="bodyStrong"
+                      style={{ marginTop: 8 }}
+                      numberOfLines={1}
+                    >
+                      {u.name.split(" ")[0]}
                     </AppText>
-                    <AppText variant="small" color={theme.colors.textMuted} numberOfLines={1}>
+
+                    <AppText
+                      variant="small"
+                      color={theme.colors.textMuted}
+                      numberOfLines={1}
+                    >
                       {c.goal}
                     </AppText>
+
                     <View style={{ marginTop: 8 }}>
                       <StreakPill count={s?.currentStreak ?? 0} />
                     </View>
@@ -274,6 +353,7 @@ export default function CoachDashboard() {
             })}
           </View>
         </ScrollView>
+
         <View style={{ height: 24 }} />
       </View>
     </ScreenContainer>
@@ -303,6 +383,7 @@ function QuickAction({
         }}
       >
         {icon}
+
         <AppText variant="small" color="#fff" style={{ fontWeight: "700" }}>
           {label}
         </AppText>

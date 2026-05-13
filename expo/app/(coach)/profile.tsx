@@ -1,22 +1,37 @@
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
   Award,
+  Bell,
   Camera,
+  Check,
   CreditCard,
+  Edit3,
   Globe,
   LogOut,
   Moon,
-  RefreshCw,
   Star,
   Sun,
+  X,
 } from "lucide-react-native";
 import React from "react";
-import { Alert, Platform, Pressable, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Switch,
+  View,
+} from "react-native";
+import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppAvatar,
   AppButton,
   AppCard,
+  AppInput,
   AppText,
   GradientHeader,
   ScreenContainer,
@@ -28,61 +43,664 @@ import { useSubscription } from "@/src/context/SubscriptionContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { LANGUAGES } from "@/src/i18n/translations";
-import { LanguageModal } from "@/src/components/LanguageModal";
+import { apiPatch, apiUploadFile, toAbsoluteUrl } from "@/src/services/api";
+
+type AppLangCode = "en" | "ru" | "kk";
+
+type NotificationKey =
+  | "workoutReminders"
+  | "supplementReminders"
+  | "messageNotifications"
+  | "weeklyGoalReminders";
+
+const COACH_PROFILE_TEXT = {
+  en: {
+    defaultSpecialty: "Personal Trainer",
+    specialtyPlaceholder: "Example: Personal trainer, bodybuilding coach...",
+    profileTitle: "Coach profile",
+    subscription: "Subscription",
+    activePlan: "Active plan",
+    inactivePlan: "No active plan",
+    activeUntil: "Active until {date}",
+    activateSubscription: "Activate subscription",
+    coachInfo: "Coach information",
+    specialty: "Specialty",
+    bio: "Bio",
+    experience: "Experience",
+    years: "{n} years",
+    rating: "Rating",
+    achievements: "Achievements",
+    certificates: "Certificates",
+    noAchievements: "No achievements yet.",
+    noCertificates: "No certificates yet.",
+    editProfile: "Edit profile",
+    preferences: "Preferences",
+    notifications: "Notifications",
+    workoutReminders: "Workout reminders",
+    supplementReminders: "Supplement reminders",
+    messageNotifications: "Message notifications",
+    weeklyGoalReminders: "Weekly goal reminders",
+    darkMode: "Dark mode",
+    language: "Language",
+    logout: "Log out",
+    phone: "Phone",
+    coverImageUrl: "Cover image URL",
+    achievementsHint: "Each achievement from a new line",
+    certificatesHint: "Each certificate from a new line",
+    saveChanges: "Save changes",
+    savingChanges: "Saving...",
+    savedTitle: "Saved",
+    profileUpdated: "Coach profile was updated.",
+    authErrorTitle: "Auth error",
+    loginAgainText: "Please log in again.",
+    permissionTitle: "Permission required",
+    permissionMsg: "Please allow access to your photo library.",
+    uploadErrorTitle: "Upload error",
+    avatarUrlMissing: "Backend did not return avatar URL.",
+    avatarErrorTitle: "Avatar error",
+    avatarUploadError: "Could not upload avatar.",
+    avatarUpdated: "Avatar was updated.",
+    saveErrorTitle: "Save error",
+    saveProfileError: "Could not save profile.",
+    invalidExperienceTitle: "Invalid experience",
+    invalidExperienceText: "Experience must be a valid positive number.",
+    defaultBio:
+      "Add a short bio so clients understand your coaching style, experience and training approach.",
+  },
+  ru: {
+    defaultSpecialty: "Персональный тренер",
+    specialtyPlaceholder: "Например: персональный тренер, тренер по бодибилдингу...",
+    profileTitle: "Профиль тренера",
+    subscription: "Подписка",
+    activePlan: "Активный план",
+    inactivePlan: "Нет активного плана",
+    activeUntil: "Активна до {date}",
+    activateSubscription: "Активировать подписку",
+    coachInfo: "Информация о тренере",
+    specialty: "Специализация",
+    bio: "О себе",
+    experience: "Опыт",
+    years: "{n} лет",
+    rating: "Рейтинг",
+    achievements: "Достижения",
+    certificates: "Сертификаты",
+    noAchievements: "Достижений пока нет.",
+    noCertificates: "Сертификатов пока нет.",
+    editProfile: "Редактировать профиль",
+    preferences: "Настройки",
+    notifications: "Уведомления",
+    workoutReminders: "Напоминания о тренировках",
+    supplementReminders: "Напоминания о добавках",
+    messageNotifications: "Уведомления о сообщениях",
+    weeklyGoalReminders: "Напоминания о недельных целях",
+    darkMode: "Тёмная тема",
+    language: "Язык",
+    logout: "Выйти",
+    phone: "Телефон",
+    coverImageUrl: "Ссылка на обложку",
+    achievementsHint: "Каждое достижение с новой строки",
+    certificatesHint: "Каждый сертификат с новой строки",
+    saveChanges: "Сохранить изменения",
+    savingChanges: "Сохранение...",
+    savedTitle: "Сохранено",
+    profileUpdated: "Профиль тренера обновлён.",
+    authErrorTitle: "Ошибка входа",
+    loginAgainText: "Пожалуйста, войдите снова.",
+    permissionTitle: "Нужно разрешение",
+    permissionMsg: "Разрешите доступ к галерее.",
+    uploadErrorTitle: "Ошибка загрузки",
+    avatarUrlMissing: "Сервер не вернул ссылку на аватар.",
+    avatarErrorTitle: "Ошибка аватара",
+    avatarUploadError: "Не удалось загрузить аватар.",
+    avatarUpdated: "Аватар обновлён.",
+    saveErrorTitle: "Ошибка сохранения",
+    saveProfileError: "Не удалось сохранить профиль.",
+    invalidExperienceTitle: "Неверный опыт",
+    invalidExperienceText: "Опыт должен быть корректным положительным числом.",
+    defaultBio:
+      "Добавьте короткое описание, чтобы клиенты понимали ваш стиль, опыт и подход к тренировкам.",
+  },
+  kk: {
+    defaultSpecialty: "Жеке жаттықтырушы",
+    specialtyPlaceholder: "Мысалы: жеке жаттықтырушы, бодибилдинг жаттықтырушысы...",
+    profileTitle: "Жаттықтырушы профилі",
+    subscription: "Жазылым",
+    activePlan: "Белсенді жоспар",
+    inactivePlan: "Белсенді жоспар жоқ",
+    activeUntil: "{date} дейін белсенді",
+    activateSubscription: "Жазылымды қосу",
+    coachInfo: "Жаттықтырушы туралы ақпарат",
+    specialty: "Мамандану",
+    bio: "Өзі туралы",
+    experience: "Тәжірибе",
+    years: "{n} жыл",
+    rating: "Рейтинг",
+    achievements: "Жетістіктер",
+    certificates: "Сертификаттар",
+    noAchievements: "Әзірге жетістіктер жоқ.",
+    noCertificates: "Әзірге сертификаттар жоқ.",
+    editProfile: "Профильді өңдеу",
+    preferences: "Баптаулар",
+    notifications: "Хабарландырулар",
+    workoutReminders: "Жаттығу ескертулері",
+    supplementReminders: "Қоспалар ескертулері",
+    messageNotifications: "Хабарлама ескертулері",
+    weeklyGoalReminders: "Апталық мақсат ескертулері",
+    darkMode: "Қараңғы режим",
+    language: "Тіл",
+    logout: "Шығу",
+    phone: "Телефон",
+    coverImageUrl: "Мұқаба суретінің сілтемесі",
+    achievementsHint: "Әр жетістікті жаңа жолдан жазыңыз",
+    certificatesHint: "Әр сертификатты жаңа жолдан жазыңыз",
+    saveChanges: "Өзгерістерді сақтау",
+    savingChanges: "Сақталуда...",
+    savedTitle: "Сақталды",
+    profileUpdated: "Жаттықтырушы профилі жаңартылды.",
+    authErrorTitle: "Кіру қатесі",
+    loginAgainText: "Қайта кіріңіз.",
+    permissionTitle: "Рұқсат қажет",
+    permissionMsg: "Галереяға кіруге рұқсат беріңіз.",
+    uploadErrorTitle: "Жүктеу қатесі",
+    avatarUrlMissing: "Сервер аватар сілтемесін қайтармады.",
+    avatarErrorTitle: "Аватар қатесі",
+    avatarUploadError: "Аватарды жүктеу мүмкін болмады.",
+    avatarUpdated: "Аватар жаңартылды.",
+    saveErrorTitle: "Сақтау қатесі",
+    saveProfileError: "Профильді сақтау мүмкін болмады.",
+    invalidExperienceTitle: "Қате тәжірибе",
+    invalidExperienceText: "Тәжірибе дұрыс оң сан болуы керек.",
+    defaultBio:
+      "Клиенттер сіздің стиліңізді, тәжірибеңізді және жаттығу тәсіліңізді түсінуі үшін қысқа сипаттама қосыңыз.",
+  },
+};
+
+function getLangSafe(lang: string): AppLangCode {
+  if (lang === "ru" || lang === "kk" || lang === "en") return lang;
+
+  return "en";
+}
+
+function getLocale(lang: AppLangCode) {
+  if (lang === "ru") return "ru-RU";
+  if (lang === "kk") return "kk-KZ";
+
+  return "en-US";
+}
+
+function formatSubscriptionDate(value: string | undefined, lang: AppLangCode) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10);
+  }
+
+  return date.toLocaleDateString(getLocale(lang), {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function normalizeSpecialty(value?: string | null) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+}
+
+function isDefaultSpecialty(value?: string | null) {
+  const normalized = normalizeSpecialty(value);
+
+  return (
+    !normalized ||
+    normalized === "personal_trainer" ||
+    normalized === "personal_training" ||
+    normalized === "trainer" ||
+    normalized === "coach" ||
+    normalized === "персональный_тренер" ||
+    normalized === "жеке_жаттықтырушы"
+  );
+}
+
+function getSpecialtyLabel(value: string | undefined, lang: AppLangCode) {
+  if (isDefaultSpecialty(value)) {
+    return COACH_PROFILE_TEXT[lang].defaultSpecialty;
+  }
+
+  return value ?? COACH_PROFILE_TEXT[lang].defaultSpecialty;
+}
+
+function getSpecialtyValueForEdit(value?: string | null) {
+  if (isDefaultSpecialty(value)) return "";
+
+  return value ?? "";
+}
+
+function getSpecialtyForBackend(value: string) {
+  const trimmed = value.trim();
+
+  return trimmed || "personal_trainer";
+}
+
+function splitLines(value: string) {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getDefaultNotifications(userId: string) {
+  return {
+    userId,
+    workoutReminders: true,
+    supplementReminders: true,
+    messageNotifications: true,
+    weeklyGoalReminders: true,
+  };
+}
 
 export default function CoachProfile() {
   const { theme, mode, toggle } = useTheme();
-  const { user, logout, updateMe } = useAuth();
-  const { db, reset } = useData();
-  const { sub, isActive } = useSubscription();
+  const { user, token, logout, updateMe } = useAuth();
+  const { db, update, refreshFromBackend } = useData();
+  const { sub, isActive, currentPlan } = useSubscription();
   const { t, lang, setLanguage } = useI18n();
-  const [langOpen, setLangOpen] = React.useState<boolean>(false);
 
-  const profile = db?.coachProfiles.find((p) => p.userId === user?.id);
+  const currentLang = getLangSafe(lang);
+  const L = COACH_PROFILE_TEXT[currentLang];
+
+  const [langOpen, setLangOpen] = React.useState<boolean>(false);
+  const [editOpen, setEditOpen] = React.useState<boolean>(false);
+  const [saving, setSaving] = React.useState<boolean>(false);
+  const [avatarVersion, setAvatarVersion] = React.useState<number>(Date.now());
+
+  const [editName, setEditName] = React.useState<string>("");
+  const [editPhone, setEditPhone] = React.useState<string>("");
+  const [editSpecialty, setEditSpecialty] = React.useState<string>("");
+  const [editBio, setEditBio] = React.useState<string>("");
+  const [editExperienceYears, setEditExperienceYears] =
+    React.useState<string>("");
+  const [editAchievements, setEditAchievements] = React.useState<string>("");
+  const [editCertificates, setEditCertificates] = React.useState<string>("");
+  const [editCoverImageUrl, setEditCoverImageUrl] =
+    React.useState<string>("");
+
+  if (!user || !db) return null;
+
+  const profile = db.coachProfiles.find((item) => item.userId === user.id);
+
+  const notif =
+    db.notifications.find((item) => item.userId === user.id) ??
+    getDefaultNotifications(user.id);
+
+  const rawAvatarUrl = profile?.profileImageUrl ?? user.avatarUrl;
+  const avatarUri = rawAvatarUrl
+    ? `${toAbsoluteUrl(rawAvatarUrl)}?v=${avatarVersion}`
+    : undefined;
+
+  const coverUri = profile?.coverImageUrl
+    ? toAbsoluteUrl(profile.coverImageUrl)
+    : undefined;
+
+  const specialtyText = getSpecialtyLabel(profile?.specialty, currentLang);
+  const experienceYears = profile?.experienceYears ?? 0;
+  const experienceText = L.years.replace("{n}", String(experienceYears));
+  const activeUntil = formatSubscriptionDate(sub?.endDate, currentLang);
+
+  const openEdit = () => {
+    setEditName(user.name ?? "");
+    setEditPhone(user.phone ?? "");
+    setEditSpecialty(getSpecialtyValueForEdit(profile?.specialty));
+    setEditBio(profile?.bio ?? "");
+    setEditExperienceYears(String(profile?.experienceYears ?? 0));
+    setEditAchievements((profile?.achievements ?? []).join("\n"));
+    setEditCertificates((profile?.certificates ?? []).join("\n"));
+    setEditCoverImageUrl(profile?.coverImageUrl ?? "");
+    setEditOpen(true);
+  };
 
   const pickAvatar = async () => {
+    if (!token) {
+      Alert.alert(L.authErrorTitle, L.loginAgainText);
+      return;
+    }
+
     try {
       if (Platform.OS !== "web") {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert(t("profile.permissionTitle"), t("profile.permissionMsg"));
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+          Alert.alert(L.permissionTitle, L.permissionMsg);
           return;
         }
       }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.7,
+        quality: 1,
       });
-      if (!result.canceled && result.assets[0]?.uri) {
-        updateMe({ avatarUrl: result.assets[0].uri });
+
+      if (result.canceled || !result.assets[0]?.uri) return;
+
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 900 } }],
+        {
+          compress: 0.82,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+
+      const uploadRes = await apiUploadFile(
+        "/uploads/avatar",
+        manipulated.uri,
+        "file",
+        { token },
+      );
+
+      const uploadedAvatarUrl = uploadRes.avatarUrl ?? uploadRes.avatar_url;
+
+      if (!uploadedAvatarUrl) {
+        Alert.alert(L.uploadErrorTitle, L.avatarUrlMissing);
+        return;
       }
+
+      await updateMe({
+        avatarUrl: uploadedAvatarUrl,
+      });
+
+      await apiPatch(
+        "/users/me/coach-profile",
+        {
+          profile_image_url: uploadedAvatarUrl,
+          specialty: getSpecialtyForBackend(profile?.specialty ?? ""),
+          bio: profile?.bio ?? "",
+          experience_years: profile?.experienceYears ?? 0,
+          achievements: profile?.achievements ?? [],
+          certificates: profile?.certificates ?? [],
+          cover_image_url: profile?.coverImageUrl ?? undefined,
+        },
+        { token },
+      );
+
+      update((data) => {
+        const hasCoachProfile = data.coachProfiles.some(
+          (item) => item.userId === user.id,
+        );
+
+        return {
+          ...data,
+          users: data.users.map((item) =>
+            item.id === user.id
+              ? { ...item, avatarUrl: uploadedAvatarUrl }
+              : item,
+          ),
+          coachProfiles: hasCoachProfile
+            ? data.coachProfiles.map((item) =>
+                item.userId === user.id
+                  ? { ...item, profileImageUrl: uploadedAvatarUrl }
+                  : item,
+              )
+            : [
+                ...data.coachProfiles,
+                {
+                  userId: user.id,
+                  specialty: "personal_trainer",
+                  bio: "",
+                  experienceYears: 0,
+                  achievements: [],
+                  certificates: [],
+                  rating: 5,
+                  profileImageUrl: uploadedAvatarUrl,
+                  coverImageUrl: undefined,
+                },
+              ],
+        };
+      });
+
+      setAvatarVersion(Date.now());
+
+      Image.prefetch(toAbsoluteUrl(uploadedAvatarUrl) ?? uploadedAvatarUrl).catch(
+        () => {},
+      );
+
+      await refreshFromBackend();
+
+      setAvatarVersion(Date.now());
+
+      Alert.alert(L.savedTitle, L.avatarUpdated);
+    } catch (e: any) {
+      console.log("[coach-avatar] upload err", e);
+
+      Alert.alert(L.avatarErrorTitle, e?.message || L.avatarUploadError);
+    }
+  };
+
+  const saveCoachProfile = async () => {
+    if (!token || !user) return;
+
+    const experienceValue = editExperienceYears.trim()
+      ? parseInt(editExperienceYears.trim(), 10)
+      : 0;
+
+    if (Number.isNaN(experienceValue) || experienceValue < 0) {
+      Alert.alert(L.invalidExperienceTitle, L.invalidExperienceText);
+      return;
+    }
+
+    const nextSpecialty = getSpecialtyForBackend(editSpecialty);
+    const nextAchievements = splitLines(editAchievements);
+    const nextCertificates = splitLines(editCertificates);
+    const nextCoverImageUrl = editCoverImageUrl.trim() || undefined;
+
+    try {
+      setSaving(true);
+
+      await apiPatch(
+        "/users/me",
+        {
+          name: editName.trim(),
+          phone: editPhone.trim() || undefined,
+        },
+        { token },
+      );
+
+      await apiPatch(
+        "/users/me/coach-profile",
+        {
+          specialty: nextSpecialty,
+          bio: editBio.trim() || undefined,
+          experience_years: experienceValue,
+          achievements: nextAchievements,
+          certificates: nextCertificates,
+          cover_image_url: nextCoverImageUrl,
+          profile_image_url: profile?.profileImageUrl ?? user.avatarUrl,
+        },
+        { token },
+      );
+
+      update((data) => {
+        const hasCoachProfile = data.coachProfiles.some(
+          (item) => item.userId === user.id,
+        );
+
+        return {
+          ...data,
+          users: data.users.map((item) =>
+            item.id === user.id
+              ? {
+                  ...item,
+                  name: editName.trim(),
+                  phone: editPhone.trim() || undefined,
+                }
+              : item,
+          ),
+          coachProfiles: hasCoachProfile
+            ? data.coachProfiles.map((item) =>
+                item.userId === user.id
+                  ? {
+                      ...item,
+                      specialty: nextSpecialty,
+                      bio: editBio.trim(),
+                      experienceYears: experienceValue,
+                      achievements: nextAchievements,
+                      certificates: nextCertificates,
+                      coverImageUrl: nextCoverImageUrl,
+                      profileImageUrl: item.profileImageUrl ?? user.avatarUrl,
+                    }
+                  : item,
+              )
+            : [
+                ...data.coachProfiles,
+                {
+                  userId: user.id,
+                  specialty: nextSpecialty,
+                  bio: editBio.trim(),
+                  experienceYears: experienceValue,
+                  achievements: nextAchievements,
+                  certificates: nextCertificates,
+                  rating: 5,
+                  profileImageUrl: user.avatarUrl,
+                  coverImageUrl: nextCoverImageUrl,
+                },
+              ],
+        };
+      });
+
+      await updateMe({
+        name: editName.trim(),
+        phone: editPhone.trim() || undefined,
+      });
+
+      await refreshFromBackend();
+
+      setEditOpen(false);
+
+      Alert.alert(L.savedTitle, L.profileUpdated);
+    } catch (e: any) {
+      console.log("[coach-profile] save err", e);
+
+      Alert.alert(L.saveErrorTitle, e?.message || L.saveProfileError);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setNotif = async (key: NotificationKey, value: boolean) => {
+    if (!user) return;
+
+    const currentNotif = {
+      ...getDefaultNotifications(user.id),
+      ...notif,
+    };
+
+    const nextNotif = {
+      ...currentNotif,
+      [key]: value,
+    };
+
+    update((data) => {
+      const hasNotif = data.notifications.some(
+        (item) => item.userId === user.id,
+      );
+
+      return {
+        ...data,
+        notifications: hasNotif
+          ? data.notifications.map((item) =>
+              item.userId === user.id
+                ? {
+                    ...item,
+                    [key]: value,
+                  }
+                : item,
+            )
+          : [
+              ...data.notifications,
+              {
+                userId: user.id,
+                workoutReminders: nextNotif.workoutReminders,
+                supplementReminders: nextNotif.supplementReminders,
+                messageNotifications: nextNotif.messageNotifications,
+                weeklyGoalReminders: nextNotif.weeklyGoalReminders,
+              } as any,
+            ],
+      };
+    });
+
+    if (!token) return;
+
+    try {
+      await apiPatch(
+        "/users/me/notifications",
+        {
+          workout_reminders: nextNotif.workoutReminders,
+          supplement_reminders: nextNotif.supplementReminders,
+          message_notifications: nextNotif.messageNotifications,
+          weekly_goal_reminders: nextNotif.weeklyGoalReminders,
+        },
+        { token },
+      );
     } catch (e) {
-      console.log("[avatar] err", e);
+      console.log("[coach-profile] notification update err", e);
+
+      update((data) => ({
+        ...data,
+        notifications: data.notifications.map((item) =>
+          item.userId === user.id
+            ? {
+                ...item,
+                workoutReminders: currentNotif.workoutReminders,
+                supplementReminders: currentNotif.supplementReminders,
+                messageNotifications: currentNotif.messageNotifications,
+                weeklyGoalReminders: currentNotif.weeklyGoalReminders,
+              }
+            : item,
+        ),
+      }));
+
+      Alert.alert(L.saveErrorTitle, L.saveProfileError);
     }
   };
 
   return (
     <ScreenContainer scroll padded={false}>
-      <GradientHeader height={200}>
-        <View style={{ alignItems: "center", marginTop: 12, gap: 10 }}>
+      <GradientHeader height={250}>
+        {coverUri ? (
+          <Image
+            source={{ uri: coverUri }}
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              opacity: 0.28,
+            }}
+            resizeMode="cover"
+          />
+        ) : null}
+
+        <View style={{ alignItems: "center", marginTop: 18, gap: 8 }}>
           <Pressable onPress={pickAvatar}>
             <View>
-              <AppAvatar
-                uri={user?.avatarUrl ?? profile?.profileImageUrl}
-                name={user?.name}
-                size={84}
-                ring
-              />
+              <AppAvatar uri={avatarUri} name={user.name} size={88} ring />
+
               <View
                 style={{
                   position: "absolute",
                   right: -2,
                   bottom: -2,
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
                   backgroundColor: theme.colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
@@ -90,85 +708,207 @@ export default function CoachProfile() {
                   borderColor: "#fff",
                 }}
               >
-                <Camera color={theme.colors.primaryContrast} size={14} />
+                <Camera color={theme.colors.primaryContrast} size={15} />
               </View>
             </View>
           </Pressable>
+
           <AppText variant="h2" color="#fff">
-            {user?.name}
+            {user.name}
           </AppText>
-          <AppText variant="small" color="rgba(255,255,255,0.8)">
-            {profile?.specialty ?? "Personal Trainer"}
+
+          <AppText variant="small" color="rgba(255,255,255,0.82)">
+            {specialtyText}
           </AppText>
+
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              gap: 4,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              paddingVertical: 4,
-              paddingHorizontal: 10,
-              borderRadius: 20,
+              gap: 6,
+              paddingVertical: 6,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: "rgba(255,255,255,0.14)",
             }}
           >
-            <Star color="#FFB020" size={14} fill="#FFB020" />
-            <AppText variant="small" color="#fff" style={{ fontWeight: "700" }}>
-              {profile?.rating ?? 5.0} · {profile?.experienceYears ?? 0} yrs
+            <Star color="#FFB020" size={15} fill="#FFB020" />
+
+            <AppText variant="bodyStrong" color="#fff">
+              {profile?.rating ? profile.rating.toFixed(1) : "5.0"}
             </AppText>
           </View>
         </View>
       </GradientHeader>
 
       <View style={{ paddingHorizontal: 20, marginTop: 16, gap: 12 }}>
-        <SectionHeader title={t("profile.subscription")} icon={<CreditCard color={theme.colors.primary} size={18} />} />
+        <SectionHeader title={L.profileTitle} />
+
+        <AppCard variant="outline">
+          <Row label={L.specialty} value={specialtyText} />
+          <Row label={L.experience} value={experienceText} />
+          <Row
+            label={L.rating}
+            value={profile?.rating ? profile.rating.toFixed(1) : "5.0"}
+          />
+          <Row label={L.phone} value={user.phone || "—"} />
+
+          <View style={{ marginTop: 12 }}>
+            <AppButton
+              title={L.editProfile}
+              variant="secondary"
+              icon={<Edit3 size={18} color={theme.colors.text} />}
+              onPress={openEdit}
+              fullWidth
+            />
+          </View>
+        </AppCard>
+
+        <SectionHeader title={L.subscription} />
+
         <Pressable onPress={() => router.push("/subscription")}>
-          <AppCard variant="elevated">
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <View>
-                <AppText variant="bodyStrong">{sub?.planName ?? "CoachFlow Monthly"}</AppText>
-                <AppText variant="small" color={theme.colors.textMuted}>
+          <AppCard variant="outline">
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <View
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 14,
+                  backgroundColor: isActive
+                    ? "rgba(22,199,132,0.14)"
+                    : "rgba(255,176,32,0.16)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CreditCard
+                  color={isActive ? theme.colors.primary : theme.colors.fire}
+                  size={20}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <AppText variant="bodyStrong">
                   {isActive
-                    ? `${t("subscription.active")} · ${t("subscription.renews")} ${sub?.endDate ? new Date(sub.endDate).toDateString().slice(4, 10) : ""}`
-                    : t("subscription.inactive")}
+                    ? `${L.activePlan}: ${currentPlan?.name ?? ""}`
+                    : L.inactivePlan}
+                </AppText>
+
+                <AppText
+                  variant="small"
+                  color={theme.colors.textMuted}
+                  style={{ marginTop: 2 }}
+                >
+                  {isActive
+                    ? L.activeUntil.replace("{date}", activeUntil)
+                    : L.activateSubscription}
                 </AppText>
               </View>
-              <AppText
-                variant="bodyStrong"
-                color={isActive ? theme.colors.success : theme.colors.warn}
-              >
-                {isActive ? t("subscription.active") : t("subscription.inactive")}
-              </AppText>
             </View>
           </AppCard>
         </Pressable>
 
-        <SectionHeader title={t("profile.achievements")} icon={<Award color={theme.colors.fire} size={18} />} />
+        <SectionHeader title={L.coachInfo} />
+
         <AppCard variant="outline">
-          {(profile?.achievements ?? []).map((a, i) => (
-            <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: theme.colors.primary,
-                }}
-              />
-              <AppText variant="small">{a}</AppText>
+          <AppText variant="body">
+            {profile?.bio?.trim() || L.defaultBio}
+          </AppText>
+        </AppCard>
+
+        <SectionHeader
+          title={L.achievements}
+          icon={<Award color={theme.colors.fire} size={18} />}
+        />
+
+        <AppCard variant="outline">
+          {(profile?.achievements ?? []).length > 0 ? (
+            <View style={{ gap: 8 }}>
+              {(profile?.achievements ?? []).map((item, index) => (
+                <View
+                  key={`${item}_${index}`}
+                  style={{ flexDirection: "row", gap: 10 }}
+                >
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: theme.colors.primary,
+                      marginTop: 8,
+                    }}
+                  />
+
+                  <AppText variant="small" style={{ flex: 1 }}>
+                    {item}
+                  </AppText>
+                </View>
+              ))}
             </View>
-          ))}
-        </AppCard>
-
-        <SectionHeader title={t("profile.certificates")} />
-        <AppCard variant="outline">
-          {(profile?.certificates ?? []).map((c, i) => (
-            <AppText key={i} variant="small" style={{ paddingVertical: 4 }}>
-              · {c}
+          ) : (
+            <AppText variant="small" color={theme.colors.textMuted}>
+              {L.noAchievements}
             </AppText>
-          ))}
+          )}
         </AppCard>
 
-        <SectionHeader title={t("profile.preferences")} />
+        <SectionHeader title={L.certificates} />
+
+        <AppCard variant="outline">
+          {(profile?.certificates ?? []).length > 0 ? (
+            <View style={{ gap: 6 }}>
+              {(profile?.certificates ?? []).map((item, index) => (
+                <AppText key={`${item}_${index}`} variant="small">
+                  · {item}
+                </AppText>
+              ))}
+            </View>
+          ) : (
+            <AppText variant="small" color={theme.colors.textMuted}>
+              {L.noCertificates}
+            </AppText>
+          )}
+        </AppCard>
+
+        <SectionHeader
+          title={L.notifications}
+          icon={<Bell color={theme.colors.primary} size={18} />}
+        />
+
+        <AppCard variant="outline">
+          <SwitchRow
+            label={L.workoutReminders}
+            value={Boolean(notif.workoutReminders)}
+            onValueChange={(value) => setNotif("workoutReminders", value)}
+          />
+
+          <SwitchRow
+            label={L.supplementReminders}
+            value={Boolean(notif.supplementReminders)}
+            onValueChange={(value) => setNotif("supplementReminders", value)}
+          />
+
+          <SwitchRow
+            label={L.messageNotifications}
+            value={Boolean(notif.messageNotifications)}
+            onValueChange={(value) => setNotif("messageNotifications", value)}
+          />
+
+          <SwitchRow
+            label={L.weeklyGoalReminders}
+            value={Boolean(notif.weeklyGoalReminders)}
+            onValueChange={(value) => setNotif("weeklyGoalReminders", value)}
+          />
+        </AppCard>
+
+        <SectionHeader title={L.preferences} />
+
         <AppCard variant="outline">
           <Pressable
             onPress={toggle}
@@ -185,12 +925,19 @@ export default function CoachProfile() {
               ) : (
                 <Sun color={theme.colors.text} size={18} />
               )}
-              <AppText variant="body">{t("profile.darkMode")}</AppText>
+
+              <AppText variant="body">{L.darkMode}</AppText>
             </View>
-            <AppText variant="small" color={theme.colors.primary} style={{ fontWeight: "700" }}>
+
+            <AppText
+              variant="small"
+              color={theme.colors.primary}
+              style={{ fontWeight: "700" }}
+            >
               {mode === "dark" ? t("common.on") : t("common.off")}
             </AppText>
           </Pressable>
+
           <Pressable
             onPress={() => setLangOpen(true)}
             style={{
@@ -202,31 +949,23 @@ export default function CoachProfile() {
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <Globe color={theme.colors.text} size={18} />
-              <AppText variant="body">{t("profile.language")}</AppText>
+
+              <AppText variant="body">{L.language}</AppText>
             </View>
-            <AppText variant="small" color={theme.colors.primary} style={{ fontWeight: "700" }}>
-              {LANGUAGES.find((l) => l.code === lang)?.label}
+
+            <AppText
+              variant="small"
+              color={theme.colors.primary}
+              style={{ fontWeight: "700" }}
+            >
+              {LANGUAGES.find((item) => item.code === lang)?.label}
             </AppText>
-          </Pressable>
-          <Pressable
-            onPress={reset}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <RefreshCw color={theme.colors.text} size={18} />
-              <AppText variant="body">{t("profile.resetDemo")}</AppText>
-            </View>
           </Pressable>
         </AppCard>
 
         <View style={{ marginTop: 8 }}>
           <AppButton
-            title={t("profile.logout")}
+            title={L.logout}
             variant="secondary"
             icon={<LogOut size={18} color={theme.colors.text} />}
             onPress={async () => {
@@ -236,17 +975,250 @@ export default function CoachProfile() {
             fullWidth
           />
         </View>
+
         <View style={{ height: 32 }} />
       </View>
+
+      <EditCoachProfileModal
+        visible={editOpen}
+        saving={saving}
+        onClose={() => setEditOpen(false)}
+        onSave={saveCoachProfile}
+        editName={editName}
+        setEditName={setEditName}
+        editPhone={editPhone}
+        setEditPhone={setEditPhone}
+        editSpecialty={editSpecialty}
+        setEditSpecialty={setEditSpecialty}
+        editBio={editBio}
+        setEditBio={setEditBio}
+        editExperienceYears={editExperienceYears}
+        setEditExperienceYears={setEditExperienceYears}
+        editAchievements={editAchievements}
+        setEditAchievements={setEditAchievements}
+        editCertificates={editCertificates}
+        setEditCertificates={setEditCertificates}
+        editCoverImageUrl={editCoverImageUrl}
+        setEditCoverImageUrl={setEditCoverImageUrl}
+        text={L}
+      />
+
       <LanguageModal
         visible={langOpen}
         onClose={() => setLangOpen(false)}
         current={lang}
-        onSelect={(c) => {
-          setLanguage(c);
+        onSelect={(code) => {
+          setLanguage(code);
           setLangOpen(false);
         }}
       />
     </ScreenContainer>
+  );
+}
+
+function EditCoachProfileModal({
+  visible,
+  saving,
+  onClose,
+  onSave,
+  editName,
+  setEditName,
+  editPhone,
+  setEditPhone,
+  editSpecialty,
+  setEditSpecialty,
+  editBio,
+  setEditBio,
+  editExperienceYears,
+  setEditExperienceYears,
+  editAchievements,
+  setEditAchievements,
+  editCertificates,
+  setEditCertificates,
+  editCoverImageUrl,
+  setEditCoverImageUrl,
+  text,
+}: {
+  visible: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  editName: string;
+  setEditName: (value: string) => void;
+  editPhone: string;
+  setEditPhone: (value: string) => void;
+  editSpecialty: string;
+  setEditSpecialty: (value: string) => void;
+  editBio: string;
+  setEditBio: (value: string) => void;
+  editExperienceYears: string;
+  setEditExperienceYears: (value: string) => void;
+  editAchievements: string;
+  setEditAchievements: (value: string) => void;
+  editCertificates: string;
+  setEditCertificates: (value: string) => void;
+  editCoverImageUrl: string;
+  setEditCoverImageUrl: (value: string) => void;
+  text: typeof COACH_PROFILE_TEXT.en;
+}) {
+  const { theme } = useTheme();
+  const { t } = useI18n();
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+        <View
+          style={{
+            paddingTop: 56,
+            paddingHorizontal: 20,
+            paddingBottom: 14,
+            borderBottomWidth: 1,
+            borderBottomColor: theme.colors.borderSoft,
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Pressable onPress={onClose} hitSlop={8}>
+            <X color={theme.colors.text} size={22} />
+          </Pressable>
+
+          <AppText variant="h3">{text.editProfile}</AppText>
+
+          <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
+            <Check
+              color={saving ? theme.colors.textMuted : theme.colors.primary}
+              size={22}
+            />
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
+          <AppInput
+            label={t("auth.name")}
+            value={editName}
+            onChangeText={setEditName}
+          />
+
+          <AppInput
+            label={text.phone}
+            value={editPhone}
+            onChangeText={setEditPhone}
+          />
+
+          <AppInput
+            label={text.specialty}
+            value={editSpecialty}
+            onChangeText={setEditSpecialty}
+            placeholder={text.specialtyPlaceholder}
+          />
+
+          <AppInput
+            label={text.bio}
+            value={editBio}
+            onChangeText={setEditBio}
+            multiline
+          />
+
+          <AppInput
+            label={text.experience}
+            value={editExperienceYears}
+            onChangeText={setEditExperienceYears}
+            keyboardType="numeric"
+          />
+
+          <AppInput
+            label={text.achievements}
+            value={editAchievements}
+            onChangeText={setEditAchievements}
+            placeholder={text.achievementsHint}
+            multiline
+          />
+
+          <AppInput
+            label={text.certificates}
+            value={editCertificates}
+            onChangeText={setEditCertificates}
+            placeholder={text.certificatesHint}
+            multiline
+          />
+
+          <AppInput
+            label={text.coverImageUrl}
+            value={editCoverImageUrl}
+            onChangeText={setEditCoverImageUrl}
+            autoCapitalize="none"
+          />
+
+          <View style={{ marginTop: 12 }}>
+            <AppButton
+              title={saving ? text.savingChanges : text.saveChanges}
+              onPress={onSave}
+              fullWidth
+            />
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  const { theme } = useTheme();
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.borderSoft,
+        gap: 12,
+      }}
+    >
+      <AppText variant="small" color={theme.colors.textMuted}>
+        {label}
+      </AppText>
+
+      <AppText variant="bodyStrong" style={{ flex: 1, textAlign: "right" }}>
+        {value}
+      </AppText>
+    </View>
+  );
+}
+
+function SwitchRow({
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  const { theme } = useTheme();
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 8,
+        gap: 12,
+      }}
+    >
+      <AppText variant="body" style={{ flex: 1 }}>
+        {label}
+      </AppText>
+
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: theme.colors.primary, false: theme.colors.border }}
+        thumbColor="#fff"
+      />
+    </View>
   );
 }
