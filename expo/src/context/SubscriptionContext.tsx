@@ -35,15 +35,15 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 0,
     currency: "KZT",
     clientLimit: FREE_CLIENT_LIMIT,
-    description: "Free 30-day trial with a small client base.",
+    description: "Try all CoachFlow tools for 30 days with up to 3 clients.",
     badge: "30 days free",
     features: [
-      "Free for 30 days",
+      "Full CoachFlow access for 30 days",
       "Up to 3 clients",
-      "Client profiles",
-      "Basic workout plans",
-      "Basic chat",
-      "Weight tracking",
+      "All coach tools included",
+      "Workouts, progress, attendance and chat",
+      "Clients use the app for free",
+      "Good for testing the platform",
     ],
   },
   {
@@ -52,15 +52,15 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 2990,
     currency: "KZT",
     clientLimit: 10,
-    description: "For new coaches starting with their first client base.",
-    badge: "Best start",
+    description: "Full CoachFlow access for coaches with up to 10 clients.",
+    badge: "Up to 10 clients",
     features: [
+      "Full CoachFlow access",
       "Up to 10 clients",
-      "Client profiles",
-      "Workout plans",
-      "Chat and voice messages",
-      "Progress tracking",
-      "Supplements and attendance",
+      "Same tools as every paid plan",
+      "Workouts, progress, attendance and chat",
+      "Clients use the app for free",
+      "Only the client limit changes",
     ],
   },
   {
@@ -69,15 +69,16 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 4990,
     currency: "KZT",
     clientLimit: 30,
-    description: "For active coaches who already manage many clients.",
-    badge: "Most popular",
+    description:
+      "Full CoachFlow access for active coaches with up to 30 clients.",
+    badge: "Up to 30 clients",
     features: [
+      "Full CoachFlow access",
       "Up to 30 clients",
-      "Everything in Starter",
-      "Exercise history",
-      "Client analytics",
-      "Muscle progress",
-      "Advanced coaching tools",
+      "Same tools as every paid plan",
+      "Workouts, progress, attendance and chat",
+      "Clients use the app for free",
+      "Only the client limit changes",
     ],
   },
   {
@@ -86,15 +87,15 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 9990,
     currency: "KZT",
     clientLimit: 999999,
-    description: "For professional coaches, teams and small studios.",
-    badge: "Full access",
+    description: "Full CoachFlow access with no client limit.",
+    badge: "No client limit",
     features: [
+      "Full CoachFlow access",
       "Unlimited clients",
-      "Everything in Pro",
-      "Best for studios",
-      "No client limit",
-      "Full business access",
-      "Priority future features",
+      "Same tools as every paid plan",
+      "Workouts, progress, attendance and chat",
+      "Clients use the app for free",
+      "Best for large client bases",
     ],
   },
 ];
@@ -381,7 +382,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
       }
 
       throw new Error(
-        "Paid subscription activation is not connected yet. Please use Free Trial for now.",
+        "Paid plans are activated only through Google Play payment and backend verification.",
       );
     },
     [user, token, activateFreeTrial],
@@ -419,7 +420,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(() => {
 
   const cancel = useCallback(async () => {
     throw new Error(
-      "Subscription cancellation is not connected yet. It must be handled through the payment provider.",
+      "Subscription cancellation is handled through Google Play subscription management.",
     );
   }, []);
 

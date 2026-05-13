@@ -15,6 +15,7 @@ import {
 } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppButton,
@@ -74,7 +75,6 @@ export default function SubscriptionScreen() {
     currentPlan,
     planCode,
     isActive,
-    isFreePlan,
     isTrialActive,
     trialEndsAt,
     trialDays,
@@ -103,11 +103,14 @@ export default function SubscriptionScreen() {
     return plans.find((plan) => plan.code === selectedPlanCode) ?? plans[0];
   }, [plans, selectedPlanCode]);
 
-  const selectedIsCurrentPlan =
-    isActive && selectedPlanCode === planCode;
+  const selectedIsCurrentPlan = isActive && selectedPlanCode === planCode;
 
   const activeUntil = formatDate(
-    paidSubscriptionActive ? sub?.endDate : isTrialActive ? trialEndsAt : undefined,
+    paidSubscriptionActive
+      ? sub?.endDate
+      : isTrialActive
+        ? trialEndsAt
+        : undefined,
     currentLang,
   );
 
@@ -135,28 +138,28 @@ export default function SubscriptionScreen() {
     if (code === "free") {
       return tt(
         "subscription.freeDescription",
-        `Free ${trialDays}-day trial with up to ${freeClientLimit} clients.`,
+        `Try all CoachFlow tools for ${trialDays} days with up to ${freeClientLimit} clients.`,
       );
     }
 
     if (code === "starter") {
       return tt(
         "subscription.starterDescription",
-        "For new coaches starting with their first client base.",
+        "Full CoachFlow access for coaches with up to 10 clients.",
       );
     }
 
     if (code === "pro") {
       return tt(
         "subscription.proDescription",
-        "For active coaches who already manage many clients.",
+        "Full CoachFlow access for active coaches with up to 30 clients.",
       );
     }
 
     if (code === "unlimited") {
       return tt(
         "subscription.unlimitedDescription",
-        "For professional coaches, teams and small studios.",
+        "Full CoachFlow access with no client limit.",
       );
     }
 
@@ -169,15 +172,15 @@ export default function SubscriptionScreen() {
     }
 
     if (code === "starter") {
-      return tt("subscription.starterBadge", "Best start");
+      return tt("subscription.starterBadge", "Up to 10 clients");
     }
 
     if (code === "pro") {
-      return tt("subscription.proBadge", "Most popular");
+      return tt("subscription.proBadge", "Up to 30 clients");
     }
 
     if (code === "unlimited") {
-      return tt("subscription.unlimitedBadge", "Full access");
+      return tt("subscription.unlimitedBadge", "No client limit");
     }
 
     return fallback ?? "";
@@ -186,45 +189,51 @@ export default function SubscriptionScreen() {
   const getPlanFeatures = (code: string, fallback: string[]) => {
     if (code === "free") {
       return [
-        tt("subscription.freeFeature1", `Free for ${trialDays} days`),
+        tt("subscription.freeFeature1", `Full access for ${trialDays} days`),
         tt("subscription.freeFeature2", `Up to ${freeClientLimit} clients`),
-        tt("subscription.freeFeature3", "Client profiles"),
-        tt("subscription.freeFeature4", "Basic workout plans"),
-        tt("subscription.freeFeature5", "Basic chat"),
-        tt("subscription.freeFeature6", "Weight tracking"),
+        tt("subscription.freeFeature3", "All CoachFlow tools included"),
+        tt("subscription.freeFeature4", "Workouts, progress, attendance and chat"),
+        tt("subscription.freeFeature5", "Clients use the app for free"),
+        tt("subscription.freeFeature6", "Good for testing the platform"),
       ];
     }
 
     if (code === "starter") {
       return [
-        tt("subscription.starterFeature1", "Up to 10 clients"),
-        tt("subscription.starterFeature2", "Client profiles"),
-        tt("subscription.starterFeature3", "Workout plans"),
-        tt("subscription.starterFeature4", "Chat and voice messages"),
-        tt("subscription.starterFeature5", "Progress tracking"),
-        tt("subscription.starterFeature6", "Supplements and attendance"),
+        tt("subscription.starterFeature1", "Full CoachFlow access"),
+        tt("subscription.starterFeature2", "Up to 10 clients"),
+        tt("subscription.starterFeature3", "Same tools as every paid plan"),
+        tt(
+          "subscription.starterFeature4",
+          "Workouts, progress, attendance and chat",
+        ),
+        tt("subscription.starterFeature5", "Clients use the app for free"),
+        tt("subscription.starterFeature6", "Only the client limit changes"),
       ];
     }
 
     if (code === "pro") {
       return [
-        tt("subscription.proFeature1", "Up to 30 clients"),
-        tt("subscription.proFeature2", "Everything in Starter"),
-        tt("subscription.proFeature3", "Exercise history"),
-        tt("subscription.proFeature4", "Client analytics"),
-        tt("subscription.proFeature5", "Muscle progress"),
-        tt("subscription.proFeature6", "Advanced coaching tools"),
+        tt("subscription.proFeature1", "Full CoachFlow access"),
+        tt("subscription.proFeature2", "Up to 30 clients"),
+        tt("subscription.proFeature3", "Same tools as every paid plan"),
+        tt("subscription.proFeature4", "Workouts, progress, attendance and chat"),
+        tt("subscription.proFeature5", "Clients use the app for free"),
+        tt("subscription.proFeature6", "Only the client limit changes"),
       ];
     }
 
     if (code === "unlimited") {
       return [
-        tt("subscription.unlimitedFeature1", "Unlimited clients"),
-        tt("subscription.unlimitedFeature2", "Everything in Pro"),
-        tt("subscription.unlimitedFeature3", "Best for studios"),
-        tt("subscription.unlimitedFeature4", "No client limit"),
-        tt("subscription.unlimitedFeature5", "Full business access"),
-        tt("subscription.unlimitedFeature6", "Priority future features"),
+        tt("subscription.unlimitedFeature1", "Full CoachFlow access"),
+        tt("subscription.unlimitedFeature2", "Unlimited clients"),
+        tt("subscription.unlimitedFeature3", "Same tools as every paid plan"),
+        tt(
+          "subscription.unlimitedFeature4",
+          "Workouts, progress, attendance and chat",
+        ),
+        tt("subscription.unlimitedFeature5", "Clients use the app for free"),
+        tt("subscription.unlimitedFeature6", "Best for large client bases"),
       ];
     }
 
@@ -261,7 +270,7 @@ export default function SubscriptionScreen() {
       tt("subscription.paymentNotConnectedTitle", "Payment is not connected yet"),
       tt(
         "subscription.paymentNotConnectedText",
-        "Paid plans can be selected, but they cannot activate access until real payment verification is connected.",
+        "Paid plans will be activated only after Google Play payment and backend verification.",
       ),
       [{ text: tt("common.done", "Done") }],
     );
@@ -317,7 +326,7 @@ export default function SubscriptionScreen() {
       tt("subscription.manageTitle", "Manage subscription"),
       tt(
         "subscription.manageText",
-        "Real payment management is not connected yet. Later this button will open the billing portal.",
+        "Subscription management will open Google Play subscription settings after real payments are connected.",
       ),
       [{ text: tt("common.done", "Done") }],
     );
@@ -355,7 +364,7 @@ export default function SubscriptionScreen() {
 
     return tt(
       "subscription.selectPlanThenPayment",
-      "Choose Free Trial to start, or select a paid plan when payment is connected.",
+      "Choose Free Trial to start, or select a paid plan when Google Play payment is connected.",
     );
   }, [paidSubscriptionActive, isTrialActive, activeUntil]);
 
@@ -447,7 +456,7 @@ export default function SubscriptionScreen() {
             <AppText variant="small" color="rgba(255,255,255,0.78)">
               {tt(
                 "subscription.plansSubtitle",
-                "Choose a plan for your coaching business.",
+                "All plans include the same CoachFlow tools. Choose only by client limit.",
               )}
             </AppText>
           </View>
@@ -524,7 +533,7 @@ export default function SubscriptionScreen() {
           >
             {tt(
               "subscription.coachPaysClientsFree",
-              "Coaches manage subscriptions. Clients use the app for free.",
+              "Coaches pay for access. Clients use the app for free.",
             )}
           </AppText>
         </View>
@@ -622,7 +631,10 @@ export default function SubscriptionScreen() {
                               color={theme.colors.fire}
                               style={{ fontWeight: "800" }}
                             >
-                              {tt("subscription.paymentLater", "Payment later")}
+                              {tt(
+                                "subscription.paymentLater",
+                                "Google Play payment",
+                              )}
                             </AppText>
                           </View>
                         ) : null}
@@ -753,27 +765,24 @@ export default function SubscriptionScreen() {
             <AppText variant="small" color={theme.colors.textMuted}>
               {tt(
                 "subscription.businessAccessText",
-                "Free Trial gives limited access for testing. Paid plans require real payment verification before activation.",
+                "All plans include the same CoachFlow tools. The only difference between plans is how many clients a coach can manage.",
               )}
             </AppText>
 
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               <MiniFeature
                 icon={<Zap color={theme.colors.fire} size={15} />}
-                label={tt(
-                  "subscription.days30",
-                  `${trialDays} days free`,
-                )}
+                label={tt("subscription.days30", `${trialDays} days free`)}
               />
 
               <MiniFeature
                 icon={<CreditCard color={theme.colors.primary} size={15} />}
-                label={tt("subscription.billingReady", "Billing ready")}
+                label={tt("subscription.billingReady", "Google Play billing")}
               />
 
               <MiniFeature
                 icon={<Sparkles color={theme.colors.success} size={15} />}
-                label={tt("subscription.clientLimits", "Client limits")}
+                label={tt("subscription.clientLimits", "Client limits only")}
               />
             </View>
           </View>
@@ -792,14 +801,16 @@ export default function SubscriptionScreen() {
             <AppText variant="small" color={theme.colors.textMuted}>
               {tt(
                 "subscription.paymentStatusText",
-                "Real payment is not connected yet. Free Trial can be activated now, while paid plans will require backend payment verification later.",
+                "Paid plans will be activated only after Google Play payment and backend verification.",
               )}
             </AppText>
           </View>
         </AppCard>
 
         <AppButton
-          title={busy ? tt("subscription.processing", "Processing...") : planActionText}
+          title={
+            busy ? tt("subscription.processing", "Processing...") : planActionText
+          }
           size="lg"
           fullWidth
           onPress={handleSelectPlan}
@@ -823,7 +834,7 @@ export default function SubscriptionScreen() {
         >
           {tt(
             "subscription.releaseNote",
-            "Free Trial is available for testing. Paid subscriptions will be activated only after real payment integration.",
+            "All paid plans include the same functions. The selected plan only changes the coach client limit.",
           )}
         </AppText>
 

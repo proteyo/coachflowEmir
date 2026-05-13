@@ -17,7 +17,12 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
   const { theme } = useTheme();
   const { t } = useI18n();
   const { user, logout } = useAuth();
-  const { isActive, canStartFreeTrial, currentPlan, trialEndsAt } = useSubscription();
+  const { isActive, canStartFreeTrial } = useSubscription();
+
+  const tt = (key: string, fallback: string) => {
+    const value = t(key as never);
+    return value && value !== key ? value : fallback;
+  };
 
   const isCoach = user?.role === "coach";
 
@@ -69,7 +74,7 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
 
           <View style={{ alignItems: "center", gap: 6 }}>
             <AppText variant="title" style={{ textAlign: "center" }}>
-              Subscription required
+              {tt("subscription.gateTitle", "Subscription required")}
             </AppText>
 
             <AppText
@@ -77,7 +82,10 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
               color={theme.colors.textMuted}
               style={{ textAlign: "center", lineHeight: 22 }}
             >
-              Your coach features are locked until you activate or renew your subscription.
+              {tt(
+                "subscription.gateMessage",
+                "Activate a plan to use CoachFlow as a coach. All plans include the same tools; only the client limit changes.",
+              )}
             </AppText>
           </View>
         </View>
@@ -88,10 +96,12 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
               <Crown color={theme.colors.primary} size={22} />
 
               <View style={{ flex: 1 }}>
-                <AppText variant="bodyStrong">Current access</AppText>
+                <AppText variant="bodyStrong">
+                  {tt("subscription.currentAccess", "Current access")}
+                </AppText>
 
                 <AppText variant="small" color={theme.colors.textMuted}>
-                  No active subscription
+                  {tt("subscription.noActiveSubscription", "No active subscription")}
                 </AppText>
               </View>
             </View>
@@ -105,20 +115,38 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
 
             <View style={{ gap: 6 }}>
               <AppText variant="small" color={theme.colors.textMuted}>
-                Without an active plan, you cannot access:
+                {tt(
+                  "subscription.gateAccessText",
+                  "Without an active plan, coach access is locked. After activation you get all CoachFlow tools with your selected client limit:",
+                )}
               </AppText>
 
-              <AppText variant="small">• Dashboard</AppText>
-              <AppText variant="small">• Clients and client details</AppText>
-              <AppText variant="small">• Workouts and supplement plans</AppText>
-              <AppText variant="small">• Messages and coaching tools</AppText>
+              <AppText variant="small">
+                • {tt("subscription.gateFeature1", "Dashboard and client management")}
+              </AppText>
+
+              <AppText variant="small">
+                • {tt("subscription.gateFeature2", "Workout plans and progress tracking")}
+              </AppText>
+
+              <AppText variant="small">
+                • {tt("subscription.gateFeature3", "Messages, attendance and supplements")}
+              </AppText>
+
+              <AppText variant="small">
+                • {tt("subscription.gateFeature4", "The plan changes only the client limit")}
+              </AppText>
             </View>
           </View>
         </AppCard>
 
         <View style={{ gap: 10 }}>
           <AppButton
-            title={canStartFreeTrial ? "Choose a plan / Start free trial" : "Renew subscription"}
+            title={
+              canStartFreeTrial
+                ? tt("subscription.choosePlanStartTrial", "Choose a plan / Start free trial")
+                : tt("subscription.renewSubscription", "Renew subscription")
+            }
             size="lg"
             icon={<Crown size={18} color={theme.colors.primaryContrast} />}
             onPress={handleGoToSubscription}
@@ -126,7 +154,7 @@ export default function SubscriptionGate({ children }: SubscriptionGateProps) {
           />
 
           <AppButton
-            title="Log out"
+            title={tt("common.logout", "Log out")}
             variant="secondary"
             size="lg"
             icon={<LogOut size={18} color={theme.colors.text} />}
