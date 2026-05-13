@@ -1,25 +1,30 @@
-import { Image } from "expo-image";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
 import {
   Compass,
   Dumbbell,
   ExternalLink,
-  Filter,
+  LocateFixed,
   MapPin,
   Navigation,
+  RefreshCw,
   Salad,
   Search,
   ShoppingBag,
-  SlidersHorizontal,
   Star,
 } from "lucide-react-native";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
   Linking,
+  Platform,
   Pressable,
   TextInput,
   View,
 } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 import {
   AppCard,
@@ -34,116 +39,164 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { Place } from "@/src/types/models";
 
-type FilterType = "all" | "gym" | "nutrition" | "shop";
-type SortMode = "rating" | "name";
+type PlaceType = "gym" | "nutrition" | "shop";
+type FilterType = "all" | PlaceType;
+type SortMode = "distance" | "rating" | "name";
 
-type ExtendedPlace = Place & {
-  latitude?: number;
-  longitude?: number;
+type UserLocation = {
+  latitude: number;
+  longitude: number;
+};
+
+type ExtendedPlace = Omit<Place, "type"> & {
+  type: PlaceType;
   distanceKm?: number;
   phone?: string;
   website?: string;
   workingHours?: string;
+  source?: "backend" | "local";
 };
 
+const TOKEN_KEY = "coachflow:token";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
+
 const FILTERS: FilterType[] = ["all", "gym", "nutrition", "shop"];
-const SORTS: SortMode[] = ["rating", "name"];
+const SORTS: SortMode[] = ["distance", "rating", "name"];
+
+const DEFAULT_REGION: Region = {
+  latitude: 43.238949,
+  longitude: 76.889709,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
 
 const LOCAL_TEXT = {
   en: {
     title: "Explore",
     heroTitle: "Find places near you",
     heroSubtitle:
-      "Gyms, healthy nutrition spots and sport shops will be shown here based on your location.",
+      "Discover nearby gyms, healthy nutrition spots and sport shops based on your current location.",
     searchPlaceholder: "Search gyms, nutrition, shops...",
-    mapPreview: "Map preview",
-    mapHint: "Real map integration will be connected here later",
+    mapHint: "Allow location access to show places around you.",
     categories: "Categories",
     sort: "Sort",
     nearbyTitle: "Nearby places",
+    distance: "Nearest",
     bestRated: "Best rated",
     sortByName: "By name",
     openRoute: "Open route",
+    useMyLocation: "Use my location",
     noAddress: "Address is not available",
     noResultsTitle: "No places found",
-    noResultsMessage: "Try another search or change the category.",
-    futureMapTitle: "Ready for real map",
-    futureMapText:
-      "Later this screen can connect Expo Location and Google Places API to show the nearest gyms, nutrition spots and sport shops by rating.",
+    noResultsMessage:
+      "Try another search, change category, or refresh nearby places.",
     results: "results",
     result: "result",
     all: "All",
     gym: "Gyms",
     nutrition: "Nutrition",
     shop: "Shops",
-    distanceSoon: "Distance after location",
+    distanceSoon: "Distance unavailable",
+    loadingLocation: "Getting your location...",
+    loadingPlaces: "Loading nearby places...",
+    locationDenied:
+      "Location permission was denied. You can still browse saved places.",
+    backendFallback:
+      "Nearby search is not available yet. Showing saved places from CoachFlow.",
+    routeUnavailable: "Route is unavailable for this place.",
   },
   ru: {
     title: "Карта",
     heroTitle: "Найди места рядом",
     heroSubtitle:
-      "Здесь будут отображаться залы, спортивное питание и магазины рядом с тобой.",
+      "Показываем ближайшие залы, места со здоровым питанием и спортивные магазины по твоей геолокации.",
     searchPlaceholder: "Поиск залов, питания, магазинов...",
-    mapPreview: "Предпросмотр карты",
-    mapHint: "Позже здесь будет подключена настоящая карта",
+    mapHint: "Разреши геолокацию, чтобы показать места рядом с тобой.",
     categories: "Категории",
     sort: "Сортировка",
     nearbyTitle: "Ближайшие места",
+    distance: "Ближайшие",
     bestRated: "По рейтингу",
     sortByName: "По названию",
-    openRoute: "Открыть маршрут",
+    openRoute: "Маршрут",
+    useMyLocation: "Моя геолокация",
     noAddress: "Адрес недоступен",
     noResultsTitle: "Ничего не найдено",
-    noResultsMessage: "Попробуй другой поиск или измени категорию.",
-    futureMapTitle: "Готово под настоящую карту",
-    futureMapText:
-      "Позже сюда можно подключить Expo Location и Google Places API, чтобы показывать ближайшие залы, спортпит и магазины по рейтингу.",
+    noResultsMessage:
+      "Попробуй другой поиск, категорию или обнови места рядом.",
     results: "результатов",
     result: "результат",
     all: "Все",
     gym: "Залы",
     nutrition: "Питание",
     shop: "Магазины",
-    distanceSoon: "Расстояние после геолокации",
+    distanceSoon: "Расстояние недоступно",
+    loadingLocation: "Получаем геолокацию...",
+    loadingPlaces: "Загружаем места рядом...",
+    locationDenied:
+      "Доступ к геолокации запрещён. Можно смотреть сохранённые места.",
+    backendFallback:
+      "Поиск мест рядом пока недоступен. Показываем сохранённые места CoachFlow.",
+    routeUnavailable: "Маршрут для этого места недоступен.",
   },
   kk: {
     title: "Карта",
     heroTitle: "Жақын орындарды тап",
     heroSubtitle:
-      "Мұнда саған жақын залдар, спорттық тамақтану орындары және дүкендер көрсетіледі.",
+      "Геолокация бойынша жақын залдарды, дұрыс тамақтану орындарын және спорт дүкендерін көрсетеміз.",
     searchPlaceholder: "Зал, тамақтану, дүкен іздеу...",
-    mapPreview: "Карта көрінісі",
-    mapHint: "Кейін мұнда нақты карта қосылады",
+    mapHint: "Жақын орындарды көру үшін геолокацияға рұқсат бер.",
     categories: "Санаттар",
     sort: "Сұрыптау",
     nearbyTitle: "Жақын орындар",
+    distance: "Жақындары",
     bestRated: "Рейтинг бойынша",
     sortByName: "Атауы бойынша",
-    openRoute: "Маршрут ашу",
+    openRoute: "Маршрут",
+    useMyLocation: "Менің геолокациям",
     noAddress: "Мекенжай қолжетімсіз",
     noResultsTitle: "Ештеңе табылмады",
-    noResultsMessage: "Басқа іздеу енгізіп көр немесе санатты өзгерт.",
-    futureMapTitle: "Нақты картаға дайын",
-    futureMapText:
-      "Кейін Expo Location және Google Places API қосып, жақын залдарды, спорттық тамақтану орындарын және дүкендерді рейтинг бойынша көрсетуге болады.",
+    noResultsMessage:
+      "Басқа іздеу енгізіп көр, санатты өзгерт немесе жаңарт.",
     results: "нәтиже",
     result: "нәтиже",
     all: "Барлығы",
     gym: "Залдар",
     nutrition: "Тамақтану",
     shop: "Дүкендер",
-    distanceSoon: "Қашықтық геолокациядан кейін",
+    distanceSoon: "Қашықтық қолжетімсіз",
+    loadingLocation: "Геолокация алынуда...",
+    loadingPlaces: "Жақын орындар жүктелуде...",
+    locationDenied:
+      "Геолокацияға рұқсат берілмеді. Сақталған орындарды көре аласың.",
+    backendFallback:
+      "Жақын орындарды іздеу әзірше қолжетімсіз. CoachFlow сақталған орындарын көрсетеміз.",
+    routeUnavailable: "Бұл орын үшін маршрут қолжетімсіз.",
   },
 };
 
 function getLocalText(lang: string) {
   if (lang === "ru") return LOCAL_TEXT.ru;
   if (lang === "kk") return LOCAL_TEXT.kk;
+
   return LOCAL_TEXT.en;
+}
+
+function getThemeColor(theme: any, key: string, fallback: string): string {
+  return theme?.colors?.[key] ?? theme?.[key] ?? fallback;
+}
+
+function normalizeType(value: unknown): PlaceType {
+  if (value === "gym" || value === "nutrition" || value === "shop") {
+    return value;
+  }
+
+  return "gym";
 }
 
 function getPlaceRating(place: ExtendedPlace) {
   const rating = Number(place.rating ?? 0);
+
   return Number.isFinite(rating) ? rating : 0;
 }
 
@@ -154,10 +207,62 @@ function getPlaceSearchText(place: ExtendedPlace) {
     place.description,
     place.type,
     place.workingHours,
+    place.phone,
+    place.website,
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function calculateDistanceKm(
+  from: UserLocation,
+  to: { latitude?: number; longitude?: number },
+): number | undefined {
+  if (typeof to.latitude !== "number" || typeof to.longitude !== "number") {
+    return undefined;
+  }
+
+  const earthRadiusKm = 6371;
+
+  const dLat = toRadians(to.latitude - from.latitude);
+  const dLng = toRadians(to.longitude - from.longitude);
+
+  const lat1 = toRadians(from.latitude);
+  const lat2 = toRadians(to.latitude);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) *
+      Math.sin(dLng / 2) *
+      Math.cos(lat1) *
+      Math.cos(lat2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadiusKm * c;
+}
+
+function formatDistance(place: ExtendedPlace) {
+  if (place.distanceKm === undefined || place.distanceKm === null) {
+    return null;
+  }
+
+  const distance = Number(place.distanceKm);
+
+  if (!Number.isFinite(distance)) {
+    return null;
+  }
+
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)} m`;
+  }
+
+  return `${distance.toFixed(1)} km`;
 }
 
 function buildMapsUrl(place: ExtendedPlace) {
@@ -165,26 +270,116 @@ function buildMapsUrl(place: ExtendedPlace) {
     typeof place.latitude === "number" &&
     typeof place.longitude === "number"
   ) {
-    return `https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=walking`;
   }
 
   const query = encodeURIComponent(
     [place.name, place.address].filter(Boolean).join(" "),
   );
 
+  if (!query) {
+    return null;
+  }
+
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
-function formatDistance(place: ExtendedPlace) {
-  if (place.distanceKm === undefined || place.distanceKm === null) return null;
+function getPlaceIcon(type: PlaceType) {
+  if (type === "nutrition") return Salad;
+  if (type === "shop") return ShoppingBag;
 
-  const distance = Number(place.distanceKm);
+  return Dumbbell;
+}
 
-  if (!Number.isFinite(distance)) return null;
+function normalizeBackendPlace(place: any): ExtendedPlace {
+  const latitude = Number(
+    place.latitude ?? place.lat ?? place.location?.lat ?? 0,
+  );
 
-  if (distance < 1) return `${Math.round(distance * 1000)} m`;
+  const longitude = Number(
+    place.longitude ?? place.lng ?? place.location?.lng ?? 0,
+  );
 
-  return `${distance.toFixed(1)} km`;
+  const distanceRaw = place.distanceKm ?? place.distance_km;
+
+  return {
+    id: String(place.id ?? place.place_id ?? `${place.name}-${place.address}`),
+    type: normalizeType(place.type),
+    name: String(place.name ?? "Unknown place"),
+    address: String(
+      place.address ?? place.vicinity ?? place.formatted_address ?? "",
+    ),
+    latitude: Number.isFinite(latitude) ? latitude : 0,
+    longitude: Number.isFinite(longitude) ? longitude : 0,
+    description: place.description ?? undefined,
+    imageUrl: place.imageUrl ?? place.image_url ?? place.photoUrl ?? undefined,
+    rating:
+      place.rating === undefined || place.rating === null
+        ? undefined
+        : Number(place.rating),
+    distanceKm:
+      distanceRaw === undefined || distanceRaw === null
+        ? undefined
+        : Number(distanceRaw),
+    phone: place.phone ?? place.formatted_phone_number ?? undefined,
+    website: place.website ?? undefined,
+    workingHours:
+      place.workingHours ??
+      place.working_hours ??
+      place.opening_hours?.weekday_text?.join(", ") ??
+      undefined,
+    source: "backend",
+  };
+}
+
+async function fetchNearbyPlaces(input: {
+  location: UserLocation;
+  type: FilterType;
+}): Promise<ExtendedPlace[] | null> {
+  if (!API_URL) {
+    return null;
+  }
+
+  try {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+
+    const params = new URLSearchParams({
+      lat: String(input.location.latitude),
+      lng: String(input.location.longitude),
+    });
+
+    if (input.type !== "all") {
+      params.set("type", input.type);
+    }
+
+    const response = await fetch(`${API_URL}/places/nearby?${params}`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const json = await response.json();
+
+    const rawItems = Array.isArray(json)
+      ? json
+      : Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json?.data)
+          ? json.data
+          : [];
+
+    return rawItems.map(normalizeBackendPlace);
+  } catch (error) {
+    console.log("[explore] nearby load failed", error);
+
+    return null;
+  }
 }
 
 export default function Explore() {
@@ -192,25 +387,157 @@ export default function Explore() {
   const { lang } = useI18n();
   const { db } = useData();
 
+  const mapRef = useRef<MapView | null>(null);
+
   const txt = getLocalText(lang);
 
+  const background = getThemeColor(theme, "background", "#F8FAFC");
+  const card = getThemeColor(theme, "card", "#FFFFFF");
+  const text = getThemeColor(theme, "text", "#0F172A");
+  const muted = getThemeColor(theme, "muted", "#64748B");
+  const border = getThemeColor(theme, "border", "#E2E8F0");
+  const primary = getThemeColor(theme, "primary", "#2563EB");
+
   const [filter, setFilter] = useState<FilterType>("all");
-  const [sortMode, setSortMode] = useState<SortMode>("rating");
+  const [sortMode, setSortMode] = useState<SortMode>("distance");
   const [query, setQuery] = useState("");
 
-  const places = useMemo(() => {
-    if (!db?.places) return [];
-    return db.places as ExtendedPlace[];
-  }, [db]);
+  const [location, setLocation] = useState<UserLocation | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+
+  const [nearbyPlaces, setNearbyPlaces] = useState<ExtendedPlace[]>([]);
+  const [loadingPlaces, setLoadingPlaces] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  const localPlaces = useMemo<ExtendedPlace[]>(() => {
+    if (!db?.places) {
+      return [];
+    }
+
+    return db.places.map((place) => {
+      const typedPlace: ExtendedPlace = {
+        ...place,
+        type: normalizeType(place.type),
+        source: "local",
+      };
+
+      const distanceKm = location
+        ? calculateDistanceKm(location, {
+            latitude: typedPlace.latitude,
+            longitude: typedPlace.longitude,
+          })
+        : typedPlace.distanceKm;
+
+      return {
+        ...typedPlace,
+        distanceKm,
+      };
+    });
+  }, [db, location]);
+
+  const loadLocation = useCallback(async () => {
+    try {
+      setLoadingLocation(true);
+      setLocationError(null);
+
+      const currentPermission = await Location.getForegroundPermissionsAsync();
+
+      let permission = currentPermission;
+
+      if (!currentPermission.granted) {
+        permission = await Location.requestForegroundPermissionsAsync();
+      }
+
+      if (!permission.granted) {
+        setLocationError(txt.locationDenied);
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const nextLocation = {
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude,
+      };
+
+      setLocation(nextLocation);
+
+      mapRef.current?.animateToRegion(
+        {
+          ...nextLocation,
+          latitudeDelta: 0.04,
+          longitudeDelta: 0.04,
+        },
+        600,
+      );
+    } catch (error) {
+      console.log("[explore] location error", error);
+      setLocationError(txt.locationDenied);
+    } finally {
+      setLoadingLocation(false);
+    }
+  }, [txt.locationDenied]);
+
+  const loadNearby = useCallback(async () => {
+    if (!location) {
+      return;
+    }
+
+    try {
+      setLoadingPlaces(true);
+
+      const remotePlaces = await fetchNearbyPlaces({
+        location,
+        type: filter,
+      });
+
+      if (remotePlaces && remotePlaces.length > 0) {
+        const withDistances = remotePlaces.map((place) => ({
+          ...place,
+          distanceKm:
+            place.distanceKm ??
+            calculateDistanceKm(location, {
+              latitude: place.latitude,
+              longitude: place.longitude,
+            }),
+        }));
+
+        setNearbyPlaces(withDistances);
+        setUsingFallback(false);
+      } else {
+        setNearbyPlaces([]);
+        setUsingFallback(true);
+      }
+    } finally {
+      setLoadingPlaces(false);
+    }
+  }, [filter, location]);
+
+  useEffect(() => {
+    loadLocation();
+  }, [loadLocation]);
+
+  useEffect(() => {
+    loadNearby();
+  }, [loadNearby]);
+
+  const sourcePlaces = nearbyPlaces.length > 0 ? nearbyPlaces : localPlaces;
 
   const items = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return places
+    return sourcePlaces
       .filter((place) => {
-        if (filter !== "all" && place.type !== filter) return false;
+        if (filter !== "all" && place.type !== filter) {
+          return false;
+        }
 
-        if (!normalizedQuery) return true;
+        if (!normalizedQuery) {
+          return true;
+        }
 
         return getPlaceSearchText(place).includes(normalizedQuery);
       })
@@ -220,525 +547,497 @@ export default function Explore() {
           return a.name.localeCompare(b.name);
         }
 
+        if (sortMode === "distance") {
+          const aDistance = a.distanceKm ?? Number.POSITIVE_INFINITY;
+          const bDistance = b.distanceKm ?? Number.POSITIVE_INFINITY;
+
+          if (aDistance !== bDistance) {
+            return aDistance - bDistance;
+          }
+        }
+
         const ratingDiff = getPlaceRating(b) - getPlaceRating(a);
 
-        if (ratingDiff !== 0) return ratingDiff;
+        if (ratingDiff !== 0) {
+          return ratingDiff;
+        }
 
         return a.name.localeCompare(b.name);
       });
-  }, [places, filter, sortMode, query]);
+  }, [sourcePlaces, filter, sortMode, query]);
 
-  const topPlace = useMemo(() => {
-    if (items.length === 0) return null;
+  const mapRegion = useMemo<Region>(() => {
+    if (location) {
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.04,
+        longitudeDelta: 0.04,
+      };
+    }
 
-    return items
-      .slice()
-      .sort((a, b) => getPlaceRating(b) - getPlaceRating(a))[0];
-  }, [items]);
+    const firstWithCoordinates = items.find(
+      (item) =>
+        typeof item.latitude === "number" &&
+        typeof item.longitude === "number",
+    );
+
+    if (firstWithCoordinates) {
+      return {
+        latitude: firstWithCoordinates.latitude,
+        longitude: firstWithCoordinates.longitude,
+        latitudeDelta: 0.06,
+        longitudeDelta: 0.06,
+      };
+    }
+
+    return DEFAULT_REGION;
+  }, [items, location]);
 
   const resultLabel = items.length === 1 ? txt.result : txt.results;
 
-  const iconFor = (type: Place["type"], size = 16) => {
-    if (type === "gym") {
-      return <Dumbbell color={theme.colors.primary} size={size} />;
-    }
+  const openRoute = useCallback(
+    async (place: ExtendedPlace) => {
+      const url = buildMapsUrl(place);
 
-    if (type === "nutrition") {
-      return <Salad color={theme.colors.success} size={size} />;
-    }
+      if (!url) {
+        console.log("[explore]", txt.routeUnavailable);
+        return;
+      }
 
-    return <ShoppingBag color={theme.colors.accent} size={size} />;
-  };
+      const supported = await Linking.canOpenURL(url);
 
-  const labelForFilter = (value: FilterType) => {
-    if (value === "all") return txt.all;
-    if (value === "gym") return txt.gym;
-    if (value === "nutrition") return txt.nutrition;
-    return txt.shop;
-  };
-
-  const labelForPlaceType = (type: Place["type"]) => {
-    if (type === "gym") return txt.gym;
-    if (type === "nutrition") return txt.nutrition;
-    return txt.shop;
-  };
-
-  const openPlaceInMaps = async (place: ExtendedPlace) => {
-    const url = buildMapsUrl(place);
-
-    try {
-      await Linking.openURL(url);
-    } catch (error) {
-      console.log("[explore] open maps error", error);
-    }
-  };
-
-  const ListHeader = () => (
-    <View>
-      <SectionHeader
-        title={txt.title}
-        icon={<MapPin color={theme.colors.primary} size={18} />}
-      />
-
-      <AppCard variant="elevated">
-        <View style={{ gap: 14 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <View
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 18,
-                backgroundColor: "rgba(82,118,255,0.14)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Compass color={theme.colors.primary} size={25} />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <AppText variant="h3">{txt.heroTitle}</AppText>
-
-              <AppText
-                variant="small"
-                color={theme.colors.textMuted}
-                style={{ marginTop: 3 }}
-              >
-                {txt.heroSubtitle}
-              </AppText>
-            </View>
-          </View>
-
-          <View
-            style={{
-              minHeight: 50,
-              borderRadius: theme.radius.md,
-              backgroundColor: theme.colors.inputBg,
-              borderWidth: 1,
-              borderColor: theme.colors.borderSoft,
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 13,
-              gap: 9,
-            }}
-          >
-            <Search color={theme.colors.textMuted} size={18} />
-
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder={txt.searchPlaceholder}
-              placeholderTextColor={theme.colors.textFaint}
-              autoCapitalize="none"
-              style={{
-                flex: 1,
-                color: theme.colors.text,
-                fontSize: 14,
-                paddingVertical: 10,
-              }}
-            />
-          </View>
-        </View>
-      </AppCard>
-
-      <View
-        style={{
-          height: 190,
-          borderRadius: 26,
-          backgroundColor: theme.colors.surfaceAlt,
-          marginTop: 14,
-          overflow: "hidden",
-          borderWidth: 1,
-          borderColor: theme.colors.borderSoft,
-        }}
-      >
-        <Image
-          source={{
-            uri: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=1200",
-          }}
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            opacity: 0.45,
-          }}
-          contentFit="cover"
-        />
-
-        <View
-          style={{
-            position: "absolute",
-            left: 14,
-            right: 14,
-            top: 14,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            gap: 8,
-          }}
-        >
-          <View
-            style={{
-              paddingHorizontal: 11,
-              paddingVertical: 7,
-              borderRadius: 999,
-              backgroundColor: "rgba(0,0,0,0.36)",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <Navigation color="#FFFFFF" size={14} />
-
-            <AppText
-              variant="caption"
-              style={{ color: "#FFFFFF", fontWeight: "800" }}
-            >
-              {items.length} {resultLabel}
-            </AppText>
-          </View>
-
-          {topPlace ? (
-            <View
-              style={{
-                maxWidth: 170,
-                paddingHorizontal: 11,
-                paddingVertical: 7,
-                borderRadius: 999,
-                backgroundColor: "rgba(0,0,0,0.36)",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 5,
-              }}
-            >
-              <Star color="#FFD166" fill="#FFD166" size={14} />
-
-              <AppText
-                variant="caption"
-                numberOfLines={1}
-                style={{ color: "#FFFFFF", fontWeight: "800" }}
-              >
-                {topPlace.name}
-              </AppText>
-            </View>
-          ) : null}
-        </View>
-
-        <View
-          style={{
-            flex: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            paddingHorizontal: 22,
-          }}
-        >
-          <View
-            style={{
-              width: 62,
-              height: 62,
-              borderRadius: 23,
-              backgroundColor: "rgba(255,255,255,0.22)",
-              alignItems: "center",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.30)",
-            }}
-          >
-            <MapPin color={theme.colors.text} size={30} />
-          </View>
-
-          <AppText
-            variant="bodyStrong"
-            style={{
-              marginTop: 10,
-              textAlign: "center",
-            }}
-          >
-            {txt.mapPreview}
-          </AppText>
-
-          <AppText
-            variant="small"
-            color={theme.colors.textMuted}
-            style={{
-              textAlign: "center",
-              marginTop: 3,
-            }}
-          >
-            {txt.mapHint}
-          </AppText>
-        </View>
-      </View>
-
-      <View style={{ marginTop: 15 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 7,
-            marginBottom: 9,
-          }}
-        >
-          <Filter color={theme.colors.textMuted} size={16} />
-
-          <AppText variant="caption" color={theme.colors.textMuted}>
-            {txt.categories}
-          </AppText>
-        </View>
-
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          {FILTERS.map((item) => (
-            <AppChip
-              key={item}
-              label={labelForFilter(item)}
-              active={filter === item}
-              onPress={() => setFilter(item)}
-            />
-          ))}
-        </View>
-      </View>
-
-      <View style={{ marginTop: 13 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 7,
-            marginBottom: 9,
-          }}
-        >
-          <SlidersHorizontal color={theme.colors.textMuted} size={16} />
-
-          <AppText variant="caption" color={theme.colors.textMuted}>
-            {txt.sort}
-          </AppText>
-        </View>
-
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          {SORTS.map((item) => (
-            <AppChip
-              key={item}
-              label={item === "rating" ? txt.bestRated : txt.sortByName}
-              active={sortMode === item}
-              onPress={() => setSortMode(item)}
-            />
-          ))}
-        </View>
-      </View>
-
-      <AppCard variant="outline" style={{ marginTop: 15 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 11 }}>
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 15,
-              backgroundColor: "rgba(82,118,255,0.12)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Navigation color={theme.colors.primary} size={19} />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <AppText variant="bodyStrong">{txt.futureMapTitle}</AppText>
-
-            <AppText
-              variant="small"
-              color={theme.colors.textMuted}
-              style={{ marginTop: 3 }}
-            >
-              {txt.futureMapText}
-            </AppText>
-          </View>
-        </View>
-      </AppCard>
-
-      <View
-        style={{
-          marginTop: 18,
-          marginBottom: 11,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <AppText variant="h3">{txt.nearbyTitle}</AppText>
-
-        <AppText variant="caption" color={theme.colors.textMuted}>
-          {items.length} {resultLabel}
-        </AppText>
-      </View>
-    </View>
+      if (supported || Platform.OS !== "web") {
+        await Linking.openURL(url);
+      }
+    },
+    [txt.routeUnavailable],
   );
+
+  const centerToUser = useCallback(() => {
+    if (!location) {
+      loadLocation();
+      return;
+    }
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.04,
+        longitudeDelta: 0.04,
+      },
+      600,
+    );
+  }, [loadLocation, location]);
 
   return (
     <ScreenContainer>
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={<ListHeader />}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{
-          paddingBottom: 120,
+        ListHeaderComponent={
+          <View style={{ gap: 16 }}>
+            <View style={{ gap: 8 }}>
+              <AppText variant="title">{txt.title}</AppText>
+              <AppText variant="body" color={muted}>
+                {txt.heroSubtitle}
+              </AppText>
+            </View>
+
+            <AppCard>
+              <View style={{ gap: 14 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <AppText variant="h3">{txt.heroTitle}</AppText>
+                    <AppText variant="caption" color={muted}>
+                      {location
+                        ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
+                        : txt.mapHint}
+                    </AppText>
+                  </View>
+
+                  <Compass color={primary} size={26} />
+                </View>
+
+                <View
+                  style={{
+                    borderRadius: 24,
+                    borderWidth: 1,
+                    borderColor: border,
+                    overflow: "hidden",
+                    height: 260,
+                    backgroundColor: background,
+                  }}
+                >
+                  <MapView
+                    ref={mapRef}
+                    provider={
+                      Platform.OS === "android" ? PROVIDER_GOOGLE : undefined
+                    }
+                    style={{ flex: 1 }}
+                    initialRegion={mapRegion}
+                    region={mapRegion}
+                    showsUserLocation={!!location}
+                    showsMyLocationButton={false}
+                    showsCompass
+                    toolbarEnabled={false}
+                  >
+                    {items
+                      .filter(
+                        (place) =>
+                          typeof place.latitude === "number" &&
+                          typeof place.longitude === "number",
+                      )
+                      .slice(0, 40)
+                      .map((place) => {
+                        const Icon = getPlaceIcon(place.type);
+
+                        return (
+                          <Marker
+                            key={`marker-${place.id}`}
+                            coordinate={{
+                              latitude: Number(place.latitude),
+                              longitude: Number(place.longitude),
+                            }}
+                            title={place.name}
+                            description={place.address}
+                            onPress={() => openRoute(place)}
+                          >
+                            <View
+                              style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 19,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                backgroundColor: card,
+                                borderWidth: 2,
+                                borderColor: primary,
+                              }}
+                            >
+                              <Icon color={primary} size={18} />
+                            </View>
+                          </Marker>
+                        );
+                      })}
+                  </MapView>
+
+                  {(loadingLocation || loadingPlaces) && (
+                    <View
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(15, 23, 42, 0.22)",
+                      }}
+                    >
+                      <View
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          borderRadius: 999,
+                          backgroundColor: card,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <ActivityIndicator />
+                        <AppText variant="body">
+                          {loadingLocation
+                            ? txt.loadingLocation
+                            : txt.loadingPlaces}
+                        </AppText>
+                      </View>
+                    </View>
+                  )}
+
+                  <Pressable
+                    onPress={centerToUser}
+                    style={{
+                      position: "absolute",
+                      right: 14,
+                      bottom: 14,
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: card,
+                      borderWidth: 1,
+                      borderColor: border,
+                    }}
+                  >
+                    <LocateFixed color={primary} size={21} />
+                  </Pressable>
+                </View>
+
+                {locationError ? (
+                  <AppText variant="caption" color={muted}>
+                    {locationError}
+                  </AppText>
+                ) : null}
+
+                {usingFallback ? (
+                  <AppText variant="caption" color={muted}>
+                    {txt.backendFallback}
+                  </AppText>
+                ) : null}
+
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <Pressable
+                    onPress={loadLocation}
+                    style={{
+                      flex: 1,
+                      borderRadius: 18,
+                      paddingVertical: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: primary,
+                      flexDirection: "row",
+                      gap: 8,
+                    }}
+                  >
+                    <Navigation color="#FFFFFF" size={18} />
+                    <AppText variant="bodyStrong" color="#FFFFFF">
+                      {txt.useMyLocation}
+                    </AppText>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={loadNearby}
+                    style={{
+                      borderRadius: 18,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: card,
+                      borderWidth: 1,
+                      borderColor: border,
+                    }}
+                  >
+                    <RefreshCw color={primary} size={18} />
+                  </Pressable>
+                </View>
+              </View>
+            </AppCard>
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: border,
+                borderRadius: 18,
+                paddingHorizontal: 14,
+                backgroundColor: card,
+              }}
+            >
+              <Search color={muted} size={18} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={txt.searchPlaceholder}
+                placeholderTextColor={muted}
+                style={{
+                  flex: 1,
+                  paddingVertical: 13,
+                  paddingHorizontal: 10,
+                  color: text,
+                }}
+              />
+            </View>
+
+            <View style={{ gap: 10 }}>
+              <SectionHeader title={txt.categories} />
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {FILTERS.map((item) => (
+                  <AppChip
+                    key={item}
+                    label={txt[item]}
+                    active={filter === item}
+                    onPress={() => setFilter(item)}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={{ gap: 10 }}>
+              <SectionHeader title={txt.sort} />
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {SORTS.map((item) => (
+                  <AppChip
+                    key={item}
+                    label={
+                      item === "distance"
+                        ? txt.distance
+                        : item === "rating"
+                          ? txt.bestRated
+                          : txt.sortByName
+                    }
+                    active={sortMode === item}
+                    onPress={() => setSortMode(item)}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <SectionHeader
+  title={txt.nearbyTitle}
+  action={
+    <AppText variant="caption" color={muted}>
+      {items.length} {resultLabel}
+    </AppText>
+  }
+/>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const Icon = getPlaceIcon(item.type);
+          const distance = formatDistance(item);
+
+          return (
+            <AppCard style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View
+                  style={{
+                    width: 68,
+                    height: 68,
+                    borderRadius: 22,
+                    overflow: "hidden",
+                    backgroundColor: background,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: border,
+                  }}
+                >
+                  {item.imageUrl ? (
+                    <Image
+                      source={{ uri: item.imageUrl }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Icon color={primary} size={30} />
+                  )}
+                </View>
+
+                <View style={{ flex: 1, gap: 7 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="bodyStrong">{item.name}</AppText>
+                      <AppText
+                        variant="caption"
+                        color={muted}
+                        numberOfLines={2}
+                      >
+                        {item.address || txt.noAddress}
+                      </AppText>
+                    </View>
+
+                    {getPlaceRating(item) > 0 ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Star color="#F59E0B" size={15} fill="#F59E0B" />
+                        <AppText variant="caption">
+                          {getPlaceRating(item).toFixed(1)}
+                        </AppText>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {item.description ? (
+                    <AppText
+                      variant="caption"
+                      color={muted}
+                      numberOfLines={2}
+                    >
+                      {item.description}
+                    </AppText>
+                  ) : null}
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 5,
+                        paddingHorizontal: 9,
+                        paddingVertical: 5,
+                        borderRadius: 999,
+                        backgroundColor: background,
+                      }}
+                    >
+                      <MapPin color={muted} size={14} />
+                      <AppText variant="caption" color={muted}>
+                        {distance ?? txt.distanceSoon}
+                      </AppText>
+                    </View>
+
+                    <Pressable
+                      onPress={() => openRoute(item)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 5,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: primary,
+                      }}
+                    >
+                      <ExternalLink color="#FFFFFF" size={14} />
+                      <AppText variant="caption" color="#FFFFFF">
+                        {txt.openRoute}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </AppCard>
+          );
         }}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         ListEmptyComponent={
           <AppEmptyState
             title={txt.noResultsTitle}
             message={txt.noResultsMessage}
           />
         }
-        renderItem={({ item }) => {
-          const distance = formatDistance(item);
-          const rating = getPlaceRating(item);
-
-          return (
-            <AppCard variant="elevated" padded={false}>
-              {item.imageUrl ? (
-                <Image
-                  source={{ uri: item.imageUrl }}
-                  style={{
-                    height: 158,
-                    width: "100%",
-                  }}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                />
-              ) : (
-                <View
-                  style={{
-                    height: 158,
-                    width: "100%",
-                    backgroundColor: theme.colors.surfaceAlt,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {iconFor(item.type, 32)}
-                </View>
-              )}
-
-              <View style={{ padding: 14, gap: 9 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  {iconFor(item.type)}
-
-                  <AppText variant="caption" color={theme.colors.textMuted}>
-                    {labelForPlaceType(item.type)}
-                  </AppText>
-
-                  <View style={{ flex: 1 }} />
-
-                  {rating > 0 ? (
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 3,
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: theme.colors.surfaceAlt,
-                      }}
-                    >
-                      <Star
-                        color={theme.colors.fire}
-                        size={14}
-                        fill={theme.colors.fire}
-                      />
-
-                      <AppText variant="small" style={{ fontWeight: "800" }}>
-                        {rating.toFixed(1)}
-                      </AppText>
-                    </View>
-                  ) : null}
-                </View>
-
-                <AppText variant="h3">{item.name}</AppText>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "flex-start",
-                    gap: 6,
-                  }}
-                >
-                  <MapPin color={theme.colors.textMuted} size={15} />
-
-                  <AppText
-                    variant="small"
-                    color={theme.colors.textMuted}
-                    style={{ flex: 1 }}
-                  >
-                    {item.address || txt.noAddress}
-                  </AppText>
-                </View>
-
-                {distance ? (
-                  <AppText variant="caption" color={theme.colors.textFaint}>
-                    {distance}
-                  </AppText>
-                ) : (
-                  <AppText variant="caption" color={theme.colors.textFaint}>
-                    {txt.distanceSoon}
-                  </AppText>
-                )}
-
-                {item.description ? (
-                  <AppText
-                    variant="small"
-                    color={theme.colors.textMuted}
-                    numberOfLines={2}
-                  >
-                    {item.description}
-                  </AppText>
-                ) : null}
-
-                {item.workingHours ? (
-                  <AppText variant="caption" color={theme.colors.textFaint}>
-                    {item.workingHours}
-                  </AppText>
-                ) : null}
-
-                <Pressable
-                  onPress={() => openPlaceInMaps(item)}
-                  style={{
-                    marginTop: 5,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderRadius: theme.radius.md,
-                    backgroundColor: theme.colors.primary,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                  }}
-                >
-                  <ExternalLink color="#FFFFFF" size={16} />
-
-                  <AppText
-                    variant="small"
-                    style={{
-                      color: "#FFFFFF",
-                      fontWeight: "800",
-                    }}
-                  >
-                    {txt.openRoute}
-                  </AppText>
-                </Pressable>
-              </View>
-            </AppCard>
-          );
-        }}
+        contentContainerStyle={{ paddingBottom: 120 }}
       />
     </ScreenContainer>
   );
