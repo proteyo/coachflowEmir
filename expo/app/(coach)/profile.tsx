@@ -19,6 +19,7 @@ import React from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -26,6 +27,7 @@ import {
   Switch,
   View,
 } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppAvatar,
@@ -293,6 +295,10 @@ function splitLines(value: string) {
     .filter(Boolean);
 }
 
+function sanitizeExperience(value: string) {
+  return value.replace(/[^\d]/g, "");
+}
+
 function getDefaultNotifications(userId: string) {
   return {
     userId,
@@ -495,7 +501,10 @@ export default function CoachProfile() {
       return;
     }
 
+    const nextName = editName.trim();
+    const nextPhone = editPhone.trim() || undefined;
     const nextSpecialty = getSpecialtyForBackend(editSpecialty);
+    const nextBio = editBio.trim();
     const nextAchievements = splitLines(editAchievements);
     const nextCertificates = splitLines(editCertificates);
     const nextCoverImageUrl = editCoverImageUrl.trim() || undefined;
@@ -506,8 +515,8 @@ export default function CoachProfile() {
       await apiPatch(
         "/users/me",
         {
-          name: editName.trim(),
-          phone: editPhone.trim() || undefined,
+          name: nextName,
+          phone: nextPhone,
         },
         { token },
       );
@@ -516,7 +525,7 @@ export default function CoachProfile() {
         "/users/me/coach-profile",
         {
           specialty: nextSpecialty,
-          bio: editBio.trim() || undefined,
+          bio: nextBio || undefined,
           experience_years: experienceValue,
           achievements: nextAchievements,
           certificates: nextCertificates,
@@ -537,8 +546,8 @@ export default function CoachProfile() {
             item.id === user.id
               ? {
                   ...item,
-                  name: editName.trim(),
-                  phone: editPhone.trim() || undefined,
+                  name: nextName,
+                  phone: nextPhone,
                 }
               : item,
           ),
@@ -548,7 +557,7 @@ export default function CoachProfile() {
                   ? {
                       ...item,
                       specialty: nextSpecialty,
-                      bio: editBio.trim(),
+                      bio: nextBio,
                       experienceYears: experienceValue,
                       achievements: nextAchievements,
                       certificates: nextCertificates,
@@ -562,7 +571,7 @@ export default function CoachProfile() {
                 {
                   userId: user.id,
                   specialty: nextSpecialty,
-                  bio: editBio.trim(),
+                  bio: nextBio,
                   experienceYears: experienceValue,
                   achievements: nextAchievements,
                   certificates: nextCertificates,
@@ -575,8 +584,8 @@ export default function CoachProfile() {
       });
 
       await updateMe({
-        name: editName.trim(),
-        phone: editPhone.trim() || undefined,
+        name: nextName,
+        phone: nextPhone,
       });
 
       await refreshFromBackend();
@@ -713,11 +722,11 @@ export default function CoachProfile() {
             </View>
           </Pressable>
 
-          <AppText variant="h2" color="#fff">
+          <AppText variant="h2" color="#fff" numberOfLines={1}>
             {user.name}
           </AppText>
 
-          <AppText variant="small" color="rgba(255,255,255,0.82)">
+          <AppText variant="small" color="rgba(255,255,255,0.82)" numberOfLines={1}>
             {specialtyText}
           </AppText>
 
@@ -793,8 +802,8 @@ export default function CoachProfile() {
                 />
               </View>
 
-              <View style={{ flex: 1 }}>
-                <AppText variant="bodyStrong">
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AppText variant="bodyStrong" numberOfLines={1}>
                   {isActive
                     ? `${L.activePlan}: ${currentPlan?.name ?? ""}`
                     : L.inactivePlan}
@@ -804,6 +813,7 @@ export default function CoachProfile() {
                   variant="small"
                   color={theme.colors.textMuted}
                   style={{ marginTop: 2 }}
+                  numberOfLines={2}
                 >
                   {isActive
                     ? L.activeUntil.replace("{date}", activeUntil)
@@ -1064,101 +1074,183 @@ function EditCoachProfileModal({
   const { theme } = useTheme();
   const { t } = useI18n();
 
+  const handleClose = () => {
+    if (saving) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <View
-          style={{
-            paddingTop: 56,
-            paddingHorizontal: 20,
-            paddingBottom: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.borderSoft,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X color={theme.colors.text} size={22} />
-          </Pressable>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+          <View
+            style={{
+              paddingTop: 56,
+              paddingHorizontal: 20,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.borderSoft,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Pressable onPress={handleClose} hitSlop={8} disabled={saving}>
+              <X color={theme.colors.text} size={22} />
+            </Pressable>
 
-          <AppText variant="h3">{text.editProfile}</AppText>
+            <AppText variant="h3" numberOfLines={1} style={{ flex: 1, textAlign: "center" }}>
+              {text.editProfile}
+            </AppText>
 
-          <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
-            <Check
-              color={saving ? theme.colors.textMuted : theme.colors.primary}
-              size={22}
-            />
-          </Pressable>
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
-          <AppInput
-            label={t("auth.name")}
-            value={editName}
-            onChangeText={setEditName}
-          />
-
-          <AppInput
-            label={text.phone}
-            value={editPhone}
-            onChangeText={setEditPhone}
-          />
-
-          <AppInput
-            label={text.specialty}
-            value={editSpecialty}
-            onChangeText={setEditSpecialty}
-            placeholder={text.specialtyPlaceholder}
-          />
-
-          <AppInput
-            label={text.bio}
-            value={editBio}
-            onChangeText={setEditBio}
-            multiline
-          />
-
-          <AppInput
-            label={text.experience}
-            value={editExperienceYears}
-            onChangeText={setEditExperienceYears}
-            keyboardType="numeric"
-          />
-
-          <AppInput
-            label={text.achievements}
-            value={editAchievements}
-            onChangeText={setEditAchievements}
-            placeholder={text.achievementsHint}
-            multiline
-          />
-
-          <AppInput
-            label={text.certificates}
-            value={editCertificates}
-            onChangeText={setEditCertificates}
-            placeholder={text.certificatesHint}
-            multiline
-          />
-
-          <AppInput
-            label={text.coverImageUrl}
-            value={editCoverImageUrl}
-            onChangeText={setEditCoverImageUrl}
-            autoCapitalize="none"
-          />
-
-          <View style={{ marginTop: 12 }}>
-            <AppButton
-              title={saving ? text.savingChanges : text.saveChanges}
-              onPress={onSave}
-              fullWidth
-            />
+            <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
+              <Check
+                color={saving ? theme.colors.textMuted : theme.colors.primary}
+                size={22}
+              />
+            </Pressable>
           </View>
-        </ScrollView>
-      </View>
+
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              padding: 20,
+              gap: 12,
+              paddingBottom: 96,
+            }}
+          >
+            <AppInput
+              label={t("auth.name")}
+              value={editName}
+              onChangeText={setEditName}
+              autoCapitalize="words"
+              autoCorrect={false}
+              textContentType="name"
+              autoComplete="name"
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
+
+            <AppInput
+              label={text.phone}
+              value={editPhone}
+              onChangeText={setEditPhone}
+              keyboardType="phone-pad"
+              inputMode="tel"
+              textContentType="telephoneNumber"
+              autoComplete="tel"
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
+
+            <AppInput
+              label={text.specialty}
+              value={editSpecialty}
+              onChangeText={setEditSpecialty}
+              placeholder={text.specialtyPlaceholder}
+              autoCapitalize="sentences"
+              autoCorrect={false}
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
+
+            <AppInput
+              label={text.bio}
+              value={editBio}
+              onChangeText={setEditBio}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="next"
+              submitBehavior="submit"
+              style={{
+                minHeight: 96,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
+
+            <AppInput
+              label={text.experience}
+              value={editExperienceYears}
+              onChangeText={(value) => setEditExperienceYears(sanitizeExperience(value))}
+              keyboardType="numeric"
+              inputMode="numeric"
+              returnKeyType="next"
+              submitBehavior="submit"
+              maxLength={2}
+            />
+
+            <AppInput
+              label={text.achievements}
+              value={editAchievements}
+              onChangeText={setEditAchievements}
+              placeholder={text.achievementsHint}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="next"
+              submitBehavior="submit"
+              style={{
+                minHeight: 110,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
+
+            <AppInput
+              label={text.certificates}
+              value={editCertificates}
+              onChangeText={setEditCertificates}
+              placeholder={text.certificatesHint}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="next"
+              submitBehavior="submit"
+              style={{
+                minHeight: 110,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
+
+            <AppInput
+              label={text.coverImageUrl}
+              value={editCoverImageUrl}
+              onChangeText={setEditCoverImageUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              inputMode="url"
+              textContentType="URL"
+              autoComplete="url"
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={onSave}
+            />
+
+            <View style={{ marginTop: 12 }}>
+              <AppButton
+                title={saving ? text.savingChanges : text.saveChanges}
+                loading={saving}
+                disabled={saving}
+                onPress={onSave}
+                fullWidth
+              />
+            </View>
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1181,7 +1273,11 @@ function Row({ label, value }: { label: string; value: string }) {
         {label}
       </AppText>
 
-      <AppText variant="bodyStrong" style={{ flex: 1, textAlign: "right" }}>
+      <AppText
+        variant="bodyStrong"
+        style={{ flex: 1, textAlign: "right" }}
+        numberOfLines={2}
+      >
         {value}
       </AppText>
     </View>

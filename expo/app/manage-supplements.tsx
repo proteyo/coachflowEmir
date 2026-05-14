@@ -1,7 +1,15 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Pill, Plus, Trash2, X } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 
 import SubscriptionGate from "@/src/components/SubscriptionGate";
 import {
@@ -140,6 +148,23 @@ function normalizeBackendItems(
     daysOfWeek: normalizeDays(item.daysOfWeek ?? item.days_of_week),
     notes: item.notes ?? undefined,
   }));
+}
+
+function sanitizeTimesPerDay(value: string) {
+  return value.replace(/[^\d]/g, "");
+}
+
+function sanitizeTimes(value: string) {
+  return value.replace(/[^0-9:,\s]/g, "");
+}
+
+function normalizeSpecificTimes(value: string) {
+  const times = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return times.length ? times : ["09:00"];
 }
 
 export default function ManageSupplements() {
@@ -301,6 +326,7 @@ export default function ManageSupplements() {
             <Pressable
               onPress={() => router.back()}
               style={{ paddingHorizontal: 4 }}
+              hitSlop={10}
             >
               <ChevronLeft color={theme.colors.text} size={22} />
             </Pressable>
@@ -310,18 +336,32 @@ export default function ManageSupplements() {
 
       <SubscriptionGate>
         <ScreenContainer scroll padded={false}>
-          <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 12 }}>
+          <View
+            style={{
+              paddingHorizontal: 20,
+              paddingTop: 8,
+              paddingBottom: 40,
+              gap: 12,
+            }}
+          >
             <View
               style={{
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: 12,
               }}
             >
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <AppText variant="h3">{t("supps.title")}</AppText>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AppText variant="h3" numberOfLines={1}>
+                  {t("supps.title")}
+                </AppText>
 
-                <AppText variant="small" color={theme.colors.textMuted}>
+                <AppText
+                  variant="small"
+                  color={theme.colors.textMuted}
+                  numberOfLines={2}
+                >
                   {t("supps.manageSubtitle")}
                 </AppText>
               </View>
@@ -329,6 +369,7 @@ export default function ManageSupplements() {
               <AppButton
                 title={saving ? t("common.loading") : t("common.add")}
                 size="sm"
+                disabled={saving}
                 icon={<Plus size={16} color={theme.colors.primaryContrast} />}
                 onPress={() => setAdding(true)}
               />
@@ -351,12 +392,16 @@ export default function ManageSupplements() {
                       gap: 12,
                     }}
                   >
-                    <View style={{ flex: 1 }}>
-                      <AppText variant="bodyStrong">
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <AppText variant="bodyStrong" numberOfLines={1}>
                         {translateSupplementName(s.name, lang)}
                       </AppText>
 
-                      <AppText variant="small" color={theme.colors.textMuted}>
+                      <AppText
+                        variant="small"
+                        color={theme.colors.textMuted}
+                        numberOfLines={1}
+                      >
                         {s.dosage} · {s.specificTimes.join(", ")}
                       </AppText>
 
@@ -389,6 +434,7 @@ export default function ManageSupplements() {
                         variant="caption"
                         color={theme.colors.primary}
                         style={{ marginTop: 6, fontWeight: "700" }}
+                        numberOfLines={2}
                       >
                         {formatDays(s.daysOfWeek, t)}
                       </AppText>
@@ -398,13 +444,20 @@ export default function ManageSupplements() {
                           variant="caption"
                           color={theme.colors.textFaint}
                           style={{ marginTop: 4 }}
+                          numberOfLines={2}
                         >
                           {s.notes}
                         </AppText>
                       ) : null}
                     </View>
 
-                    <View style={{ flexDirection: "row", gap: 12 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 12,
+                        flexShrink: 0,
+                      }}
+                    >
                       <Pressable onPress={() => setEditing(s)} hitSlop={8}>
                         <AppText variant="small" color={theme.colors.primary}>
                           {t("common.edit")}
@@ -420,7 +473,7 @@ export default function ManageSupplements() {
               ))
             )}
 
-            <View style={{ height: 32 }} />
+            <View style={{ height: 24 }} />
           </View>
 
           <SupplementEditor
@@ -498,22 +551,24 @@ function SupplementEditor({
   };
 
   const submit = () => {
-    if (!name.trim() || !dosage.trim() || saving) {
+    if (saving) return;
+
+    const cleanName = name.trim();
+    const cleanDosage = dosage.trim();
+    const cleanTimes = normalizeSpecificTimes(times);
+    const cleanTimesPerDay = parseInt(timesPerDay, 10) || cleanTimes.length || 1;
+
+    if (!cleanName || !cleanDosage) {
       return;
     }
-
-    const specific = times
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
 
     onSave({
       id: initial?.id ?? `local_si_${Date.now()}`,
       planId: initial?.planId ?? "",
-      name: name.trim(),
-      dosage: dosage.trim(),
-      timesPerDay: parseInt(timesPerDay, 10) || 1,
-      specificTimes: specific.length ? specific : ["09:00"],
+      name: cleanName,
+      dosage: cleanDosage,
+      timesPerDay: cleanTimesPerDay,
+      specificTimes: cleanTimes,
       daysOfWeek: normalizeDays(daysOfWeek),
       notes: notes.trim() || undefined,
     });
@@ -522,150 +577,216 @@ function SupplementEditor({
   const everyDayActive = daysOfWeek.length === 7;
   const weekdaysActive = areSameDays(daysOfWeek, WEEKDAYS);
   const weekendsActive = areSameDays(daysOfWeek, WEEKENDS);
+  const canSave = !!name.trim() && !!dosage.trim() && !saving;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <View
-          style={{
-            paddingTop: 56,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.borderSoft,
-          }}
-        >
-          <Pressable onPress={onClose} hitSlop={8} disabled={saving}>
-            <X color={theme.colors.text} size={22} />
-          </Pressable>
-
-          <AppText variant="h3">
-            {initial ? t("supps.editSupplement") : t("supps.addSupplement")}
-          </AppText>
-
-          <Pressable onPress={submit} hitSlop={8} disabled={saving}>
-            <AppText variant="bodyStrong" color={theme.colors.primary}>
-              {saving ? t("common.loading") : t("common.save")}
-            </AppText>
-          </Pressable>
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-          <AppText variant="caption" color={theme.colors.textMuted}>
-            {t("supps.suggestions")}
-          </AppText>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8 }}
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+          <View
+            style={{
+              paddingTop: 56,
+              paddingHorizontal: 16,
+              paddingBottom: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.borderSoft,
+              gap: 12,
+            }}
           >
-            {SUPPLEMENT_SUGGESTIONS.map((s) => (
-              <AppChip
-                key={s.name}
-                label={getSupplementName(s, lang)}
-                onPress={() => {
-                  setName(getSupplementName(s, lang));
-                  setDosage(s.dosage);
-                  setTimesPerDay(String(s.timesPerDay));
-                  setTimes(s.specificTimes.join(", "));
-                  setDaysOfWeek(ALL_DAYS);
-                }}
-              />
-            ))}
-          </ScrollView>
+            <Pressable onPress={onClose} hitSlop={8} disabled={saving}>
+              <X color={theme.colors.text} size={22} />
+            </Pressable>
 
-          <AppInput
-            label={t("supps.name")}
-            value={name}
-            onChangeText={setName}
-          />
+            <AppText variant="h3" numberOfLines={1} style={{ flex: 1, textAlign: "center" }}>
+              {initial ? t("supps.editSupplement") : t("supps.addSupplement")}
+            </AppText>
 
-          <AppInput
-            label={t("supps.dosage")}
-            value={dosage}
-            onChangeText={setDosage}
-            placeholder={t("supps.dosagePlaceholder")}
-          />
-
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <View style={{ width: 110 }}>
-              <AppInput
-                label={t("supps.timesPerDay")}
-                value={timesPerDay}
-                onChangeText={setTimesPerDay}
-                keyboardType="numeric"
-              />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <AppInput
-                label={t("supps.times")}
-                value={times}
-                onChangeText={setTimes}
-                autoCapitalize="none"
-              />
-            </View>
+            <Pressable onPress={submit} hitSlop={8} disabled={!canSave}>
+              <AppText
+                variant="bodyStrong"
+                color={canSave ? theme.colors.primary : theme.colors.textFaint}
+              >
+                {saving ? t("common.loading") : t("common.save")}
+              </AppText>
+            </Pressable>
           </View>
 
-          <AppCard variant="outline">
-            <View style={{ gap: 10 }}>
-              <View>
-                <AppText variant="bodyStrong">{t("supps.activeDays")}</AppText>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              padding: 16,
+              gap: 14,
+              paddingBottom: 96,
+            }}
+          >
+            <AppText variant="caption" color={theme.colors.textMuted}>
+              {t("supps.suggestions")}
+            </AppText>
 
-                <AppText variant="small" color={theme.colors.textMuted}>
-                  {t("supps.activeDaysHint")}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {SUPPLEMENT_SUGGESTIONS.map((s) => (
+                <AppChip
+                  key={s.name}
+                  label={getSupplementName(s, lang)}
+                  onPress={() => {
+                    setName(getSupplementName(s, lang));
+                    setDosage(s.dosage);
+                    setTimesPerDay(String(s.timesPerDay));
+                    setTimes(s.specificTimes.join(", "));
+                    setDaysOfWeek(ALL_DAYS);
+                  }}
+                />
+              ))}
+            </ScrollView>
+
+            <AppInput
+              label={t("supps.name")}
+              value={name}
+              onChangeText={setName}
+              placeholder={t("supps.name")}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
+
+            <AppInput
+              label={t("supps.dosage")}
+              value={dosage}
+              onChangeText={setDosage}
+              placeholder={t("supps.dosagePlaceholder")}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
+
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={{ width: 110 }}>
+                <AppInput
+                  label={t("supps.timesPerDay")}
+                  value={timesPerDay}
+                  onChangeText={(value) => {
+                    setTimesPerDay(sanitizeTimesPerDay(value));
+                  }}
+                  keyboardType="numeric"
+                  inputMode="numeric"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={2}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <AppInput
+                  label={t("supps.times")}
+                  value={times}
+                  onChangeText={(value) => {
+                    setTimes(sanitizeTimes(value));
+                  }}
+                  placeholder="09:00, 18:00"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="numbers-and-punctuation"
+                  inputMode="text"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                />
+              </View>
+            </View>
+
+            <AppCard variant="outline">
+              <View style={{ gap: 10 }}>
+                <View>
+                  <AppText variant="bodyStrong">{t("supps.activeDays")}</AppText>
+
+                  <AppText variant="small" color={theme.colors.textMuted}>
+                    {t("supps.activeDaysHint")}
+                  </AppText>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  <AppChip
+                    label={t("supps.everyDay")}
+                    active={everyDayActive}
+                    onPress={selectEveryDay}
+                  />
+
+                  <AppChip
+                    label={t("supps.weekdays")}
+                    active={weekdaysActive}
+                    onPress={selectWeekdays}
+                  />
+
+                  <AppChip
+                    label={t("supps.weekends")}
+                    active={weekendsActive}
+                    onPress={selectWeekends}
+                  />
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  {DAYS.map((day) => (
+                    <AppChip
+                      key={day.key}
+                      label={t(day.labelKey as never)}
+                      active={daysOfWeek.includes(day.key)}
+                      onPress={() => toggleDay(day.key)}
+                    />
+                  ))}
+                </View>
+
+                <AppText variant="caption" color={theme.colors.primary}>
+                  {t("supps.selectedDays")}: {formatDays(daysOfWeek, t)}
                 </AppText>
               </View>
+            </AppCard>
 
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                <AppChip
-                  label={t("supps.everyDay")}
-                  active={everyDayActive}
-                  onPress={selectEveryDay}
-                />
+            <AppInput
+              label={t("supps.notes")}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder={t("common.optional")}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={submit}
+              style={{
+                minHeight: 92,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
 
-                <AppChip
-                  label={t("supps.weekdays")}
-                  active={weekdaysActive}
-                  onPress={selectWeekdays}
-                />
+            <AppButton
+              title={saving ? t("common.loading") : t("common.save")}
+              size="lg"
+              loading={saving}
+              disabled={!canSave}
+              onPress={submit}
+              fullWidth
+            />
 
-                <AppChip
-                  label={t("supps.weekends")}
-                  active={weekendsActive}
-                  onPress={selectWeekends}
-                />
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                {DAYS.map((day) => (
-                  <AppChip
-                    key={day.key}
-                    label={t(day.labelKey as never)}
-                    active={daysOfWeek.includes(day.key)}
-                    onPress={() => toggleDay(day.key)}
-                  />
-                ))}
-              </View>
-
-              <AppText variant="caption" color={theme.colors.primary}>
-                {t("supps.selectedDays")}: {formatDays(daysOfWeek, t)}
-              </AppText>
-            </View>
-          </AppCard>
-
-          <AppInput
-            label={t("supps.notes")}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder={t("common.optional")}
-          />
-        </ScrollView>
-      </View>
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

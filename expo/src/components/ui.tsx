@@ -4,6 +4,8 @@ import { Flame } from "lucide-react-native";
 import React, { ReactNode, useMemo } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   PressableProps,
   RefreshControlProps,
@@ -15,11 +17,21 @@ import {
   TextProps,
   TextStyle,
   View,
-  ViewProps,
   ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
 import { useTheme } from "@/src/context/ThemeContext";
+
+type AppTextVariant =
+  | "display"
+  | "title"
+  | "h2"
+  | "h3"
+  | "body"
+  | "bodyStrong"
+  | "small"
+  | "caption";
 
 export function ScreenContainer({
   children,
@@ -47,17 +59,29 @@ export function ScreenContainer({
       style={{ flex: 1, backgroundColor: theme.colors.bg }}
       edges={edges ?? ["top", "left", "right"]}
     >
-      {scroll ? (
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: 32 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={refreshControl}
-        >
-          {inner}
-        </ScrollView>
-      ) : (
-        inner
-      )}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        {scroll ? (
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingBottom: 96,
+            }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            contentInsetAdjustmentBehavior="automatic"
+          >
+            {inner}
+          </ScrollView>
+        ) : (
+          inner
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -68,7 +92,7 @@ export function AppText({
   style,
   children,
   ...rest
-}: TextProps & { variant?: keyof typeof variants; color?: string }) {
+}: TextProps & { variant?: AppTextVariant; color?: string }) {
   const { theme } = useTheme();
   const t = theme.typography[variant] ?? theme.typography.body;
 
@@ -78,17 +102,6 @@ export function AppText({
     </Text>
   );
 }
-
-const variants = {
-  display: 0,
-  title: 0,
-  h2: 0,
-  h3: 0,
-  body: 0,
-  bodyStrong: 0,
-  small: 0,
-  caption: 0,
-};
 
 export function AppCard({
   children,
@@ -261,7 +274,7 @@ export function AppInput({
           backgroundColor: theme.colors.inputBg,
           borderRadius: theme.radius.md,
           paddingHorizontal: 14,
-          height: 50,
+          minHeight: 50,
           borderWidth: 1,
           borderColor: error ? theme.colors.danger : "transparent",
         }}
@@ -276,6 +289,7 @@ export function AppInput({
               color: theme.colors.text,
               fontSize: 15,
               fontWeight: "500" as TextStyle["fontWeight"],
+              paddingVertical: Platform.OS === "android" ? 8 : 0,
             },
             style,
           ]}

@@ -9,12 +9,8 @@ import {
   Mail,
 } from "lucide-react-native";
 import React, { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  View,
-} from "react-native";
+import { Pressable, View } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppButton,
@@ -40,6 +36,10 @@ export default function Login() {
   const [error, setError] = useState<string>("");
 
   const currentLanguage = LANGUAGES.find((item) => item.code === lang);
+
+  const clearError = () => {
+    if (error) setError("");
+  };
 
   const onSubmit = async () => {
     setError("");
@@ -161,9 +161,13 @@ export default function Login() {
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ paddingHorizontal: 20, paddingTop: 24, gap: 14 }}
+      <View
+        style={{
+          paddingHorizontal: 20,
+          paddingTop: 24,
+          paddingBottom: 40,
+          gap: 14,
+        }}
       >
         <AppInput
           label={t("auth.email")}
@@ -171,10 +175,15 @@ export default function Login() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
+          inputMode="email"
+          textContentType="emailAddress"
+          autoComplete="email"
+          returnKeyType="next"
+          submitBehavior="submit"
           value={email}
           onChangeText={(value) => {
             setEmail(value);
-            setError("");
+            clearError();
           }}
           leftIcon={<Mail size={18} color={theme.colors.textMuted} />}
         />
@@ -186,8 +195,15 @@ export default function Login() {
           value={password}
           onChangeText={(value) => {
             setPassword(value);
-            setError("");
+            clearError();
           }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="password"
+          autoComplete="password"
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={onSubmit}
           leftIcon={<Lock size={18} color={theme.colors.textMuted} />}
           rightIcon={
             <Pressable
@@ -227,6 +243,7 @@ export default function Login() {
           title={submitting ? t("auth.signingIn") : t("auth.signIn")}
           size="lg"
           loading={submitting}
+          disabled={submitting}
           onPress={onSubmit}
           fullWidth
         />
@@ -272,7 +289,9 @@ export default function Login() {
             {t("auth.secureAccessText")}
           </AppText>
         </View>
-      </KeyboardAvoidingView>
+
+        <View style={{ height: 32 }} />
+      </View>
     </ScreenContainer>
   );
 }

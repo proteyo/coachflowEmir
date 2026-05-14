@@ -12,6 +12,7 @@ import {
 } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppButton,
@@ -97,6 +98,10 @@ export default function Register() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
+  const clearError = () => {
+    if (error) setError("");
+  };
+
   const onSubmit = async () => {
     setError("");
 
@@ -168,7 +173,7 @@ export default function Register() {
         Для стандартных целей НЕ сохраняем переведённый текст.
         Сохраняем только goalType: lose_weight / gain_muscle / improve_mobility / maintain_shape.
         Это нужно, чтобы цель потом могла переводиться при смене языка.
-        
+
         goal сохраняем только если цель custom.
       */
       goalLabel = goalType === "custom" ? goalText.trim() : "";
@@ -179,31 +184,32 @@ export default function Register() {
       }
     }
 
-    setSubmitting(true);
+    try {
+      setSubmitting(true);
 
-    const res = await register({
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-      role,
-      age: parsedAge,
-      goalType: role === "client" ? (goalType ?? undefined) : undefined,
-      goal: goalLabel || undefined,
+      const res = await register({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+        age: parsedAge,
+        goalType: role === "client" ? (goalType ?? undefined) : undefined,
+        goal: goalLabel || undefined,
+        height: parsedHeight,
+        startWeight: parsedStartWeight,
+        currentWeight: parsedCurrentWeight,
+        fitnessLevel: role === "client" ? fitnessLevel : undefined,
+      } as any);
 
-      height: parsedHeight,
-      startWeight: parsedStartWeight,
-      currentWeight: parsedCurrentWeight,
-      fitnessLevel: role === "client" ? fitnessLevel : undefined,
-    } as any);
+      if (!res.ok) {
+        setError(res.error ?? t("auth.failedRegister"));
+        return;
+      }
 
-    setSubmitting(false);
-
-    if (!res.ok) {
-      setError(res.error ?? t("auth.failedRegister"));
-      return;
+      router.replace("/");
+    } finally {
+      setSubmitting(false);
     }
-
-    router.replace("/");
   };
 
   return (
@@ -300,15 +306,21 @@ export default function Register() {
         })}
       </View>
 
-      <View style={{ marginTop: 20, gap: 14 }}>
+      <View style={{ marginTop: 20, gap: 14, paddingBottom: 40 }}>
         <AppInput
           label={t("auth.name")}
           placeholder={t("auth.namePlaceholder")}
           value={name}
           onChangeText={(value) => {
             setName(value);
-            setError("");
+            clearError();
           }}
+          autoCapitalize="words"
+          autoCorrect={false}
+          textContentType="name"
+          autoComplete="name"
+          returnKeyType="next"
+          submitBehavior="submit"
           leftIcon={<UserIcon size={18} color={theme.colors.textMuted} />}
         />
 
@@ -318,10 +330,15 @@ export default function Register() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
+          inputMode="email"
+          textContentType="emailAddress"
+          autoComplete="email"
+          returnKeyType="next"
+          submitBehavior="submit"
           value={email}
           onChangeText={(value) => {
             setEmail(value);
-            setError("");
+            clearError();
           }}
           leftIcon={<Mail size={18} color={theme.colors.textMuted} />}
         />
@@ -333,7 +350,18 @@ export default function Register() {
           value={password}
           onChangeText={(value) => {
             setPassword(value);
-            setError("");
+            clearError();
+          }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="newPassword"
+          autoComplete="new-password"
+          returnKeyType={role === "coach" ? "done" : "next"}
+          submitBehavior={role === "coach" ? "blurAndSubmit" : "submit"}
+          onSubmitEditing={() => {
+            if (role === "coach") {
+              onSubmit();
+            }
           }}
           leftIcon={<Lock size={18} color={theme.colors.textMuted} />}
           rightIcon={
@@ -397,10 +425,14 @@ export default function Register() {
                   placeholder={t("auth.agePlaceholder")}
                   value={age}
                   onChangeText={(value) => {
-                    setAge(value);
-                    setError("");
+                    setAge(value.replace(/[^\d]/g, ""));
+                    clearError();
                   }}
                   keyboardType="numeric"
+                  inputMode="numeric"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={3}
                 />
               </View>
 
@@ -410,10 +442,14 @@ export default function Register() {
                   placeholder={t("auth.heightPlaceholder")}
                   value={height}
                   onChangeText={(value) => {
-                    setHeight(value);
-                    setError("");
+                    setHeight(value.replace(/[^0-9.,]/g, ""));
+                    clearError();
                   }}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={6}
                 />
               </View>
             </View>
@@ -425,10 +461,14 @@ export default function Register() {
                   placeholder={t("auth.startWeightPlaceholder")}
                   value={startWeight}
                   onChangeText={(value) => {
-                    setStartWeight(value);
-                    setError("");
+                    setStartWeight(value.replace(/[^0-9.,]/g, ""));
+                    clearError();
                   }}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={6}
                 />
               </View>
 
@@ -438,10 +478,13 @@ export default function Register() {
                   placeholder={t("auth.currentWeightPlaceholder")}
                   value={currentWeight}
                   onChangeText={(value) => {
-                    setCurrentWeight(value);
-                    setError("");
+                    setCurrentWeight(value.replace(/[^0-9.,]/g, ""));
+                    clearError();
                   }}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="done"
+                  submitBehavior="blurAndSubmit"
                 />
               </View>
             </View>
@@ -493,7 +536,16 @@ export default function Register() {
                 value={goalText}
                 onChangeText={(value) => {
                   setGoalText(value);
-                  setError("");
+                  clearError();
+                }}
+                autoCapitalize="sentences"
+                returnKeyType="done"
+                submitBehavior="blurAndSubmit"
+                multiline
+                style={{
+                  minHeight: 72,
+                  textAlignVertical: "top",
+                  paddingTop: 10,
                 }}
               />
             ) : null}
@@ -513,6 +565,8 @@ export default function Register() {
           onPress={onSubmit}
           fullWidth
         />
+
+        <View style={{ height: 40 }} />
       </View>
     </ScreenContainer>
   );

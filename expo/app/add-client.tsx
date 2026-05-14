@@ -10,6 +10,7 @@ import {
 } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
+
 import {
   AppAvatar,
   AppButton,
@@ -80,6 +81,10 @@ export default function AddClient() {
 
     return db.clientProfiles.find((c) => c.userId === previewMatch.id) ?? null;
   }, [db, previewMatch]);
+
+  const clearError = () => {
+    if (error) setError("");
+  };
 
   const localFallbackLink = (target: NonNullable<typeof previewMatch>) => {
     if (!user) return;
@@ -338,7 +343,7 @@ export default function AddClient() {
 
   return (
     <ScreenContainer scroll>
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: 12, paddingBottom: 40 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View
             style={{
@@ -372,7 +377,7 @@ export default function AddClient() {
                 gap: 12,
               }}
             >
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <View
                   style={{
                     flexDirection: "row",
@@ -385,7 +390,7 @@ export default function AddClient() {
                     size={18}
                   />
 
-                  <AppText variant="bodyStrong">
+                  <AppText variant="bodyStrong" numberOfLines={1}>
                     {isActive
                       ? t("addClient.currentPlanLabel", {
                           plan: currentPlan.name,
@@ -398,6 +403,7 @@ export default function AddClient() {
                   variant="small"
                   color={theme.colors.textMuted}
                   style={{ marginTop: 4 }}
+                  numberOfLines={2}
                 >
                   {isActive
                     ? formatClientLimit(clientLimit, t)
@@ -405,7 +411,7 @@ export default function AddClient() {
                 </AppText>
               </View>
 
-              <View style={{ alignItems: "flex-end" }}>
+              <View style={{ alignItems: "flex-end", flexShrink: 0 }}>
                 <View
                   style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
                 >
@@ -429,6 +435,7 @@ export default function AddClient() {
                     limitReached ? theme.colors.danger : theme.colors.textMuted
                   }
                   style={{ marginTop: 4 }}
+                  numberOfLines={1}
                 >
                   {clientLimit >= 999999
                     ? t("addClient.unlimitedSlots")
@@ -503,8 +510,9 @@ export default function AddClient() {
           }
           value={query}
           onChangeText={(v) => {
-            setQuery(v);
-            setError("");
+            const next = method === "code" ? v.toUpperCase() : v;
+            setQuery(next);
+            clearError();
           }}
           placeholder={
             method === "email"
@@ -512,7 +520,14 @@ export default function AddClient() {
               : t("addClient.codePlaceholder")
           }
           autoCapitalize={method === "code" ? "characters" : "none"}
+          autoCorrect={false}
           keyboardType={method === "email" ? "email-address" : "default"}
+          inputMode={method === "email" ? "email" : "text"}
+          textContentType={method === "email" ? "emailAddress" : "none"}
+          autoComplete={method === "email" ? "email" : "off"}
+          returnKeyType={method === "email" ? "send" : "search"}
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={submit}
           leftIcon={
             method === "email" ? (
               <Mail size={18} color={theme.colors.textMuted} />
@@ -531,10 +546,16 @@ export default function AddClient() {
                 size={44}
               />
 
-              <View style={{ flex: 1 }}>
-                <AppText variant="bodyStrong">{previewMatch.name}</AppText>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AppText variant="bodyStrong" numberOfLines={1}>
+                  {previewMatch.name}
+                </AppText>
 
-                <AppText variant="small" color={theme.colors.textMuted}>
+                <AppText
+                  variant="small"
+                  color={theme.colors.textMuted}
+                  numberOfLines={1}
+                >
                   {previewMatch.email}
                   {previewMatch.clientCode ? ` · ${previewMatch.clientCode}` : ""}
                 </AppText>
@@ -544,6 +565,7 @@ export default function AddClient() {
                     variant="caption"
                     color={theme.colors.success}
                     style={{ marginTop: 4 }}
+                    numberOfLines={2}
                   >
                     {t("addClient.alreadyInYourList")}
                   </AppText>
@@ -552,6 +574,7 @@ export default function AddClient() {
                     variant="caption"
                     color={theme.colors.warn}
                     style={{ marginTop: 4 }}
+                    numberOfLines={2}
                   >
                     {t("addClient.clientAlreadyHasAnotherCoach")}
                   </AppText>
@@ -560,6 +583,7 @@ export default function AddClient() {
                     variant="caption"
                     color={theme.colors.textMuted}
                     style={{ marginTop: 4 }}
+                    numberOfLines={2}
                   >
                     {t("addClient.inviteBackendHint")}
                   </AppText>
@@ -569,7 +593,9 @@ export default function AddClient() {
           </AppCard>
         ) : method === "email" && query.trim() ? (
           <AppCard variant="outline">
-            <AppText variant="bodyStrong">{query.trim().toLowerCase()}</AppText>
+            <AppText variant="bodyStrong" numberOfLines={1}>
+              {query.trim().toLowerCase()}
+            </AppText>
 
             <AppText
               variant="small"
@@ -598,6 +624,8 @@ export default function AddClient() {
                 : t("addClient.findAndLink")
           }
           size="lg"
+          disabled={saving}
+          loading={saving}
           icon={
             method === "email" ? (
               <Send size={18} color={theme.colors.primaryContrast} />

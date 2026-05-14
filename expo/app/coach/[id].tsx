@@ -8,7 +8,16 @@ import {
   X,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+
 import {
   AppAvatar,
   AppButton,
@@ -110,10 +119,7 @@ export default function CoachPublicProfile() {
 
   const submitReview = async () => {
     if (!token || !user) {
-      Alert.alert(
-        t("profile.authErrorTitle"),
-        t("profile.loginAgainText"),
-      );
+      Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
       return;
     }
 
@@ -142,10 +148,7 @@ export default function CoachPublicProfile() {
 
       setReviewOpen(false);
 
-      Alert.alert(
-        t("coachPublic.savedTitle"),
-        t("coachPublic.reviewSaved"),
-      );
+      Alert.alert(t("coachPublic.savedTitle"), t("coachPublic.reviewSaved"));
     } catch (e: any) {
       console.log("[coach-profile] submit review error", e);
 
@@ -163,9 +166,7 @@ export default function CoachPublicProfile() {
       <ScreenContainer>
         <Stack.Screen options={{ title: t("coachPublic.coachProfile") }} />
 
-        <AppText variant="body">
-          {t("coachPublic.coachNotFound")}
-        </AppText>
+        <AppText variant="body">{t("coachPublic.coachNotFound")}</AppText>
       </ScreenContainer>
     );
   }
@@ -195,11 +196,15 @@ export default function CoachPublicProfile() {
             ring
           />
 
-          <AppText variant="h2" color="#fff">
+          <AppText variant="h2" color="#fff" numberOfLines={1}>
             {coach.name}
           </AppText>
 
-          <AppText variant="small" color="rgba(255,255,255,0.82)">
+          <AppText
+            variant="small"
+            color="rgba(255,255,255,0.82)"
+            numberOfLines={1}
+          >
             {coachProfile?.specialty ?? t("coachPublic.defaultSpecialty")}
           </AppText>
 
@@ -235,12 +240,12 @@ export default function CoachPublicProfile() {
         <AppCard variant="elevated">
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <AppText variant="caption" color={theme.colors.textMuted}>
                   {t("coachPublic.experience").toUpperCase()}
                 </AppText>
 
-                <AppText variant="bodyStrong">
+                <AppText variant="bodyStrong" numberOfLines={1}>
                   {t("coachPublic.yearsValue").replace(
                     "{n}",
                     String(coachProfile?.experienceYears ?? 0),
@@ -248,12 +253,12 @@ export default function CoachPublicProfile() {
                 </AppText>
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <AppText variant="caption" color={theme.colors.textMuted}>
                   {t("coachPublic.rating").toUpperCase()}
                 </AppText>
 
-                <AppText variant="bodyStrong">
+                <AppText variant="bodyStrong" numberOfLines={1}>
                   {averageRating
                     ? averageRating.toFixed(1)
                     : t("coachPublic.noRatingYet")}
@@ -368,8 +373,8 @@ export default function CoachPublicProfile() {
                     gap: 12,
                   }}
                 >
-                  <View style={{ flex: 1 }}>
-                    <AppText variant="bodyStrong">
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <AppText variant="bodyStrong" numberOfLines={1}>
                       {review.clientName ?? t("auth.client")}
                     </AppText>
 
@@ -383,6 +388,7 @@ export default function CoachPublicProfile() {
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
                     <Star color="#FFB020" size={15} fill="#FFB020" />
@@ -446,75 +452,116 @@ function ReviewModal({
   const { theme } = useTheme();
   const { t } = useI18n();
 
+  const handleClose = () => {
+    if (saving) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <View
-          style={{
-            paddingTop: 56,
-            paddingHorizontal: 20,
-            paddingBottom: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.borderSoft,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X color={theme.colors.text} size={22} />
-          </Pressable>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+          <View
+            style={{
+              paddingTop: 56,
+              paddingHorizontal: 20,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.borderSoft,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <Pressable onPress={handleClose} hitSlop={8} disabled={saving}>
+              <X color={theme.colors.text} size={22} />
+            </Pressable>
 
-          <AppText variant="h3">{t("coachPublic.coachReview")}</AppText>
+            <AppText
+              variant="h3"
+              numberOfLines={1}
+              style={{ flex: 1, textAlign: "center" }}
+            >
+              {t("coachPublic.coachReview")}
+            </AppText>
 
-          <Pressable onPress={onSubmit} disabled={saving} hitSlop={8}>
-            <Send
-              color={saving ? theme.colors.textMuted : theme.colors.primary}
-              size={20}
-            />
-          </Pressable>
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-          <AppText variant="bodyStrong">
-            {t("coachPublic.yourRating")}
-          </AppText>
-
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            {[1, 2, 3, 4, 5].map((value) => {
-              const active = value <= rating;
-
-              return (
-                <Pressable key={value} onPress={() => setRating(value)}>
-                  <Star
-                    size={34}
-                    color="#FFB020"
-                    fill={active ? "#FFB020" : "transparent"}
-                  />
-                </Pressable>
-              );
-            })}
+            <Pressable onPress={onSubmit} disabled={saving} hitSlop={8}>
+              <Send
+                color={saving ? theme.colors.textMuted : theme.colors.primary}
+                size={20}
+              />
+            </Pressable>
           </View>
 
-          <AppInput
-            label={t("coachPublic.comment")}
-            value={comment}
-            onChangeText={setComment}
-            placeholder={t("coachPublic.commentPlaceholder")}
-            multiline
-          />
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              padding: 20,
+              gap: 16,
+              paddingBottom: 96,
+            }}
+          >
+            <AppText variant="bodyStrong">
+              {t("coachPublic.yourRating")}
+            </AppText>
 
-          <AppButton
-            title={
-              saving
-                ? t("coachPublic.saving")
-                : t("coachPublic.saveReview")
-            }
-            onPress={onSubmit}
-            fullWidth
-          />
-        </ScrollView>
-      </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {[1, 2, 3, 4, 5].map((value) => {
+                const active = value <= rating;
+
+                return (
+                  <Pressable key={value} onPress={() => setRating(value)}>
+                    <Star
+                      size={34}
+                      color="#FFB020"
+                      fill={active ? "#FFB020" : "transparent"}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <AppInput
+              label={t("coachPublic.comment")}
+              value={comment}
+              onChangeText={setComment}
+              placeholder={t("coachPublic.commentPlaceholder")}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={onSubmit}
+              style={{
+                minHeight: 110,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
+
+            <AppButton
+              title={
+                saving
+                  ? t("coachPublic.saving")
+                  : t("coachPublic.saveReview")
+              }
+              loading={saving}
+              disabled={saving}
+              onPress={onSubmit}
+              fullWidth
+            />
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

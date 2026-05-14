@@ -12,6 +12,7 @@ import {
 } from "lucide-react-native";
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
+
 import { ProgressRing } from "@/src/components/charts";
 import {
   AppAvatar,
@@ -249,6 +250,7 @@ function ExerciseAnimatedImage({
 }) {
   const { theme } = useTheme();
   const safeFrames = frames.filter(Boolean);
+  const safeFramesKey = safeFrames.join("|");
   const [index, setIndex] = useState<number>(0);
 
   useEffect(() => {
@@ -261,7 +263,7 @@ function ExerciseAnimatedImage({
     }, 650);
 
     return () => clearInterval(timer);
-  }, [safeFrames.join("|")]);
+  }, [safeFramesKey, safeFrames.length]);
 
   if (safeFrames.length === 0) {
     return (
@@ -591,7 +593,8 @@ export default function ClientToday() {
             {data.workouts.map((workout) => {
               const exercises = data.exercisesByWorkout[workout.id] ?? [];
 
-              const previewExercises = exercises.slice(0, 3);
+              const previewExercises = exercises.slice(0, 2);
+              const hiddenExerciseCount = Math.max(exercises.length - 2, 0);
 
               return (
                 <Pressable
@@ -607,8 +610,10 @@ export default function ClientToday() {
                         gap: 12,
                       }}
                     >
-                      <View style={{ flex: 1 }}>
-                        <AppText variant="h3">{workout.name}</AppText>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <AppText variant="h3" numberOfLines={1}>
+                          {workout.name}
+                        </AppText>
 
                         <View
                           style={{
@@ -623,6 +628,8 @@ export default function ClientToday() {
                           <AppText
                             variant="small"
                             color={theme.colors.textMuted}
+                            numberOfLines={1}
+                            style={{ flex: 1 }}
                           >
                             {workout.time ? `${workout.time} · ` : ""}
                             {exercises.length}{" "}
@@ -639,6 +646,8 @@ export default function ClientToday() {
                               alignItems: "center",
                               gap: 8,
                               marginTop: 10,
+                              flexWrap: "nowrap",
+                              paddingRight: 4,
                             }}
                           >
                             {previewExercises.map((exercise) => {
@@ -658,7 +667,9 @@ export default function ClientToday() {
                                     flexDirection: "row",
                                     alignItems: "center",
                                     gap: 6,
-                                    maxWidth: 130,
+                                    flex: 1,
+                                    minWidth: 0,
+                                    maxWidth: 112,
                                   }}
                                 >
                                   <ExerciseAnimatedImage
@@ -671,7 +682,8 @@ export default function ClientToday() {
                                     variant="caption"
                                     color={theme.colors.textMuted}
                                     numberOfLines={1}
-                                    style={{ flex: 1 }}
+                                    ellipsizeMode="tail"
+                                    style={{ flex: 1, minWidth: 0 }}
                                   >
                                     {translatedName}
                                   </AppText>
@@ -681,13 +693,14 @@ export default function ClientToday() {
                           </View>
                         ) : null}
 
-                        {exercises.length > 3 ? (
+                        {hiddenExerciseCount > 0 ? (
                           <AppText
                             variant="caption"
                             color={theme.colors.textFaint}
                             style={{ marginTop: 6 }}
+                            numberOfLines={1}
                           >
-                            +{getMoreLabel(exercises.length - 3, lang)}
+                            +{getMoreLabel(hiddenExerciseCount, lang)}
                           </AppText>
                         ) : null}
                       </View>
@@ -702,6 +715,7 @@ export default function ClientToday() {
                             : theme.colors.primary,
                           alignItems: "center",
                           justifyContent: "center",
+                          flexShrink: 0,
                         }}
                       >
                         {workout.completed ? (

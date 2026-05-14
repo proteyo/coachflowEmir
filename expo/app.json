@@ -28,6 +28,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.emirkamilov.coachflow",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -68,7 +69,8 @@
         {
           "locationWhenInUsePermission": "Allow CoachFlow to show nearby gyms, nutrition spots and sport shops."
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

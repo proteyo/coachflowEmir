@@ -11,7 +11,7 @@ import {
   Weight,
 } from "lucide-react-native";
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, TextInput, View } from "react-native";
 import {
   AppButton,
   AppCard,
@@ -246,6 +246,14 @@ function parseNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function sanitizeResultNumberInput(value: string, field: "weight" | "reps") {
+  if (field === "weight") {
+    return value.replace(/[^0-9.,]/g, "");
+  }
+
+  return value.replace(/[^0-9]/g, "");
+}
+
 function hasValidWeight(value: string) {
   const parsed = parseNumber(value);
   return parsed !== undefined && parsed > 0;
@@ -330,6 +338,7 @@ function ExerciseAnimatedImage({
 }) {
   const { theme } = useTheme();
   const safeFrames = frames.filter(Boolean);
+  const safeFramesKey = safeFrames.join("|");
   const [index, setIndex] = useState<number>(0);
 
   useEffect(() => {
@@ -342,7 +351,7 @@ function ExerciseAnimatedImage({
     }, 650);
 
     return () => clearInterval(timer);
-  }, [safeFrames.join("|")]);
+  }, [safeFramesKey]);
 
   if (safeFrames.length === 0) {
     return (
@@ -670,6 +679,8 @@ export default function WorkoutPlayer() {
   ) => {
     if (isCompleted || saving) return;
 
+    const cleanedValue = sanitizeResultNumberInput(value, field);
+
     setResultDraft((current) => {
       const exercise = exercises.find((item) => item.id === exerciseId);
       const weighted = exercise ? shouldRequireWeight(exercise) : false;
@@ -690,7 +701,7 @@ export default function WorkoutPlayer() {
       return {
         ...current,
         [exerciseId]: existingRows.map((row, index) =>
-          index === setIndex ? { ...row, [field]: value } : row,
+          index === setIndex ? { ...row, [field]: cleanedValue } : row,
         ),
       };
     });
@@ -922,350 +933,414 @@ export default function WorkoutPlayer() {
   };
 
   return (
-  <SubscriptionGate>
-    <ScreenContainer scroll padded={false}>
-      <Stack.Screen options={{ title: workout.name }} />
+    <SubscriptionGate>
+      <ScreenContainer scroll padded={false}>
+        <Stack.Screen options={{ title: workout.name }} />
 
-      <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
-        <AppCard variant="elevated">
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Timer color={theme.colors.primary} size={22} />
-
-              <AppText variant="display">{fmt(seconds)}</AppText>
-            </View>
-
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={toggleTimer}
-                disabled={saving || isCompleted}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor:
-                    saving || isCompleted
-                      ? theme.colors.textMuted
-                      : theme.colors.primary,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: saving || isCompleted ? 0.55 : 1,
-                }}
-              >
-                {running ? (
-                  <Pause color={theme.colors.primaryContrast} size={20} />
-                ) : (
-                  <Play
-                    color={theme.colors.primaryContrast}
-                    size={20}
-                    fill={theme.colors.primaryContrast}
-                  />
-                )}
-              </Pressable>
-
-              <Pressable
-                onPress={resetSession}
-                disabled={saving || isCompleted}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: theme.colors.surfaceAlt,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: saving || isCompleted ? 0.45 : 1,
-                }}
-              >
-                <Square color={theme.colors.text} size={18} />
-              </Pressable>
-            </View>
-          </View>
-
-          <View
-            style={{
-              marginTop: 12,
-              height: 6,
-              backgroundColor: theme.colors.surfaceAlt,
-              borderRadius: 3,
-              overflow: "hidden",
-            }}
-          >
+        <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+          <AppCard variant="elevated">
             <View
               style={{
-                width: `${Math.round(progress * 100)}%`,
-                height: 6,
-                backgroundColor: theme.colors.primary,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
-            />
-          </View>
-
-          <AppText
-            variant="small"
-            color={theme.colors.textMuted}
-            style={{ marginTop: 6 }}
-          >
-            {completedSets}/{totalSets} {text.setsCompleted}
-          </AppText>
-
-          {isCompleted ? (
-            <AppText
-              variant="small"
-              color={theme.colors.success}
-              style={{ marginTop: 6 }}
             >
-              {text.completedLocked}
-            </AppText>
-          ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Timer color={theme.colors.primary} size={22} />
+
+                <AppText variant="display">{fmt(seconds)}</AppText>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={toggleTimer}
+                  disabled={saving || isCompleted}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    backgroundColor:
+                      saving || isCompleted
+                        ? theme.colors.textMuted
+                        : theme.colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: saving || isCompleted ? 0.55 : 1,
+                  }}
+                >
+                  {running ? (
+                    <Pause color={theme.colors.primaryContrast} size={20} />
+                  ) : (
+                    <Play
+                      color={theme.colors.primaryContrast}
+                      size={20}
+                      fill={theme.colors.primaryContrast}
+                    />
+                  )}
+                </Pressable>
+
+                <Pressable
+                  onPress={resetSession}
+                  disabled={saving || isCompleted}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: saving || isCompleted ? 0.45 : 1,
+                  }}
+                >
+                  <Square color={theme.colors.text} size={18} />
+                </Pressable>
+              </View>
+            </View>
+
+            <View
+              style={{
+                marginTop: 12,
+                height: 6,
+                backgroundColor: theme.colors.surfaceAlt,
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <View
+                style={{
+                  width: `${Math.round(progress * 100)}%`,
+                  height: 6,
+                  backgroundColor: theme.colors.primary,
+                }}
+              />
+            </View>
+
             <AppText
               variant="small"
               color={theme.colors.textMuted}
               style={{ marginTop: 6 }}
             >
-              {text.completeHint}
+              {completedSets}/{totalSets} {text.setsCompleted}
             </AppText>
-          )}
-        </AppCard>
 
-        <View style={{ marginTop: 14, gap: 12 }}>
-          {exercises.map((exercise) => {
-            const done = doneSet[exercise.id] ?? 0;
-            const rows = resultDraft[exercise.id] ?? [];
-            const weighted = shouldRequireWeight(exercise);
-            const libraryExercise = findLibraryExercise(exercise);
+            {isCompleted ? (
+              <AppText
+                variant="small"
+                color={theme.colors.success}
+                style={{ marginTop: 6 }}
+              >
+                {text.completedLocked}
+              </AppText>
+            ) : (
+              <AppText
+                variant="small"
+                color={theme.colors.textMuted}
+                style={{ marginTop: 6 }}
+              >
+                {text.completeHint}
+              </AppText>
+            )}
+          </AppCard>
 
-            const translatedExerciseName = libraryExercise
-              ? getExerciseName(libraryExercise, lang)
-              : exercise.name;
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {exercises.map((exercise) => {
+              const done = doneSet[exercise.id] ?? 0;
+              const rows = resultDraft[exercise.id] ?? [];
+              const weighted = shouldRequireWeight(exercise);
+              const libraryExercise = findLibraryExercise(exercise);
 
-            const frames = libraryExercise
-              ? getExerciseAnimationFrames(libraryExercise)
-              : getFramesFromImageUrl(exercise.imageUrl);
+              const translatedExerciseName = libraryExercise
+                ? getExerciseName(libraryExercise, lang)
+                : exercise.name;
 
-            const translatedMuscleGroup = getMuscleGroupLabel(
-              exercise.muscleGroup,
-              t,
-            );
+              const frames = libraryExercise
+                ? getExerciseAnimationFrames(libraryExercise)
+                : getFramesFromImageUrl(exercise.imageUrl);
 
-            return (
-              <AppCard key={exercise.id} variant="outline" padded={false}>
-                <ExerciseAnimatedImage frames={frames} height={150} />
+              const translatedMuscleGroup = getMuscleGroupLabel(
+                exercise.muscleGroup,
+                t,
+              );
 
-                <View style={{ padding: 14, gap: 8 }}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <AppText variant="bodyStrong" style={{ flex: 1 }}>
-                      {translatedExerciseName}
-                    </AppText>
+              return (
+                <AppCard key={exercise.id} variant="outline" padded={false}>
+                  <ExerciseAnimatedImage frames={frames} height={150} />
 
-                    <View
-                      style={{
-                        paddingVertical: 4,
-                        paddingHorizontal: 8,
-                        borderRadius: 999,
-                        backgroundColor: weighted
-                          ? "rgba(22,199,132,0.14)"
-                          : "rgba(139,92,246,0.14)",
-                      }}
-                    >
-                      <AppText
-                        variant="caption"
-                        color={weighted ? theme.colors.primary : theme.colors.accent}
-                        style={{ fontWeight: "800" }}
-                      >
-                        {weighted ? text.weighted : text.bodyweight}
-                      </AppText>
-                    </View>
-                  </View>
-
-                  <AppText variant="small" color={theme.colors.textMuted}>
-                    {translatedMuscleGroup} · {text.plan}: {exercise.sets} ×{" "}
-                    {exercise.reps} · {text.rest} {exercise.restSeconds ?? 0}
-                    s{weighted && exercise.weight ? ` · ${exercise.weight}kg` : ""}
-                  </AppText>
-
-                  {!weighted ? (
+                  <View style={{ padding: 14, gap: 8 }}>
                     <View
                       style={{
                         flexDirection: "row",
+                        justifyContent: "space-between",
                         alignItems: "center",
-                        gap: 8,
-                        padding: 10,
-                        borderRadius: theme.radius.md,
-                        backgroundColor: theme.colors.surfaceAlt,
+                        gap: 10,
                       }}
                     >
-                      <Weight color={theme.colors.accent} size={16} />
-
-                      <AppText variant="small" color={theme.colors.textMuted}>
-                        {text.bodyweightHint}
+                      <AppText
+                        variant="bodyStrong"
+                        numberOfLines={2}
+                        style={{ flex: 1, minWidth: 0 }}
+                      >
+                        {translatedExerciseName}
                       </AppText>
-                    </View>
-                  ) : null}
 
-                  <View style={{ gap: 8, marginTop: 4 }}>
-                    {Array.from({ length: exercise.sets }).map((_, index) => {
-                      const ok = index < done;
-
-                      const row = rows[index] ?? {
-                        weight:
-                          weighted &&
-                          exercise.weight !== undefined &&
-                          exercise.weight !== null &&
-                          exercise.weight > 0
-                            ? String(exercise.weight)
-                            : "",
-                        reps: String(exercise.reps || 10),
-                      };
-
-                      const invalidWeight = weighted && !hasValidWeight(row.weight);
-                      const invalidReps = !hasValidReps(row.reps);
-
-                      return (
-                        <View
-                          key={index}
-                          style={{
-                            padding: 10,
-                            borderRadius: 14,
-                            backgroundColor: ok
-                              ? "rgba(22,199,132,0.12)"
-                              : theme.colors.surfaceAlt,
-                            borderWidth: 1,
-                            borderColor: ok
-                              ? theme.colors.primary
-                              : theme.colors.borderSoft,
-                            gap: 8,
-                          }}
+                      <View
+                        style={{
+                          paddingVertical: 4,
+                          paddingHorizontal: 8,
+                          borderRadius: 999,
+                          backgroundColor: weighted
+                            ? "rgba(22,199,132,0.14)"
+                            : "rgba(139,92,246,0.14)",
+                        }}
+                      >
+                        <AppText
+                          variant="caption"
+                          color={weighted ? theme.colors.primary : theme.colors.accent}
+                          style={{ fontWeight: "800" }}
                         >
+                          {weighted ? text.weighted : text.bodyweight}
+                        </AppText>
+                      </View>
+                    </View>
+
+                    <AppText variant="small" color={theme.colors.textMuted}>
+                      {translatedMuscleGroup} · {text.plan}: {exercise.sets} ×{" "}
+                      {exercise.reps} · {text.rest} {exercise.restSeconds ?? 0}
+                      s{weighted && exercise.weight ? ` · ${exercise.weight}kg` : ""}
+                    </AppText>
+
+                    {!weighted ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: 10,
+                          borderRadius: theme.radius.md,
+                          backgroundColor: theme.colors.surfaceAlt,
+                        }}
+                      >
+                        <Weight color={theme.colors.accent} size={16} />
+
+                        <AppText variant="small" color={theme.colors.textMuted}>
+                          {text.bodyweightHint}
+                        </AppText>
+                      </View>
+                    ) : null}
+
+                    <View style={{ gap: 8, marginTop: 4 }}>
+                      {Array.from({ length: exercise.sets }).map((_, index) => {
+                        const ok = index < done;
+
+                        const row = rows[index] ?? {
+                          weight:
+                            weighted &&
+                            exercise.weight !== undefined &&
+                            exercise.weight !== null &&
+                            exercise.weight > 0
+                              ? String(exercise.weight)
+                              : "",
+                          reps: String(exercise.reps || 10),
+                        };
+
+                        const invalidWeight = weighted && !hasValidWeight(row.weight);
+                        const invalidReps = !hasValidReps(row.reps);
+
+                        return (
                           <View
+                            key={index}
                             style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              justifyContent: "space-between",
+                              padding: 10,
+                              borderRadius: 14,
+                              backgroundColor: ok
+                                ? "rgba(22,199,132,0.12)"
+                                : theme.colors.surfaceAlt,
+                              borderWidth: 1,
+                              borderColor: ok
+                                ? theme.colors.primary
+                                : theme.colors.borderSoft,
+                              gap: 8,
                             }}
                           >
-                            <Pressable
-                              disabled={saving || isCompleted}
-                              onPress={() => {
-                                if (saving || isCompleted) return;
-
-                                if (invalidReps) {
-                                  Alert.alert(
-                                    text.repsRequired,
-                                    `${text.set} ${index + 1}: ${
-                                      text.reps
-                                    } > 0.`,
-                                  );
-                                  return;
-                                }
-
-                                if (invalidWeight) {
-                                  Alert.alert(
-                                    text.weightRequired,
-                                    `${text.set} ${index + 1}: ${
-                                      text.weightRequired
-                                    }.`,
-                                  );
-                                  return;
-                                }
-
-                                setDoneSet((current) => ({
-                                  ...current,
-                                  [exercise.id]:
-                                    index + 1 === done ? index : index + 1,
-                                }));
-                              }}
+                            <View
                               style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 10,
-                                backgroundColor: ok
-                                  ? theme.colors.primary
-                                  : theme.colors.surface,
                                 flexDirection: "row",
                                 alignItems: "center",
-                                gap: 5,
-                                opacity: saving || isCompleted ? 0.75 : 1,
+                                justifyContent: "space-between",
                               }}
                             >
-                              {ok ? (
-                                <CheckCircle2
-                                  size={14}
-                                  color={theme.colors.primaryContrast}
-                                />
-                              ) : null}
+                              <Pressable
+                                disabled={saving || isCompleted}
+                                onPress={() => {
+                                  if (saving || isCompleted) return;
+
+                                  if (invalidReps) {
+                                    Alert.alert(
+                                      text.repsRequired,
+                                      `${text.set} ${index + 1}: ${
+                                        text.reps
+                                      } > 0.`,
+                                    );
+                                    return;
+                                  }
+
+                                  if (invalidWeight) {
+                                    Alert.alert(
+                                      text.weightRequired,
+                                      `${text.set} ${index + 1}: ${
+                                        text.weightRequired
+                                      }.`,
+                                    );
+                                    return;
+                                  }
+
+                                  setDoneSet((current) => ({
+                                    ...current,
+                                    [exercise.id]:
+                                      index + 1 === done ? index : index + 1,
+                                  }));
+                                }}
+                                style={{
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 10,
+                                  backgroundColor: ok
+                                    ? theme.colors.primary
+                                    : theme.colors.surface,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 5,
+                                  opacity: saving || isCompleted ? 0.75 : 1,
+                                }}
+                              >
+                                {ok ? (
+                                  <CheckCircle2
+                                    size={14}
+                                    color={theme.colors.primaryContrast}
+                                  />
+                                ) : null}
+
+                                <AppText
+                                  variant="small"
+                                  color={
+                                    ok
+                                      ? theme.colors.primaryContrast
+                                      : theme.colors.text
+                                  }
+                                  style={{ fontWeight: "700" }}
+                                >
+                                  {text.set} {index + 1}
+                                </AppText>
+                              </Pressable>
 
                               <AppText
-                                variant="small"
-                                color={
-                                  ok
-                                    ? theme.colors.primaryContrast
-                                    : theme.colors.text
-                                }
-                                style={{ fontWeight: "700" }}
+                                variant="caption"
+                                color={theme.colors.textMuted}
                               >
-                                {text.set} {index + 1}
+                                {text.target} {exercise.reps} {text.reps}
                               </AppText>
-                            </Pressable>
+                            </View>
 
-                            <AppText
-                              variant="caption"
-                              color={theme.colors.textMuted}
-                            >
-                              {text.target} {exercise.reps} {text.reps}
-                            </AppText>
-                          </View>
+                            <View style={{ flexDirection: "row", gap: 8 }}>
+                              {weighted ? (
+                                <View style={{ flex: 1 }}>
+                                  <AppText
+                                    variant="caption"
+                                    color={theme.colors.textMuted}
+                                    style={{ marginBottom: 4 }}
+                                  >
+                                    {text.weightKg}
+                                  </AppText>
 
-                          <View style={{ flexDirection: "row", gap: 8 }}>
-                            {weighted ? (
+                                  <TextInput
+                                    value={row.weight}
+                                    editable={!saving && !isCompleted}
+                                    onChangeText={(value) =>
+                                      updateSetResult(
+                                        exercise.id,
+                                        index,
+                                        "weight",
+                                        value,
+                                      )
+                                    }
+                                    keyboardType="decimal-pad"
+                                    inputMode="decimal"
+                                    returnKeyType="next"
+                                    selectTextOnFocus
+                                    placeholder={text.exampleWeight}
+                                    placeholderTextColor={theme.colors.textFaint}
+                                    style={{
+                                      minHeight: 42,
+                                      borderRadius: 12,
+                                      paddingHorizontal: 12,
+                                      paddingVertical: Platform.OS === "android" ? 8 : 10,
+                                      backgroundColor: theme.colors.inputBg,
+                                      color: theme.colors.text,
+                                      fontSize: 15,
+                                      fontWeight: "600",
+                                      borderWidth: 1,
+                                      borderColor: invalidWeight
+                                        ? theme.colors.danger
+                                        : theme.colors.borderSoft,
+                                    }}
+                                  />
+
+                                  {invalidWeight ? (
+                                    <AppText
+                                      variant="caption"
+                                      color={theme.colors.danger}
+                                      style={{ marginTop: 4 }}
+                                    >
+                                      {text.required}
+                                    </AppText>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
                               <View style={{ flex: 1 }}>
                                 <AppText
                                   variant="caption"
                                   color={theme.colors.textMuted}
                                   style={{ marginBottom: 4 }}
                                 >
-                                  {text.weightKg}
+                                  {text.repsUpper}
                                 </AppText>
 
                                 <TextInput
-                                  value={row.weight}
+                                  value={row.reps}
                                   editable={!saving && !isCompleted}
                                   onChangeText={(value) =>
                                     updateSetResult(
                                       exercise.id,
                                       index,
-                                      "weight",
+                                      "reps",
                                       value,
                                     )
                                   }
-                                  keyboardType="decimal-pad"
-                                  placeholder={text.exampleWeight}
+                                  keyboardType="number-pad"
+                                  inputMode="numeric"
+                                  returnKeyType={index === exercise.sets - 1 ? "done" : "next"}
+                                  selectTextOnFocus
+                                  placeholder={String(exercise.reps || 10)}
                                   placeholderTextColor={theme.colors.textFaint}
                                   style={{
                                     minHeight: 42,
                                     borderRadius: 12,
                                     paddingHorizontal: 12,
+                                    paddingVertical: Platform.OS === "android" ? 8 : 10,
                                     backgroundColor: theme.colors.inputBg,
                                     color: theme.colors.text,
+                                    fontSize: 15,
+                                    fontWeight: "600",
                                     borderWidth: 1,
-                                    borderColor: invalidWeight
+                                    borderColor: invalidReps
                                       ? theme.colors.danger
                                       : theme.colors.borderSoft,
                                   }}
                                 />
 
-                                {invalidWeight ? (
+                                {invalidReps ? (
                                   <AppText
                                     variant="caption"
                                     color={theme.colors.danger}
@@ -1275,81 +1350,35 @@ export default function WorkoutPlayer() {
                                   </AppText>
                                 ) : null}
                               </View>
-                            ) : null}
-
-                            <View style={{ flex: 1 }}>
-                              <AppText
-                                variant="caption"
-                                color={theme.colors.textMuted}
-                                style={{ marginBottom: 4 }}
-                              >
-                                {text.repsUpper}
-                              </AppText>
-
-                              <TextInput
-                                value={row.reps}
-                                editable={!saving && !isCompleted}
-                                onChangeText={(value) =>
-                                  updateSetResult(
-                                    exercise.id,
-                                    index,
-                                    "reps",
-                                    value,
-                                  )
-                                }
-                                keyboardType="number-pad"
-                                placeholder={String(exercise.reps || 10)}
-                                placeholderTextColor={theme.colors.textFaint}
-                                style={{
-                                  minHeight: 42,
-                                  borderRadius: 12,
-                                  paddingHorizontal: 12,
-                                  backgroundColor: theme.colors.inputBg,
-                                  color: theme.colors.text,
-                                  borderWidth: 1,
-                                  borderColor: invalidReps
-                                    ? theme.colors.danger
-                                    : theme.colors.borderSoft,
-                                }}
-                              />
-
-                              {invalidReps ? (
-                                <AppText
-                                  variant="caption"
-                                  color={theme.colors.danger}
-                                  style={{ marginTop: 4 }}
-                                >
-                                  {text.required}
-                                </AppText>
-                              ) : null}
                             </View>
                           </View>
-                        </View>
-                      );
-                    })}
+                        );
+                      })}
+                    </View>
                   </View>
-                </View>
-              </AppCard>
-            );
-          })}
-        </View>
+                </AppCard>
+              );
+            })}
+          </View>
 
-        <View style={{ marginTop: 18, marginBottom: 24 }}>
-          <AppButton
-            title={
-              isCompleted
-                ? text.workoutCompleted
-                : saving
-                  ? text.saving
-                  : text.finishWorkout
-            }
-            size="lg"
-            onPress={finish}
-            fullWidth
-          />
+          <View style={{ marginTop: 18, marginBottom: 24 }}>
+            <AppButton
+              title={
+                isCompleted
+                  ? text.workoutCompleted
+                  : saving
+                    ? text.saving
+                    : text.finishWorkout
+              }
+              size="lg"
+              loading={saving}
+              disabled={saving || isCompleted}
+              onPress={finish}
+              fullWidth
+            />
+          </View>
         </View>
-      </View>
-    </ScreenContainer>
-  </SubscriptionGate>
-);
+      </ScreenContainer>
+    </SubscriptionGate>
+  );
 }

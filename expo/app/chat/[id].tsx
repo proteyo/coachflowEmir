@@ -19,6 +19,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+
 import { AppAvatar, AppText } from "@/src/components/ui";
 import { useAuth } from "@/src/context/AuthContext";
 import { useData } from "@/src/context/DataContext";
@@ -30,6 +31,7 @@ import { Message } from "@/src/types/models";
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(s / 60);
+
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
@@ -82,6 +84,13 @@ export default function Chat() {
         console.log("[chat] audio init err", e);
       }
     })();
+
+    return () => {
+      if (recordTimer.current) {
+        clearInterval(recordTimer.current);
+        recordTimer.current = null;
+      }
+    };
   }, []);
 
   const partner = db?.users.find((u) => u.id === id);
@@ -105,10 +114,18 @@ export default function Chat() {
     update((d) => ({
       ...d,
       messages: d.messages.map((m) =>
-        m.senderId === id && m.receiverId === user.id ? { ...m, read: true } : m,
+        m.senderId === id && m.receiverId === user.id
+          ? { ...m, read: true }
+          : m,
       ),
     }));
   }, [id, user, update]);
+
+  const scrollToBottom = (animated = true) => {
+    setTimeout(() => {
+      listRef.current?.scrollToEnd({ animated });
+    }, 80);
+  };
 
   const send = async () => {
     const content = text.trim();
@@ -133,7 +150,7 @@ export default function Chat() {
       messages: [...d.messages, optimisticMsg],
     }));
 
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    scrollToBottom(true);
 
     try {
       await apiPost(
@@ -148,7 +165,7 @@ export default function Chat() {
 
       await refreshFromBackend();
 
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 150);
+      scrollToBottom(true);
     } catch (e) {
       console.log("[chat] send message err", e);
 
@@ -182,13 +199,16 @@ export default function Chat() {
       }, 100);
     } catch (e) {
       console.log("[chat] start record err", e);
+
       Alert.alert("Voice error", "Could not start recording.");
     }
   };
 
   const cancelRecord = async () => {
     try {
-      if (recordTimer.current) clearInterval(recordTimer.current);
+      if (recordTimer.current) {
+        clearInterval(recordTimer.current);
+      }
 
       recordTimer.current = null;
 
@@ -204,7 +224,9 @@ export default function Chat() {
     if (!user || !id || !token || voiceSending) return;
 
     try {
-      if (recordTimer.current) clearInterval(recordTimer.current);
+      if (recordTimer.current) {
+        clearInterval(recordTimer.current);
+      }
 
       recordTimer.current = null;
 
@@ -236,7 +258,7 @@ export default function Chat() {
         messages: [...d.messages, optimisticMsg],
       }));
 
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+      scrollToBottom(true);
 
       const uploadRes = await apiUploadFile("/uploads/voice", uri, "file", {
         token,
@@ -262,13 +284,15 @@ export default function Chat() {
 
       await refreshFromBackend();
 
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 150);
+      scrollToBottom(true);
     } catch (e: any) {
       console.log("[chat] stop/send voice err", e);
 
       update((d) => ({
         ...d,
-        messages: d.messages.filter((m) => !String(m.id).startsWith("local_voice_")),
+        messages: d.messages.filter(
+          (m) => !String(m.id).startsWith("local_voice_"),
+        ),
       }));
 
       Alert.alert("Voice error", e?.message || "Could not send voice message.");
@@ -278,6 +302,7 @@ export default function Chat() {
   };
 
   const isRecording = recState.isRecording;
+  const canSendText = text.trim().length > 0 && !sending;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -298,15 +323,24 @@ export default function Chat() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={90}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 20}
       >
         <FlatList
           ref={listRef}
           data={thread}
           keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 16, gap: 8 }}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentContainerStyle={{
+            padding: 16,
+            gap: 8,
+            paddingBottom: 18,
+          }}
+          onContentSizeChange={() =>
+            listRef.current?.scrollToEnd({ animated: false })
+          }
+          onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             const mine = item.senderId === user?.id;
 
@@ -381,10 +415,11 @@ export default function Chat() {
           <View
             style={{
               flexDirection: "row",
-              alignItems: "center",
+              alignItems: "flex-end",
               gap: 8,
               paddingHorizontal: 12,
-              paddingVertical: 10,
+              paddingTop: 10,
+              paddingBottom: Platform.OS === "ios" ? 14 : 10,
               borderTopWidth: 1,
               borderTopColor: theme.colors.borderSoft,
               backgroundColor: theme.colors.bg,
@@ -396,7 +431,9 @@ export default function Chat() {
                 backgroundColor: theme.colors.inputBg,
                 borderRadius: 22,
                 paddingHorizontal: 14,
+                paddingVertical: Platform.OS === "android" ? 6 : 8,
                 minHeight: 44,
+                maxHeight: 116,
                 justifyContent: "center",
               }}
             >
@@ -405,24 +442,36 @@ export default function Chat() {
                 onChangeText={setText}
                 placeholder={t("messages.placeholder")}
                 placeholderTextColor={theme.colors.textFaint}
-                style={{ color: theme.colors.text, fontSize: 15 }}
+                style={{
+                  color: theme.colors.text,
+                  fontSize: 15,
+                  maxHeight: 96,
+                  paddingVertical: Platform.OS === "android" ? 4 : 0,
+                  textAlignVertical: "center",
+                }}
                 multiline
+                autoCapitalize="sentences"
+                autoCorrect
+                returnKeyType="default"
+                submitBehavior="newline"
+                onFocus={() => scrollToBottom(true)}
               />
             </View>
 
             {text.trim().length > 0 ? (
               <Pressable
                 onPress={send}
-                disabled={sending}
+                disabled={!canSendText}
                 style={{
                   width: 44,
                   height: 44,
                   borderRadius: 22,
-                  backgroundColor: sending
+                  backgroundColor: !canSendText
                     ? theme.colors.textMuted
                     : theme.colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
+                  opacity: !canSendText ? 0.65 : 1,
                 }}
               >
                 <Send color={theme.colors.primaryContrast} size={18} />
@@ -440,6 +489,7 @@ export default function Chat() {
                     : theme.colors.fire,
                   alignItems: "center",
                   justifyContent: "center",
+                  opacity: voiceSending ? 0.65 : 1,
                 }}
               >
                 <Mic color="#fff" size={18} />
@@ -523,7 +573,11 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
     if (playing) {
       player.pause();
     } else {
-      if ((status?.currentTime ?? 0) >= ((status?.duration ?? 0) - 0.1) && status?.duration) {
+      if (
+        (status?.currentTime ?? 0) >=
+          (status?.duration ?? 0) - 0.1 &&
+        status?.duration
+      ) {
         player.seekTo(0);
       }
 
@@ -532,7 +586,14 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
   };
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 180 }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        minWidth: 180,
+      }}
+    >
       <Pressable
         onPress={toggle}
         disabled={!source}
@@ -540,7 +601,9 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
           width: 30,
           height: 30,
           borderRadius: 15,
-          backgroundColor: mine ? "rgba(255,255,255,0.25)" : theme.colors.surfaceAlt,
+          backgroundColor: mine
+            ? "rgba(255,255,255,0.25)"
+            : theme.colors.surfaceAlt,
           alignItems: "center",
           justifyContent: "center",
           opacity: source ? 1 : 0.45,
@@ -554,7 +617,14 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
       </Pressable>
 
       <View style={{ flex: 1, gap: 2 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 2, height: 18 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 2,
+            height: 18,
+          }}
+        >
           {Array.from({ length: 22 }).map((_, i) => {
             const h = 4 + ((i * 7) % 14);
             const filled = i / 22 < progress;

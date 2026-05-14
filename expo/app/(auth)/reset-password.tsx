@@ -11,12 +11,8 @@ import {
   XCircle,
 } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  View,
-} from "react-native";
+import { Pressable, View } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppButton,
@@ -103,6 +99,10 @@ export default function ResetPasswordScreen() {
     () => isStrongPassword(newPassword, confirmPassword),
     [newPassword, confirmPassword],
   );
+
+  const clearError = () => {
+    if (error) setError("");
+  };
 
   const onSubmit = async () => {
     setError("");
@@ -275,6 +275,7 @@ export default function ResetPasswordScreen() {
               alignItems: "center",
               justifyContent: "center",
             }}
+            hitSlop={10}
           >
             <ArrowLeft color="#fff" size={20} />
           </Pressable>
@@ -312,9 +313,13 @@ export default function ResetPasswordScreen() {
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ paddingHorizontal: 20, paddingTop: 24, gap: 14 }}
+      <View
+        style={{
+          paddingHorizontal: 20,
+          paddingTop: 24,
+          paddingBottom: 40,
+          gap: 14,
+        }}
       >
         <AppInput
           label={t("auth.resetToken")}
@@ -324,8 +329,12 @@ export default function ResetPasswordScreen() {
           value={token}
           onChangeText={(value) => {
             setToken(value);
-            setError("");
+            clearError();
           }}
+          textContentType="oneTimeCode"
+          autoComplete="one-time-code"
+          returnKeyType="next"
+          submitBehavior="submit"
           leftIcon={<KeyRound size={18} color={theme.colors.textMuted} />}
         />
 
@@ -336,8 +345,14 @@ export default function ResetPasswordScreen() {
           value={newPassword}
           onChangeText={(value) => {
             setNewPassword(value);
-            setError("");
+            clearError();
           }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="newPassword"
+          autoComplete="new-password"
+          returnKeyType="next"
+          submitBehavior="submit"
           leftIcon={<Lock size={18} color={theme.colors.textMuted} />}
           rightIcon={
             <Pressable
@@ -360,8 +375,15 @@ export default function ResetPasswordScreen() {
           value={confirmPassword}
           onChangeText={(value) => {
             setConfirmPassword(value);
-            setError("");
+            clearError();
           }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="newPassword"
+          autoComplete="new-password"
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={onSubmit}
           leftIcon={<Lock size={18} color={theme.colors.textMuted} />}
           rightIcon={
             <Pressable
@@ -432,10 +454,13 @@ export default function ResetPasswordScreen() {
           }
           size="lg"
           loading={submitting}
+          disabled={submitting}
           onPress={onSubmit}
           fullWidth
         />
-      </KeyboardAvoidingView>
+
+        <View style={{ height: 32 }} />
+      </View>
     </ScreenContainer>
   );
 }

@@ -16,6 +16,7 @@ import {
 import React from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -23,6 +24,7 @@ import {
   Switch,
   View,
 } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppAvatar,
@@ -219,6 +221,34 @@ function getDefaultNotifications(userId: string) {
   };
 }
 
+function sanitizeIntegerInput(value: string) {
+  return value.replace(/[^\d]/g, "");
+}
+
+function sanitizeDecimalInput(value: string) {
+  return value.replace(/[^0-9.,]/g, "");
+}
+
+function parseOptionalInteger(value: string) {
+  const clean = value.trim();
+
+  if (!clean) return undefined;
+
+  const parsed = parseInt(clean, 10);
+
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseDecimalOrZero(value: string) {
+  const clean = value.trim();
+
+  if (!clean) return 0;
+
+  const parsed = parseFloat(clean.replace(",", "."));
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function ClientProfile() {
   const { theme, mode, toggle } = useTheme();
   const { t, lang, setLanguage } = useI18n();
@@ -281,21 +311,12 @@ export default function ClientProfile() {
   };
 
   const saveProfile = async () => {
-    if (!token || !user) return;
+    if (!token || !user || saving) return;
 
-    const ageValue = editAge.trim() ? parseInt(editAge.trim(), 10) : undefined;
-
-    const startWeightValue = editStartWeight.trim()
-      ? parseFloat(editStartWeight.replace(",", "."))
-      : 0;
-
-    const currentWeightValue = editCurrentWeight.trim()
-      ? parseFloat(editCurrentWeight.replace(",", "."))
-      : 0;
-
-    const heightValue = editHeight.trim()
-      ? parseFloat(editHeight.replace(",", "."))
-      : 0;
+    const ageValue = parseOptionalInteger(editAge);
+    const startWeightValue = parseDecimalOrZero(editStartWeight);
+    const currentWeightValue = parseDecimalOrZero(editCurrentWeight);
+    const heightValue = parseDecimalOrZero(editHeight);
 
     if (ageValue !== undefined && (Number.isNaN(ageValue) || ageValue <= 0)) {
       Alert.alert(t("profile.invalidAgeTitle"), t("profile.invalidAgeText"));
@@ -607,11 +628,11 @@ export default function ClientProfile() {
             </View>
           </Pressable>
 
-          <AppText variant="h2" color="#fff">
+          <AppText variant="h2" color="#fff" numberOfLines={1}>
             {user.name}
           </AppText>
 
-          <AppText variant="small" color="rgba(255,255,255,0.8)">
+          <AppText variant="small" color="rgba(255,255,255,0.8)" numberOfLines={1}>
             {user.email}
           </AppText>
 
@@ -676,9 +697,10 @@ export default function ClientProfile() {
                   flexDirection: "row",
                   justifyContent: "space-between",
                   alignItems: "center",
+                  gap: 12,
                 }}
               >
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <AppText
                     variant="caption"
                     color={theme.colors.textMuted}
@@ -691,6 +713,7 @@ export default function ClientProfile() {
                     variant="title"
                     color={theme.colors.primary}
                     style={{ marginTop: 4 }}
+                    numberOfLines={1}
                   >
                     {user.clientCode}
                   </AppText>
@@ -704,6 +727,7 @@ export default function ClientProfile() {
                     backgroundColor: theme.colors.surfaceAlt,
                     alignItems: "center",
                     justifyContent: "center",
+                    flexShrink: 0,
                   }}
                 >
                   <Copy color={theme.colors.primary} size={18} />
@@ -762,10 +786,16 @@ export default function ClientProfile() {
               justifyContent: "space-between",
               alignItems: "center",
               paddingVertical: 8,
+              gap: 12,
             }}
           >
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                flex: 1,
+              }}
             >
               {mode === "dark" ? (
                 <Moon color={theme.colors.text} size={18} />
@@ -773,7 +803,9 @@ export default function ClientProfile() {
                 <Sun color={theme.colors.text} size={18} />
               )}
 
-              <AppText variant="body">{t("profile.darkMode")}</AppText>
+              <AppText variant="body" style={{ flex: 1 }}>
+                {t("profile.darkMode")}
+              </AppText>
             </View>
 
             <AppText
@@ -792,20 +824,29 @@ export default function ClientProfile() {
               justifyContent: "space-between",
               alignItems: "center",
               paddingVertical: 8,
+              gap: 12,
             }}
           >
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                flex: 1,
+              }}
             >
               <Globe color={theme.colors.text} size={18} />
 
-              <AppText variant="body">{t("profile.language")}</AppText>
+              <AppText variant="body" style={{ flex: 1 }}>
+                {t("profile.language")}
+              </AppText>
             </View>
 
             <AppText
               variant="small"
               color={theme.colors.primary}
               style={{ fontWeight: "700" }}
+              numberOfLines={1}
             >
               {LANGUAGES.find((item) => item.code === lang)?.label}
             </AppText>
@@ -913,144 +954,221 @@ function EditProfileModal({
   const { theme } = useTheme();
   const { t } = useI18n();
 
+  const handleClose = () => {
+    if (saving) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <View
-          style={{
-            paddingTop: 56,
-            paddingHorizontal: 20,
-            paddingBottom: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.borderSoft,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X color={theme.colors.text} size={22} />
-          </Pressable>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+          <View
+            style={{
+              paddingTop: 56,
+              paddingHorizontal: 20,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.borderSoft,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Pressable onPress={handleClose} hitSlop={8} disabled={saving}>
+              <X color={theme.colors.text} size={22} />
+            </Pressable>
 
-          <AppText variant="h3">{t("profile.editProfile")}</AppText>
+            <AppText
+              variant="h3"
+              numberOfLines={1}
+              style={{ flex: 1, textAlign: "center" }}
+            >
+              {t("profile.editProfile")}
+            </AppText>
 
-          <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
-            <Check
-              color={saving ? theme.colors.textMuted : theme.colors.primary}
-              size={22}
+            <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
+              <Check
+                color={saving ? theme.colors.textMuted : theme.colors.primary}
+                size={22}
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              padding: 20,
+              gap: 12,
+              paddingBottom: 96,
+            }}
+          >
+            <AppInput
+              label={t("auth.name")}
+              value={editName}
+              onChangeText={setEditName}
+              autoCapitalize="words"
+              autoCorrect={false}
+              textContentType="name"
+              autoComplete="name"
+              returnKeyType="next"
+              submitBehavior="submit"
             />
-          </Pressable>
-        </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
-          <AppInput
-            label={t("auth.name")}
-            value={editName}
-            onChangeText={setEditName}
-          />
+            <AppInput
+              label={t("profile.phone")}
+              value={editPhone}
+              onChangeText={setEditPhone}
+              keyboardType="phone-pad"
+              inputMode="tel"
+              textContentType="telephoneNumber"
+              autoComplete="tel"
+              returnKeyType="next"
+              submitBehavior="submit"
+            />
 
-          <AppInput
-            label={t("profile.phone")}
-            value={editPhone}
-            onChangeText={setEditPhone}
-          />
+            <AppInput
+              label={t("profile.goal")}
+              value={editGoal}
+              onChangeText={setEditGoal}
+              multiline
+              placeholder={goalPlaceholder}
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="next"
+              submitBehavior="submit"
+              style={{
+                minHeight: 88,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
 
-          <AppInput
-            label={t("profile.goal")}
-            value={editGoal}
-            onChangeText={setEditGoal}
-            multiline
-            placeholder={goalPlaceholder}
-          />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <AppInput
+                  label={t("clients.age")}
+                  value={editAge}
+                  onChangeText={(value) =>
+                    setEditAge(sanitizeIntegerInput(value))
+                  }
+                  keyboardType="numeric"
+                  inputMode="numeric"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={3}
+                />
+              </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <AppInput
-                label={t("clients.age")}
-                value={editAge}
-                onChangeText={setEditAge}
-                keyboardType="numeric"
-              />
+              <View style={{ flex: 1 }}>
+                <AppInput
+                  label={t("profile.heightCm")}
+                  value={editHeight}
+                  onChangeText={(value) =>
+                    setEditHeight(sanitizeDecimalInput(value))
+                  }
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={6}
+                />
+              </View>
             </View>
 
-            <View style={{ flex: 1 }}>
-              <AppInput
-                label={t("profile.heightCm")}
-                value={editHeight}
-                onChangeText={setEditHeight}
-                keyboardType="decimal-pad"
-              />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <AppInput
+                  label={t("profile.startWeight")}
+                  value={editStartWeight}
+                  onChangeText={(value) =>
+                    setEditStartWeight(sanitizeDecimalInput(value))
+                  }
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  maxLength={6}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <AppInput
+                  label={t("profile.currentWeight")}
+                  value={editCurrentWeight}
+                  onChangeText={(value) =>
+                    setEditCurrentWeight(sanitizeDecimalInput(value))
+                  }
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  returnKeyType="done"
+                  submitBehavior="blurAndSubmit"
+                  onSubmitEditing={onSave}
+                  maxLength={6}
+                />
+              </View>
             </View>
-          </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <AppInput
-                label={t("profile.startWeight")}
-                value={editStartWeight}
-                onChangeText={setEditStartWeight}
-                keyboardType="decimal-pad"
-              />
-            </View>
+            <AppText variant="small" color={theme.colors.textMuted}>
+              {t("clients.fitnessLevel")}
+            </AppText>
 
-            <View style={{ flex: 1 }}>
-              <AppInput
-                label={t("profile.currentWeight")}
-                value={editCurrentWeight}
-                onChangeText={setEditCurrentWeight}
-                keyboardType="decimal-pad"
-              />
-            </View>
-          </View>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              {FITNESS_LEVEL_KEYS.map((level) => {
+                const active = editFitnessLevel === level.key;
 
-          <AppText variant="small" color={theme.colors.textMuted}>
-            {t("clients.fitnessLevel")}
-          </AppText>
-
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            {FITNESS_LEVEL_KEYS.map((level) => {
-              const active = editFitnessLevel === level.key;
-
-              return (
-                <Pressable
-                  key={level.key}
-                  onPress={() => setEditFitnessLevel(level.key)}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    backgroundColor: active
-                      ? theme.colors.primary
-                      : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <AppText
-                    variant="small"
-                    color={
-                      active
-                        ? theme.colors.primaryContrast
-                        : theme.colors.text
-                    }
-                    style={{ fontWeight: "700" }}
+                return (
+                  <Pressable
+                    key={level.key}
+                    onPress={() => setEditFitnessLevel(level.key)}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      backgroundColor: active
+                        ? theme.colors.primary
+                        : theme.colors.surfaceAlt,
+                    }}
                   >
-                    {t(level.tKey as never)}
-                  </AppText>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <AppText
+                      variant="small"
+                      color={
+                        active
+                          ? theme.colors.primaryContrast
+                          : theme.colors.text
+                      }
+                      style={{ fontWeight: "700" }}
+                    >
+                      {t(level.tKey as never)}
+                    </AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-          <View style={{ marginTop: 12 }}>
-            <AppButton
-              title={
-                saving ? t("profile.savingChanges") : t("profile.saveChanges")
-              }
-              onPress={onSave}
-              fullWidth
-            />
-          </View>
-        </ScrollView>
-      </View>
+            <View style={{ marginTop: 12 }}>
+              <AppButton
+                title={
+                  saving ? t("profile.savingChanges") : t("profile.saveChanges")
+                }
+                loading={saving}
+                disabled={saving}
+                onPress={onSave}
+                fullWidth
+              />
+            </View>
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1076,6 +1194,7 @@ function Row({ label, value }: { label: string; value: string }) {
       <AppText
         variant="bodyStrong"
         style={{ flex: 1, textAlign: "right" }}
+        numberOfLines={2}
       >
         {value}
       </AppText>

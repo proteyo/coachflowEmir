@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Linking,
   Platform,
   Pressable,
@@ -400,15 +401,15 @@ export default function Explore() {
 
   const [filter, setFilter] = useState<FilterType>("all");
   const [sortMode, setSortMode] = useState<SortMode>("distance");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState<string>("");
 
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [loadingLocation, setLoadingLocation] = useState<boolean>(false);
 
   const [nearbyPlaces, setNearbyPlaces] = useState<ExtendedPlace[]>([]);
-  const [loadingPlaces, setLoadingPlaces] = useState(false);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
+  const [usingFallback, setUsingFallback] = useState<boolean>(false);
 
   const localPlaces = useMemo<ExtendedPlace[]>(() => {
     if (!db?.places) {
@@ -631,16 +632,27 @@ export default function Explore() {
     );
   }, [loadLocation, location]);
 
+  const clearSearch = () => {
+    setQuery("");
+    Keyboard.dismiss();
+  };
+
   return (
     <ScreenContainer>
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        contentContainerStyle={{
+          paddingBottom: 120,
+        }}
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
             <View style={{ gap: 8 }}>
               <AppText variant="title">{txt.title}</AppText>
+
               <AppText variant="body" color={muted}>
                 {txt.heroSubtitle}
               </AppText>
@@ -656,9 +668,12 @@ export default function Explore() {
                     gap: 12,
                   }}
                 >
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <AppText variant="h3">{txt.heroTitle}</AppText>
-                    <AppText variant="caption" color={muted}>
+                  <View style={{ flex: 1, gap: 4, minWidth: 0 }}>
+                    <AppText variant="h3" numberOfLines={1}>
+                      {txt.heroTitle}
+                    </AppText>
+
+                    <AppText variant="caption" color={muted} numberOfLines={2}>
                       {location
                         ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
                         : txt.mapHint}
@@ -756,6 +771,7 @@ export default function Explore() {
                         }}
                       >
                         <ActivityIndicator />
+
                         <AppText variant="body">
                           {loadingLocation
                             ? txt.loadingLocation
@@ -800,6 +816,7 @@ export default function Explore() {
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <Pressable
                     onPress={loadLocation}
+                    disabled={loadingLocation}
                     style={{
                       flex: 1,
                       borderRadius: 18,
@@ -809,9 +826,11 @@ export default function Explore() {
                       backgroundColor: primary,
                       flexDirection: "row",
                       gap: 8,
+                      opacity: loadingLocation ? 0.65 : 1,
                     }}
                   >
                     <Navigation color="#FFFFFF" size={18} />
+
                     <AppText variant="bodyStrong" color="#FFFFFF">
                       {txt.useMyLocation}
                     </AppText>
@@ -819,6 +838,7 @@ export default function Explore() {
 
                   <Pressable
                     onPress={loadNearby}
+                    disabled={loadingPlaces || !location}
                     style={{
                       borderRadius: 18,
                       paddingHorizontal: 16,
@@ -828,6 +848,7 @@ export default function Explore() {
                       backgroundColor: card,
                       borderWidth: 1,
                       borderColor: border,
+                      opacity: loadingPlaces || !location ? 0.55 : 1,
                     }}
                   >
                     <RefreshCw color={primary} size={18} />
@@ -848,34 +869,63 @@ export default function Explore() {
               }}
             >
               <Search color={muted} size={18} />
+
               <TextInput
-  value={query}
-  onChangeText={setQuery}
-  placeholder={txt.searchPlaceholder}
-  placeholderTextColor="#94A3B8"
-  autoCapitalize="none"
-  autoCorrect={false}
-  selectionColor={primary}
-  style={{
-    flex: 1,
-    paddingVertical: 13,
-    paddingHorizontal: 10,
-    color: "#0F172A",
-    fontSize: 16,
-    fontWeight: "600",
-  }}
-/>
+                value={query}
+                onChangeText={setQuery}
+                placeholder={txt.searchPlaceholder}
+                placeholderTextColor={muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                returnKeyType="search"
+                submitBehavior="blurAndSubmit"
+                onSubmitEditing={Keyboard.dismiss}
+                selectionColor={primary}
+                style={{
+                  flex: 1,
+                  paddingVertical: Platform.OS === "android" ? 10 : 13,
+                  paddingHorizontal: 10,
+                  color: text,
+                  fontSize: 16,
+                  fontWeight: "600",
+                  minHeight: 48,
+                }}
+              />
+
+              {query.trim().length > 0 ? (
+                <Pressable
+                  onPress={clearSearch}
+                  hitSlop={8}
+                  style={{
+                    paddingHorizontal: 4,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <AppText
+                    variant="caption"
+                    color={primary}
+                    style={{ fontWeight: "800" }}
+                  >
+                    ×
+                  </AppText>
+                </Pressable>
+              ) : null}
             </View>
 
             <View style={{ gap: 10 }}>
               <SectionHeader title={txt.categories} />
+
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {FILTERS.map((item) => (
                   <AppChip
                     key={item}
                     label={txt[item]}
                     active={filter === item}
-                    onPress={() => setFilter(item)}
+                    onPress={() => {
+                      setFilter(item);
+                      Keyboard.dismiss();
+                    }}
                   />
                 ))}
               </View>
@@ -883,6 +933,7 @@ export default function Explore() {
 
             <View style={{ gap: 10 }}>
               <SectionHeader title={txt.sort} />
+
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {SORTS.map((item) => (
                   <AppChip
@@ -895,20 +946,23 @@ export default function Explore() {
                           : txt.sortByName
                     }
                     active={sortMode === item}
-                    onPress={() => setSortMode(item)}
+                    onPress={() => {
+                      setSortMode(item);
+                      Keyboard.dismiss();
+                    }}
                   />
                 ))}
               </View>
             </View>
 
             <SectionHeader
-  title={txt.nearbyTitle}
-  action={
-    <AppText variant="caption" color={muted}>
-      {items.length} {resultLabel}
-    </AppText>
-  }
-/>
+              title={txt.nearbyTitle}
+              action={
+                <AppText variant="caption" color={muted}>
+                  {items.length} {resultLabel}
+                </AppText>
+              }
+            />
           </View>
         }
         renderItem={({ item }) => {
@@ -929,6 +983,7 @@ export default function Explore() {
                     justifyContent: "center",
                     borderWidth: 1,
                     borderColor: border,
+                    flexShrink: 0,
                   }}
                 >
                   {item.imageUrl ? (
@@ -942,7 +997,7 @@ export default function Explore() {
                   )}
                 </View>
 
-                <View style={{ flex: 1, gap: 7 }}>
+                <View style={{ flex: 1, gap: 7, minWidth: 0 }}>
                   <View
                     style={{
                       flexDirection: "row",
@@ -951,8 +1006,11 @@ export default function Explore() {
                       gap: 8,
                     }}
                   >
-                    <View style={{ flex: 1 }}>
-                      <AppText variant="bodyStrong">{item.name}</AppText>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <AppText variant="bodyStrong" numberOfLines={1}>
+                        {item.name}
+                      </AppText>
+
                       <AppText
                         variant="caption"
                         color={muted}
@@ -968,9 +1026,11 @@ export default function Explore() {
                           flexDirection: "row",
                           alignItems: "center",
                           gap: 4,
+                          flexShrink: 0,
                         }}
                       >
                         <Star color="#F59E0B" size={15} fill="#F59E0B" />
+
                         <AppText variant="caption">
                           {getPlaceRating(item).toFixed(1)}
                         </AppText>
@@ -1008,6 +1068,7 @@ export default function Explore() {
                       }}
                     >
                       <MapPin color={muted} size={14} />
+
                       <AppText variant="caption" color={muted}>
                         {distance ?? txt.distanceSoon}
                       </AppText>
@@ -1026,6 +1087,7 @@ export default function Explore() {
                       }}
                     >
                       <ExternalLink color="#FFFFFF" size={14} />
+
                       <AppText variant="caption" color="#FFFFFF">
                         {txt.openRoute}
                       </AppText>
@@ -1042,7 +1104,6 @@ export default function Explore() {
             message={txt.noResultsMessage}
           />
         }
-        contentContainerStyle={{ paddingBottom: 120 }}
       />
     </ScreenContainer>
   );

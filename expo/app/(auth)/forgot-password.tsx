@@ -7,12 +7,8 @@ import {
   ShieldCheck,
 } from "lucide-react-native";
 import React, { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  View,
-} from "react-native";
+import { Pressable, View } from "react-native";
+
 import { LanguageModal } from "@/src/components/LanguageModal";
 import {
   AppButton,
@@ -38,6 +34,11 @@ export default function ForgotPasswordScreen() {
   const [error, setError] = useState<string>("");
 
   const currentLanguage = LANGUAGES.find((item) => item.code === lang);
+
+  const clearFeedback = () => {
+    if (error) setError("");
+    if (message) setMessage("");
+  };
 
   const onSubmit = async () => {
     setError("");
@@ -115,6 +116,7 @@ export default function ForgotPasswordScreen() {
               alignItems: "center",
               justifyContent: "center",
             }}
+            hitSlop={10}
           >
             <ArrowLeft color="#fff" size={20} />
           </Pressable>
@@ -152,9 +154,13 @@ export default function ForgotPasswordScreen() {
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ paddingHorizontal: 20, paddingTop: 24, gap: 14 }}
+      <View
+        style={{
+          paddingHorizontal: 20,
+          paddingTop: 24,
+          paddingBottom: 40,
+          gap: 14,
+        }}
       >
         <AppInput
           label={t("auth.email")}
@@ -162,12 +168,17 @@ export default function ForgotPasswordScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
+          inputMode="email"
+          textContentType="emailAddress"
+          autoComplete="email"
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
           value={email}
           onChangeText={(value) => {
             setEmail(value);
-            setError("");
-            setMessage("");
+            clearFeedback();
           }}
+          onSubmitEditing={onSubmit}
           leftIcon={<Mail size={18} color={theme.colors.textMuted} />}
         />
 
@@ -193,6 +204,7 @@ export default function ForgotPasswordScreen() {
           }
           size="lg"
           loading={submitting}
+          disabled={submitting}
           onPress={onSubmit}
           fullWidth
         />
@@ -242,7 +254,9 @@ export default function ForgotPasswordScreen() {
             {t("auth.passwordResetSecurityText")}
           </AppText>
         </View>
-      </KeyboardAvoidingView>
+
+        <View style={{ height: 32 }} />
+      </View>
     </ScreenContainer>
   );
 }

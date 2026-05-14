@@ -21,7 +21,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   View,
@@ -2011,9 +2013,9 @@ export default function ClientDetail() {
                           </View>
 
                           <AppText variant="caption" color={theme.colors.textMuted}>
-                            {t("clientDetail.bestWeight")}:{" "}
+                            {t("clientDetail.bestWeight")}: {" "}
                             {item.bestWeight || "—"}
-                            {t("common.kg")} · {t("clientDetail.last")}:{" "}
+                            {t("common.kg")} · {t("clientDetail.last")}: {" "}
                             {formatHistoryDate(item.lastDate, currentLang)}
                           </AppText>
                         </View>
@@ -2102,9 +2104,9 @@ export default function ClientDetail() {
                           <AppText variant="caption" color={theme.colors.textMuted}>
                             {t("clientDetail.bestSet")}: {item.bestWeight || "—"}
                             {t("common.kg")} × {item.bestReps || "—"} ·{" "}
-                            {t("clientDetail.volume")}:{" "}
+                            {t("clientDetail.volume")}: {" "}
                             {Math.round(item.totalVolume)}
-                            {t("common.kg")} · {t("clientDetail.last")}:{" "}
+                            {t("common.kg")} · {t("clientDetail.last")}: {" "}
                             {formatHistoryDate(item.lastDate, currentLang)}
                           </AppText>
                         </View>
@@ -2179,7 +2181,7 @@ export default function ClientDetail() {
                               }}
                             >
                               <AppText variant="small" style={{ fontWeight: "700" }}>
-                                {t("clientDetail.last")}:{" "}
+                                {t("clientDetail.last")}: {" "}
                                 {resultText || t("clientDetail.noSetDetails")}
                               </AppText>
                             </View>
@@ -2382,73 +2384,106 @@ function AssessmentModal({
   const { theme } = useTheme();
   const { t } = useI18n();
 
+  const handleClose = () => {
+    if (saving) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <View
-          style={{
-            paddingTop: 56,
-            paddingHorizontal: 20,
-            paddingBottom: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.borderSoft,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X color={theme.colors.text} size={22} />
-          </Pressable>
+    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+          <View
+            style={{
+              paddingTop: 56,
+              paddingHorizontal: 20,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.borderSoft,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Pressable onPress={handleClose} hitSlop={8} disabled={saving}>
+              <X color={theme.colors.text} size={22} />
+            </Pressable>
 
-          <AppText variant="h3">{t("clientDetail.clientAssessment")}</AppText>
+            <AppText variant="h3" numberOfLines={1} style={{ flex: 1, textAlign: "center" }}>
+              {t("clientDetail.clientAssessment")}
+            </AppText>
 
-          <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
-            <Send
-              color={saving ? theme.colors.textMuted : theme.colors.primary}
-              size={20}
+            <Pressable onPress={onSave} disabled={saving} hitSlop={8}>
+              <Send
+                color={saving ? theme.colors.textMuted : theme.colors.primary}
+                size={20}
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 96 }}
+          >
+            <RatingPicker
+              label={t("clientDetail.discipline")}
+              value={disciplineRating}
+              onChange={setDisciplineRating}
             />
-          </Pressable>
+
+            <RatingPicker
+              label={t("clientDetail.progressRating")}
+              value={progressRating}
+              onChange={setProgressRating}
+            />
+
+            <RatingPicker
+              label={t("clientDetail.communication")}
+              value={communicationRating}
+              onChange={setCommunicationRating}
+            />
+
+            <AppInput
+              label={t("clientDetail.privateComment")}
+              value={comment}
+              onChangeText={setComment}
+              placeholder={t("clientDetail.privateCommentPlaceholder")}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={onSave}
+              style={{
+                minHeight: 110,
+                textAlignVertical: "top",
+                paddingTop: 10,
+              }}
+            />
+
+            <AppButton
+              title={
+                saving
+                  ? t("clientDetail.saving")
+                  : t("clientDetail.saveAssessment")
+              }
+              loading={saving}
+              disabled={saving}
+              onPress={onSave}
+              fullWidth
+            />
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
         </View>
-
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 18 }}>
-          <RatingPicker
-            label={t("clientDetail.discipline")}
-            value={disciplineRating}
-            onChange={setDisciplineRating}
-          />
-
-          <RatingPicker
-            label={t("clientDetail.progressRating")}
-            value={progressRating}
-            onChange={setProgressRating}
-          />
-
-          <RatingPicker
-            label={t("clientDetail.communication")}
-            value={communicationRating}
-            onChange={setCommunicationRating}
-          />
-
-          <AppInput
-            label={t("clientDetail.privateComment")}
-            value={comment}
-            onChangeText={setComment}
-            placeholder={t("clientDetail.privateCommentPlaceholder")}
-            multiline
-          />
-
-          <AppButton
-            title={
-              saving
-                ? t("clientDetail.saving")
-                : t("clientDetail.saveAssessment")
-            }
-            onPress={onSave}
-            fullWidth
-          />
-        </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

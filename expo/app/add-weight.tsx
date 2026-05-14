@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import React, { useState } from "react";
 import { View } from "react-native";
+
 import {
   AppButton,
   AppInput,
@@ -24,6 +25,10 @@ export default function AddWeight() {
   const [error, setError] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
 
+  const clearError = () => {
+    if (error) setError("");
+  };
+
   const submit = async () => {
     if (saving) return;
 
@@ -31,7 +36,7 @@ export default function AddWeight() {
 
     const v = parseFloat(weight.replace(",", "."));
 
-    if (!v || v <= 0) {
+    if (!v || v <= 0 || v > 300) {
       setError(t("progress.invalidWeight"));
       return;
     }
@@ -73,7 +78,7 @@ export default function AddWeight() {
 
   return (
     <ScreenContainer scroll>
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: 12, paddingBottom: 40 }}>
         <AppText variant="title">{t("progress.logWeight")}</AppText>
 
         <AppText variant="small" color={theme.colors.textMuted}>
@@ -83,17 +88,37 @@ export default function AddWeight() {
         <AppInput
           label={t("progress.weightLabel")}
           value={weight}
-          onChangeText={setWeight}
+          onChangeText={(value) => {
+            setWeight(value.replace(/[^0-9.,]/g, ""));
+            clearError();
+          }}
           keyboardType="decimal-pad"
+          inputMode="decimal"
           placeholder="65.4"
+          returnKeyType="next"
+          submitBehavior="submit"
+          maxLength={6}
         />
 
         <AppInput
           label={t("progress.notesOptional")}
           value={notes}
-          onChangeText={setNotes}
+          onChangeText={(value) => {
+            setNotes(value);
+            clearError();
+          }}
           placeholder={t("progress.notesPlaceholder")}
           multiline
+          autoCapitalize="sentences"
+          autoCorrect
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={submit}
+          style={{
+            minHeight: 96,
+            textAlignVertical: "top",
+            paddingTop: 10,
+          }}
         />
 
         {error ? (
@@ -105,9 +130,13 @@ export default function AddWeight() {
         <AppButton
           title={saving ? t("progress.savingEntry") : t("progress.saveEntry")}
           size="lg"
+          loading={saving}
+          disabled={saving}
           onPress={submit}
           fullWidth
         />
+
+        <View style={{ height: 24 }} />
       </View>
     </ScreenContainer>
   );
