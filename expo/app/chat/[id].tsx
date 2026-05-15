@@ -14,7 +14,6 @@ import {
   Alert,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   TextInput,
@@ -153,6 +152,8 @@ export default function Chat() {
   const [sending, setSending] = useState<boolean>(false);
   const [voiceSending, setVoiceSending] = useState<boolean>(false);
   const [recordingMs, setRecordingMs] = useState<number>(0);
+  const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
+  const [composerHeight, setComposerHeight] = useState<number>(76);
 
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<FlatList<ChatListItem>>(null);
@@ -234,11 +235,15 @@ export default function Chat() {
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
-    const showSub = Keyboard.addListener(showEvent, () => {
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const height = event.endCoordinates?.height ?? 0;
+
+      setKeyboardHeight(height);
       scrollToBottom(true);
     });
 
     const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
       scrollToBottom(false);
     });
 
@@ -426,6 +431,8 @@ export default function Chat() {
   const canSendText = text.trim().length > 0 && !sending;
 
   const bottomPadding = Math.max(insets.bottom, 10);
+  const keyboardOffset =
+    Platform.OS === "android" ? Math.max(0, keyboardHeight - insets.bottom) : 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -444,112 +451,200 @@ export default function Chat() {
         }}
       />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
-      >
-        <FlatList
-          ref={listRef}
-          data={chatItems}
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: 18,
-            gap: 8,
-            flexGrow: 1,
-            justifyContent: chatItems.length === 0 ? "center" : "flex-end",
-          }}
-          onContentSizeChange={() =>
-            listRef.current?.scrollToEnd({ animated: false })
+      <FlatList
+        ref={listRef}
+        data={chatItems}
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          paddingBottom: composerHeight + 24,
+          gap: 8,
+          flexGrow: 1,
+          justifyContent: chatItems.length === 0 ? "center" : "flex-end",
+        }}
+        onContentSizeChange={() =>
+          listRef.current?.scrollToEnd({ animated: false })
+        }
+        onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
+        renderItem={({ item }) => {
+          if (item.kind === "date") {
+            return <DateSeparator label={item.label} />;
           }
-          onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
-          renderItem={({ item }) => {
-            if (item.kind === "date") {
-              return <DateSeparator label={item.label} />;
-            }
 
-            const mine = item.message.senderId === user?.id;
+          const mine = item.message.senderId === user?.id;
 
-            return <MessageBubble msg={item.message} mine={mine} />;
-          }}
-          ListEmptyComponent={
-            <View
-              style={{
-                alignItems: "center",
-                justifyContent: "center",
-                paddingHorizontal: 24,
-                paddingVertical: 32,
-                gap: 8,
-              }}
-            >
-              <AppText variant="h3" style={{ textAlign: "center" }}>
-                {partner?.name ?? t("messages.title")}
-              </AppText>
-
-              <AppText
-                variant="body"
-                color={theme.colors.textMuted}
-                style={{ textAlign: "center" }}
-              >
-                {t("messages.placeholder")}
-              </AppText>
-            </View>
-          }
-        />
-
-        {isRecording ? (
+          return <MessageBubble msg={item.message} mine={mine} />;
+        }}
+        ListEmptyComponent={
           <View
             style={{
-              flexDirection: "row",
               alignItems: "center",
-              gap: 12,
-              paddingHorizontal: 14,
-              paddingTop: 12,
-              paddingBottom: bottomPadding,
-              borderTopWidth: 1,
-              borderTopColor: theme.colors.borderSoft,
-              backgroundColor: theme.colors.surface,
+              justifyContent: "center",
+              paddingHorizontal: 24,
+              paddingVertical: 32,
+              gap: 8,
             }}
           >
-            <View
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 5,
-                backgroundColor: theme.colors.danger,
-              }}
-            />
-
-            <AppText variant="bodyStrong">{t("messages.recording")}</AppText>
-
-            <AppText variant="small" color={theme.colors.textMuted}>
-              {fmtDur(recordingMs)}
+            <AppText variant="h3" style={{ textAlign: "center" }}>
+              {partner?.name ?? t("messages.title")}
             </AppText>
 
-            <View style={{ flex: 1 }} />
+            <AppText
+              variant="body"
+              color={theme.colors.textMuted}
+              style={{ textAlign: "center" }}
+            >
+              {t("messages.placeholder")}
+            </AppText>
+          </View>
+        }
+      />
 
-            <Pressable
-              onPress={cancelRecord}
-              disabled={voiceSending}
+      {isRecording ? (
+        <View
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: keyboardOffset,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            paddingHorizontal: 14,
+            paddingTop: 12,
+            paddingBottom: bottomPadding,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.borderSoft,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <View
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: theme.colors.danger,
+            }}
+          />
+
+          <AppText variant="bodyStrong">{t("messages.recording")}</AppText>
+
+          <AppText variant="small" color={theme.colors.textMuted}>
+            {fmtDur(recordingMs)}
+          </AppText>
+
+          <View style={{ flex: 1 }} />
+
+          <Pressable
+            onPress={cancelRecord}
+            disabled={voiceSending}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: theme.colors.surfaceAlt,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: voiceSending ? 0.5 : 1,
+            }}
+          >
+            <X color={theme.colors.text} size={18} />
+          </Pressable>
+
+          <Pressable
+            onPress={stopAndSend}
+            disabled={voiceSending}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: voiceSending
+                ? theme.colors.textMuted
+                : theme.colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Send color={theme.colors.primaryContrast} size={18} />
+          </Pressable>
+        </View>
+      ) : (
+        <View
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: keyboardOffset,
+            flexDirection: "row",
+            alignItems: "flex-end",
+            gap: 8,
+            paddingHorizontal: 12,
+            paddingTop: 10,
+            paddingBottom: bottomPadding,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.borderSoft,
+            backgroundColor: theme.colors.bg,
+          }}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.inputBg,
+              borderRadius: 22,
+              paddingHorizontal: 14,
+              paddingVertical: Platform.OS === "android" ? 6 : 8,
+              minHeight: 44,
+              maxHeight: 116,
+              justifyContent: "center",
+            }}
+          >
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder={t("messages.placeholder")}
+              placeholderTextColor={theme.colors.textFaint}
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: theme.colors.surfaceAlt,
+                color: theme.colors.text,
+                fontSize: 15,
+                maxHeight: 96,
+                paddingVertical: Platform.OS === "android" ? 4 : 0,
+                textAlignVertical: "center",
+              }}
+              multiline
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType="default"
+              submitBehavior="newline"
+              onFocus={() => scrollToBottom(true)}
+            />
+          </View>
+
+          {text.trim().length > 0 ? (
+            <Pressable
+              onPress={send}
+              disabled={!canSendText}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: !canSendText
+                  ? theme.colors.textMuted
+                  : theme.colors.primary,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: voiceSending ? 0.5 : 1,
+                opacity: !canSendText ? 0.65 : 1,
               }}
             >
-              <X color={theme.colors.text} size={18} />
+              <Send color={theme.colors.primaryContrast} size={18} />
             </Pressable>
-
+          ) : (
             <Pressable
-              onPress={stopAndSend}
+              onPress={startRecord}
               disabled={voiceSending}
               style={{
                 width: 44,
@@ -557,101 +652,17 @@ export default function Chat() {
                 borderRadius: 22,
                 backgroundColor: voiceSending
                   ? theme.colors.textMuted
-                  : theme.colors.primary,
+                  : theme.colors.fire,
                 alignItems: "center",
                 justifyContent: "center",
+                opacity: voiceSending ? 0.65 : 1,
               }}
             >
-              <Send color={theme.colors.primaryContrast} size={18} />
+              <Mic color="#fff" size={18} />
             </Pressable>
-          </View>
-        ) : (
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: 8,
-              paddingHorizontal: 12,
-              paddingTop: 10,
-              paddingBottom: bottomPadding,
-              borderTopWidth: 1,
-              borderTopColor: theme.colors.borderSoft,
-              backgroundColor: theme.colors.bg,
-            }}
-          >
-            <View
-              style={{
-                flex: 1,
-                backgroundColor: theme.colors.inputBg,
-                borderRadius: 22,
-                paddingHorizontal: 14,
-                paddingVertical: Platform.OS === "android" ? 6 : 8,
-                minHeight: 44,
-                maxHeight: 116,
-                justifyContent: "center",
-              }}
-            >
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder={t("messages.placeholder")}
-                placeholderTextColor={theme.colors.textFaint}
-                style={{
-                  color: theme.colors.text,
-                  fontSize: 15,
-                  maxHeight: 96,
-                  paddingVertical: Platform.OS === "android" ? 4 : 0,
-                  textAlignVertical: "center",
-                }}
-                multiline
-                autoCapitalize="sentences"
-                autoCorrect
-                returnKeyType="default"
-                submitBehavior="newline"
-                onFocus={() => scrollToBottom(true)}
-              />
-            </View>
-
-            {text.trim().length > 0 ? (
-              <Pressable
-                onPress={send}
-                disabled={!canSendText}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: !canSendText
-                    ? theme.colors.textMuted
-                    : theme.colors.primary,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: !canSendText ? 0.65 : 1,
-                }}
-              >
-                <Send color={theme.colors.primaryContrast} size={18} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={startRecord}
-                disabled={voiceSending}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: voiceSending
-                    ? theme.colors.textMuted
-                    : theme.colors.fire,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: voiceSending ? 0.65 : 1,
-                }}
-              >
-                <Mic color="#fff" size={18} />
-              </Pressable>
-            )}
-          </View>
-        )}
-      </KeyboardAvoidingView>
+          )}
+        </View>
+      )}
     </View>
   );
 }
