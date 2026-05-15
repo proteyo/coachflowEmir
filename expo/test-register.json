@@ -1,0 +1,9 @@
+﻿{
+  "name": "Test User",
+  "email": "test10002@example.com",
+  "password": "Test123!",
+  "role": "client",
+  "age": 22,
+  "goal": "lose_weight",
+  "goal_type": "lose_weight"
+}

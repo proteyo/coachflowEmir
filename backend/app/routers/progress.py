@@ -1,12 +1,17 @@
 """
-GET  /progress              — list entries (client: own; coach: ?client_id= + active subscription)
-POST /progress              — add entry
-DELETE /progress/{id}       — delete entry
+GET    /progress              — list entries
+POST   /progress              — add entry
+DELETE /progress/{id}         — delete entry
+
+Access rules:
+- Client can list/add/delete own progress.
+- Coach with active subscription can list/add/delete progress for linked clients.
 """
 
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +44,37 @@ async def _verify_coach_client(
         raise HTTPException(status_code=403, detail="Client is not linked to you")
 
     return profile
+
+
+async def _get_client_profile(
+    client_id: str,
+    db: AsyncSession,
+) -> ClientProfile | None:
+    res = await db.execute(
+        select(ClientProfile).where(ClientProfile.user_id == client_id)
+    )
+
+    return res.scalar_one_or_none()
+
+
+async def _read_json_body(request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+
+    return body if isinstance(body, dict) else {}
+
+
+def _get_client_id_from_body(body: dict[str, Any]) -> str | None:
+    raw = body.get("client_id") or body.get("clientId")
+
+    if raw is None:
+        return None
+
+    value = str(raw).strip()
+
+    return value or None
 
 
 @router.get("", response_model=list[ProgressEntryOut])
@@ -77,30 +113,77 @@ async def list_progress(
 
 @router.post("", response_model=ProgressEntryOut, status_code=201)
 async def add_progress(
+    request: Request,
     data: ProgressEntryIn,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Clients add their own progress.
-    Coaches should not add progress here; coach-side weight editing should go through profile logic.
+    Adds a weight progress entry.
+
+    Client:
+    - can add only own progress.
+
+    Coach:
+    - must have active subscription;
+    - must provide client_id/clientId in request body;
+    - can add progress only for a linked client.
     """
-    if current_user.role != "client":
+    body = await _read_json_body(request)
+
+    if current_user.role == "client":
+        target_client_id = current_user.id
+        added_by = current_user.id
+        client_profile = await _get_client_profile(target_client_id, db)
+
+        if not client_profile:
+            raise HTTPException(status_code=404, detail="Client profile not found")
+
+    elif current_user.role == "coach":
+        await require_active_coach_subscription(current_user, db)
+
+        target_client_id = _get_client_id_from_body(body)
+
+        if not target_client_id:
+            raise HTTPException(
+                status_code=400,
+                detail="client_id is required when coach adds client progress",
+            )
+
+        client_profile = await _verify_coach_client(
+            current_user.id,
+            target_client_id,
+            db,
+        )
+
+        added_by = current_user.id
+
+    else:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if data.weight <= 0:
+        raise HTTPException(status_code=400, detail="Weight must be greater than 0")
+
+    if data.weight < 20 or data.weight > 350:
         raise HTTPException(
-            status_code=403,
-            detail="Only clients can add their own progress entries",
+            status_code=400,
+            detail="Weight must be between 20 and 350 kg",
         )
 
     entry = ProgressEntry(
         id=f"pe_{uuid.uuid4().hex[:12]}",
-        client_id=current_user.id,
+        client_id=target_client_id,
         weight=data.weight,
         date=data.date,
         notes=data.notes,
-        added_by=current_user.id,
+        added_by=added_by,
     )
 
     db.add(entry)
+
+    if client_profile is not None:
+        client_profile.current_weight = data.weight
+
     await db.commit()
     await db.refresh(entry)
 
@@ -119,10 +202,15 @@ async def delete_progress(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    if current_user.role == "coach":
-        await require_active_coach_subscription(current_user, db)
+    if current_user.role == "client":
+        if entry.client_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    if entry.client_id != current_user.id and entry.added_by != current_user.id:
+    elif current_user.role == "coach":
+        await require_active_coach_subscription(current_user, db)
+        await _verify_coach_client(current_user.id, entry.client_id, db)
+
+    else:
         raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(entry)

@@ -10,7 +10,7 @@ import {
   Lock,
   XCircle,
 } from "lucide-react-native";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { LanguageModal } from "@/src/components/LanguageModal";
@@ -25,19 +25,61 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { LANGUAGES } from "@/src/i18n/translations";
 
-function extractResetToken(value: string) {
-  const raw = value.trim();
+type ResetPasswordParams = {
+  token?: string | string[];
+  reset_token?: string | string[];
+  code?: string | string[];
+};
 
-  if (!raw.includes("token=")) {
-    return raw;
+function firstParam(value?: string | string[]) {
+  if (!value) return "";
+  return Array.isArray(value) ? value[0] ?? "" : value;
+}
+
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function extractResetToken(value: string) {
+  const raw = safeDecode(String(value ?? "")).trim();
+
+  if (!raw) {
+    return "";
   }
 
   try {
-    const tokenPart = raw.split("token=", 2)[1] ?? "";
-    return decodeURIComponent(tokenPart.split("&", 1)[0]).trim();
+    const parsed = new URL(raw);
+
+    const fromUrl =
+      parsed.searchParams.get("token") ||
+      parsed.searchParams.get("reset_token") ||
+      parsed.searchParams.get("code") ||
+      "";
+
+    if (fromUrl.trim()) {
+      return safeDecode(fromUrl).trim();
+    }
   } catch {
-    return raw.split("token=", 2)[1]?.split("&", 1)[0]?.trim() ?? raw;
+    // It may be just a token or a partial URL. We continue with manual parsing.
   }
+
+  const tokenMatch =
+    raw.match(/[?&]token=([^&]+)/) ||
+    raw.match(/[?&]reset_token=([^&]+)/) ||
+    raw.match(/[?&]code=([^&]+)/) ||
+    raw.match(/token=([^&]+)/) ||
+    raw.match(/reset_token=([^&]+)/) ||
+    raw.match(/code=([^&]+)/);
+
+  if (tokenMatch?.[1]) {
+    return safeDecode(tokenMatch[1]).trim();
+  }
+
+  return raw;
 }
 
 function getPasswordRules(password: string, confirmPassword: string) {
@@ -68,17 +110,18 @@ export default function ResetPasswordScreen() {
   const { theme } = useTheme();
   const { lang, setLanguage, t } = useI18n();
   const { resetPassword } = useAuth();
-  const params = useLocalSearchParams<{ token?: string }>();
+  const params = useLocalSearchParams<ResetPasswordParams>();
 
-  const initialToken = useMemo(() => {
-    if (!params.token) return "";
+  const tokenFromParams = useMemo(() => {
+    const rawToken =
+      firstParam(params.token) ||
+      firstParam(params.reset_token) ||
+      firstParam(params.code);
 
-    const value = Array.isArray(params.token) ? params.token[0] : params.token;
+    return extractResetToken(rawToken);
+  }, [params.code, params.reset_token, params.token]);
 
-    return extractResetToken(value);
-  }, [params.token]);
-
-  const [token, setToken] = useState<string>(initialToken);
+  const [token, setToken] = useState<string>(tokenFromParams);
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
   const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
@@ -87,6 +130,13 @@ export default function ResetPasswordScreen() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [success, setSuccess] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    if (tokenFromParams && tokenFromParams !== token) {
+      setToken(tokenFromParams);
+      setError("");
+    }
+  }, [token, tokenFromParams]);
 
   const currentLanguage = LANGUAGES.find((item) => item.code === lang);
 

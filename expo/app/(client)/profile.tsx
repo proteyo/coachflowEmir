@@ -569,10 +569,6 @@ export default function ClientProfile() {
         return;
       }
 
-      await updateMe({
-        avatarUrl: uploadedAvatarUrl,
-      });
-
       update((data) => ({
         ...data,
         users: data.users.map((item) =>
@@ -582,7 +578,31 @@ export default function ClientProfile() {
         ),
       }));
 
-      await refreshFromBackend();
+      try {
+        await apiPatch(
+          "/users/me",
+          {
+            avatar_url: uploadedAvatarUrl,
+          },
+          { token },
+        );
+      } catch (patchError) {
+        console.log("[avatar] user avatar patch warning", patchError);
+      }
+
+      try {
+        await updateMe({
+          avatarUrl: uploadedAvatarUrl,
+        });
+      } catch (updateMeError) {
+        console.log("[avatar] auth context avatar update warning", updateMeError);
+      }
+
+      try {
+        await refreshFromBackend();
+      } catch (refreshError) {
+        console.log("[avatar] refresh after avatar upload warning", refreshError);
+      }
 
       Alert.alert(t("profile.savedTitle"), t("profile.avatarUpdated"));
     } catch (e: any) {

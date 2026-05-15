@@ -653,6 +653,11 @@ export default function ClientDetail() {
   const [supplementLogsLoading, setSupplementLogsLoading] =
     useState<boolean>(false);
 
+  const [weightModalOpen, setWeightModalOpen] = useState<boolean>(false);
+  const [weightValue, setWeightValue] = useState<string>("");
+  const [savingWeight, setSavingWeight] = useState<boolean>(false);
+  const [weightError, setWeightError] = useState<string>("");
+
   const w = Dimensions.get("window").width;
   const today = ymd(new Date());
   const todayDayKey = getTodayDayKey();
@@ -1020,33 +1025,89 @@ export default function ClientDetail() {
   };
 
   const addProgress = () => {
-    Alert.prompt?.(
-      t("progress.addWeight"),
-      t("progress.enterWeight"),
-      (text) => {
-        const v = parseFloat(text ?? "");
+  if (!id || !user || !token) {
+    Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
+    return;
+  }
 
-        if (!v || v <= 0) return;
+  const current = data?.profile?.currentWeight ?? "";
 
-        update((d) => ({
-          ...d,
-          progress: [
-            ...d.progress,
-            {
-              id: `pr_${Date.now()}`,
-              clientId: id!,
-              weight: v,
-              date: new Date().toISOString(),
-              addedBy: user.id,
-            },
-          ],
-          clientProfiles: d.clientProfiles.map((c) =>
-            c.userId === id ? { ...c, currentWeight: v } : c,
-          ),
-        }));
-      },
-      "plain-text",
-    );
+  setWeightValue(
+    Number.isFinite(Number(current)) && Number(current) > 0
+      ? String(current)
+      : "",
+  );
+
+  setWeightError("");
+  setWeightModalOpen(true);
+};
+
+  const saveProgress = async () => {
+    if (!id || !user || !token || savingWeight) return;
+
+    const normalizedValue = weightValue.replace(",", ".").trim();
+    const weight = Number.parseFloat(normalizedValue);
+
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setWeightError(t("progress.enterWeight"));
+      return;
+    }
+
+    if (weight < 20 || weight > 350) {
+      setWeightError("Enter a realistic weight between 20 and 350 kg.");
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const localId = `pr_${Date.now()}`;
+
+    try {
+      setSavingWeight(true);
+      setWeightError("");
+
+      const saved = await apiPost(
+        "/progress",
+        {
+          client_id: id,
+          weight,
+          date: createdAt,
+        },
+        { token },
+      );
+
+      const savedEntry = {
+        id: String(saved?.id ?? localId),
+        clientId: String(saved?.clientId ?? saved?.client_id ?? id),
+        weight: Number(saved?.weight ?? weight),
+        date: String(saved?.date ?? saved?.createdAt ?? saved?.created_at ?? createdAt),
+        addedBy: String(saved?.addedBy ?? saved?.added_by ?? user.id),
+      };
+
+      update((d) => ({
+        ...d,
+        progress: [
+          ...d.progress.filter((item) => item.id !== savedEntry.id),
+          savedEntry,
+        ],
+        clientProfiles: d.clientProfiles.map((c) =>
+          c.userId === id ? { ...c, currentWeight: weight } : c,
+        ),
+      }));
+
+      await refreshFromBackend();
+
+      setWeightModalOpen(false);
+      setWeightValue("");
+    } catch (e: any) {
+      console.log("[client-detail] add progress error", e);
+
+      setWeightError(
+        e?.message ||
+          "Could not save weight entry. Please check backend progress permissions.",
+      );
+    } finally {
+      setSavingWeight(false);
+    }
   };
 
   const deleteWorkoutLocalFallback = (wid: string) => {
@@ -2225,6 +2286,23 @@ export default function ClientDetail() {
         <View style={{ height: 32 }} />
       </View>
 
+      <WeightEntryModal
+        visible={weightModalOpen}
+        value={weightValue}
+        saving={savingWeight}
+        error={weightError}
+        onChange={(value) => {
+          setWeightValue(value);
+          if (weightError) setWeightError("");
+        }}
+        onClose={() => {
+          if (savingWeight) return;
+          setWeightModalOpen(false);
+          setWeightError("");
+        }}
+        onSave={saveProgress}
+      />
+
       <AssessmentModal
         visible={assessmentOpen}
         saving={savingAssessment}
@@ -2351,6 +2429,144 @@ function RatingPicker({
         {value}/5
       </AppText>
     </View>
+  );
+}
+
+function WeightEntryModal({
+  visible,
+  value,
+  saving,
+  error,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  value: string;
+  saving: boolean;
+  error: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const { theme } = useTheme();
+  const { t } = useI18n();
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          paddingHorizontal: 20,
+          backgroundColor: "rgba(0,0,0,0.55)",
+        }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+          }}
+          onPress={onClose}
+          disabled={saving}
+        />
+
+        <View
+          style={{
+            borderRadius: 24,
+            padding: 18,
+            backgroundColor: theme.colors.surface,
+            borderWidth: 1,
+            borderColor: theme.colors.borderSoft,
+            gap: 14,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <AppText variant="h3">{t("progress.addWeight")}</AppText>
+
+              <AppText
+                variant="small"
+                color={theme.colors.textMuted}
+                style={{ marginTop: 4 }}
+              >
+                {t("progress.enterWeight")}
+              </AppText>
+            </View>
+
+            <Pressable
+              onPress={onClose}
+              disabled={saving}
+              hitSlop={8}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: theme.colors.surfaceAlt,
+                opacity: saving ? 0.5 : 1,
+              }}
+            >
+              <X color={theme.colors.text} size={18} />
+            </Pressable>
+          </View>
+
+          <AppInput
+            label={`${t("progress.current")} (${t("common.kg")})`}
+            value={value}
+            onChangeText={onChange}
+            placeholder="82"
+            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+            autoFocus
+            selectTextOnFocus
+            returnKeyType="done"
+            submitBehavior="blurAndSubmit"
+            onSubmitEditing={onSave}
+          />
+
+          {error ? (
+            <AppText variant="small" color={theme.colors.danger}>
+              {error}
+            </AppText>
+          ) : null}
+
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <AppButton
+              title={t("common.cancel")}
+              variant="secondary"
+              onPress={onClose}
+              disabled={saving}
+              style={{ flex: 1 }}
+            />
+
+            <AppButton
+              title={saving ? t("clientDetail.saving") : t("common.save")}
+              onPress={onSave}
+              loading={saving}
+              disabled={saving}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 

@@ -370,72 +370,12 @@ export default function CoachProfile() {
   };
 
   const pickAvatar = async () => {
-    if (!token) {
+    if (!token || !user) {
       Alert.alert(L.authErrorTitle, L.loginAgainText);
       return;
     }
 
-    try {
-      if (Platform.OS !== "web") {
-        const permission =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (!permission.granted) {
-          Alert.alert(L.permissionTitle, L.permissionMsg);
-          return;
-        }
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 1,
-      });
-
-      if (result.canceled || !result.assets[0]?.uri) return;
-
-      const manipulated = await ImageManipulator.manipulateAsync(
-        result.assets[0].uri,
-        [{ resize: { width: 900 } }],
-        {
-          compress: 0.82,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
-      );
-
-      const uploadRes = await apiUploadFile(
-        "/uploads/avatar",
-        manipulated.uri,
-        "file",
-        { token },
-      );
-
-      const uploadedAvatarUrl = uploadRes.avatarUrl ?? uploadRes.avatar_url;
-
-      if (!uploadedAvatarUrl) {
-        Alert.alert(L.uploadErrorTitle, L.avatarUrlMissing);
-        return;
-      }
-
-      await updateMe({
-        avatarUrl: uploadedAvatarUrl,
-      });
-
-      await apiPatch(
-        "/users/me/coach-profile",
-        {
-          profile_image_url: uploadedAvatarUrl,
-          specialty: getSpecialtyForBackend(profile?.specialty ?? ""),
-          bio: profile?.bio ?? "",
-          experience_years: profile?.experienceYears ?? 0,
-          achievements: profile?.achievements ?? [],
-          certificates: profile?.certificates ?? [],
-          cover_image_url: profile?.coverImageUrl ?? undefined,
-        },
-        { token },
-      );
-
+    const applyAvatarLocally = (uploadedAvatarUrl: string) => {
       update((data) => {
         const hasCoachProfile = data.coachProfiles.some(
           (item) => item.userId === user.id,
@@ -476,10 +416,98 @@ export default function CoachProfile() {
       Image.prefetch(toAbsoluteUrl(uploadedAvatarUrl) ?? uploadedAvatarUrl).catch(
         () => {},
       );
+    };
 
-      await refreshFromBackend();
+    try {
+      if (Platform.OS !== "web") {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-      setAvatarVersion(Date.now());
+        if (!permission.granted) {
+          Alert.alert(L.permissionTitle, L.permissionMsg);
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets[0]?.uri) return;
+
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 900 } }],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+
+      const uploadRes = await apiUploadFile(
+        "/uploads/avatar",
+        manipulated.uri,
+        "file",
+        { token },
+      );
+
+      const uploadedAvatarUrl = uploadRes.avatarUrl ?? uploadRes.avatar_url;
+
+      if (!uploadedAvatarUrl) {
+        Alert.alert(L.uploadErrorTitle, L.avatarUrlMissing);
+        return;
+      }
+
+      applyAvatarLocally(uploadedAvatarUrl);
+
+      try {
+        await updateMe({
+          avatarUrl: uploadedAvatarUrl,
+        });
+      } catch (e) {
+        console.log("[coach-avatar] local auth avatar update warning", e);
+      }
+
+      try {
+        await apiPatch(
+          "/users/me",
+          {
+            avatar_url: uploadedAvatarUrl,
+          },
+          { token },
+        );
+      } catch (e) {
+        console.log("[coach-avatar] user avatar patch warning", e);
+      }
+
+      try {
+        await apiPatch(
+          "/users/me/coach-profile",
+          {
+            profile_image_url: uploadedAvatarUrl,
+            specialty: getSpecialtyForBackend(profile?.specialty ?? ""),
+            bio: profile?.bio ?? "",
+            experience_years: profile?.experienceYears ?? 0,
+            achievements: profile?.achievements ?? [],
+            certificates: profile?.certificates ?? [],
+            cover_image_url: profile?.coverImageUrl ?? undefined,
+          },
+          { token },
+        );
+      } catch (e) {
+        console.log("[coach-avatar] coach profile image patch warning", e);
+      }
+
+      try {
+        await refreshFromBackend();
+      } catch (e) {
+        console.log("[coach-avatar] refresh warning", e);
+      }
+
+      applyAvatarLocally(uploadedAvatarUrl);
 
       Alert.alert(L.savedTitle, L.avatarUpdated);
     } catch (e: any) {

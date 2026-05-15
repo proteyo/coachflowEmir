@@ -13,12 +13,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppAvatar, AppText } from "@/src/components/ui";
 import { useAuth } from "@/src/context/AuthContext";
@@ -27,6 +29,18 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { apiPost, apiUploadFile, toAbsoluteUrl } from "@/src/services/api";
 import { Message } from "@/src/types/models";
+
+type ChatListItem =
+  | {
+      kind: "date";
+      id: string;
+      label: string;
+    }
+  | {
+      kind: "message";
+      id: string;
+      message: Message;
+    };
 
 function fmtDur(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -47,12 +61,93 @@ function getMessageTime(msg: Message) {
   return Number.isNaN(idNumber) ? 0 : idNumber;
 }
 
+function getMessageDate(msg: Message) {
+  const time = getMessageTime(msg);
+
+  if (!time) {
+    return new Date();
+  }
+
+  const date = new Date(time);
+
+  if (Number.isNaN(date.getTime())) {
+    return new Date();
+  }
+
+  return date;
+}
+
+function getDayKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return getDayKey(a) === getDayKey(b);
+}
+
+function getDateSeparatorLabel(date: Date) {
+  const today = new Date();
+
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (isSameDay(date, today)) {
+    return "Today";
+  }
+
+  if (isSameDay(date, yesterday)) {
+    return "Yesterday";
+  }
+
+  const sameYear = date.getFullYear() === today.getFullYear();
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+function buildChatItems(messages: Message[]): ChatListItem[] {
+  const result: ChatListItem[] = [];
+
+  let lastDayKey = "";
+
+  messages.forEach((message) => {
+    const date = getMessageDate(message);
+    const dayKey = getDayKey(date);
+
+    if (dayKey !== lastDayKey) {
+      result.push({
+        kind: "date",
+        id: `date_${dayKey}`,
+        label: getDateSeparatorLabel(date),
+      });
+
+      lastDayKey = dayKey;
+    }
+
+    result.push({
+      kind: "message",
+      id: message.id,
+      message,
+    });
+  });
+
+  return result;
+}
+
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { theme } = useTheme();
   const { t } = useI18n();
   const { user, token } = useAuth();
   const { db, update, refreshFromBackend } = useData();
+  const insets = useSafeAreaInsets();
 
   const [text, setText] = useState<string>("");
   const [sending, setSending] = useState<boolean>(false);
@@ -60,7 +155,7 @@ export default function Chat() {
   const [recordingMs, setRecordingMs] = useState<number>(0);
 
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const listRef = useRef<FlatList<Message>>(null);
+  const listRef = useRef<FlatList<ChatListItem>>(null);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder);
@@ -108,6 +203,8 @@ export default function Chat() {
       .sort((a, b) => getMessageTime(a) - getMessageTime(b));
   }, [db, user, id]);
 
+  const chatItems = useMemo(() => buildChatItems(thread), [thread]);
+
   useEffect(() => {
     if (!user || !id) return;
 
@@ -124,8 +221,32 @@ export default function Chat() {
   const scrollToBottom = (animated = true) => {
     setTimeout(() => {
       listRef.current?.scrollToEnd({ animated });
-    }, 80);
+    }, 90);
   };
+
+  useEffect(() => {
+    scrollToBottom(false);
+  }, [chatItems.length]);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      scrollToBottom(true);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      scrollToBottom(false);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const send = async () => {
     const content = text.trim();
@@ -304,6 +425,8 @@ export default function Chat() {
   const isRecording = recState.isRecording;
   const canSendText = text.trim().length > 0 && !sending;
 
+  const bottomPadding = Math.max(insets.bottom, 10);
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <Stack.Screen
@@ -323,29 +446,59 @@ export default function Chat() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 20}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
       >
         <FlatList
           ref={listRef}
-          data={thread}
-          keyExtractor={(m) => m.id}
+          data={chatItems}
+          keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={{
-            padding: 16,
-            gap: 8,
+            paddingHorizontal: 16,
+            paddingTop: 16,
             paddingBottom: 18,
+            gap: 8,
+            flexGrow: 1,
+            justifyContent: chatItems.length === 0 ? "center" : "flex-end",
           }}
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: false })
           }
           onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
-            const mine = item.senderId === user?.id;
+            if (item.kind === "date") {
+              return <DateSeparator label={item.label} />;
+            }
 
-            return <MessageBubble msg={item} mine={mine} />;
+            const mine = item.message.senderId === user?.id;
+
+            return <MessageBubble msg={item.message} mine={mine} />;
           }}
+          ListEmptyComponent={
+            <View
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: 24,
+                paddingVertical: 32,
+                gap: 8,
+              }}
+            >
+              <AppText variant="h3" style={{ textAlign: "center" }}>
+                {partner?.name ?? t("messages.title")}
+              </AppText>
+
+              <AppText
+                variant="body"
+                color={theme.colors.textMuted}
+                style={{ textAlign: "center" }}
+              >
+                {t("messages.placeholder")}
+              </AppText>
+            </View>
+          }
         />
 
         {isRecording ? (
@@ -355,7 +508,8 @@ export default function Chat() {
               alignItems: "center",
               gap: 12,
               paddingHorizontal: 14,
-              paddingVertical: 12,
+              paddingTop: 12,
+              paddingBottom: bottomPadding,
               borderTopWidth: 1,
               borderTopColor: theme.colors.borderSoft,
               backgroundColor: theme.colors.surface,
@@ -419,7 +573,7 @@ export default function Chat() {
               gap: 8,
               paddingHorizontal: 12,
               paddingTop: 10,
-              paddingBottom: Platform.OS === "ios" ? 14 : 10,
+              paddingBottom: bottomPadding,
               borderTopWidth: 1,
               borderTopColor: theme.colors.borderSoft,
               backgroundColor: theme.colors.bg,
@@ -502,6 +656,33 @@ export default function Chat() {
   );
 }
 
+function DateSeparator({ label }: { label: string }) {
+  const { theme } = useTheme();
+
+  return (
+    <View
+      style={{
+        alignSelf: "center",
+        marginVertical: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: theme.colors.borderSoft,
+      }}
+    >
+      <AppText
+        variant="caption"
+        color={theme.colors.textMuted}
+        style={{ fontWeight: "800" }}
+      >
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
 function MessageBubble({ msg, mine }: { msg: Message; mine: boolean }) {
   const { theme } = useTheme();
   const isVoice = msg.messageType === "voice";
@@ -574,8 +755,7 @@ function VoicePlayer({ msg, mine }: { msg: Message; mine: boolean }) {
       player.pause();
     } else {
       if (
-        (status?.currentTime ?? 0) >=
-          (status?.duration ?? 0) - 0.1 &&
+        (status?.currentTime ?? 0) >= (status?.duration ?? 0) - 0.1 &&
         status?.duration
       ) {
         player.seekTo(0);

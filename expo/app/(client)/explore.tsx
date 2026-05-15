@@ -13,7 +13,7 @@ import {
   ShoppingBag,
   Star,
 } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -25,7 +25,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 import {
   AppCard,
@@ -64,13 +63,6 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
 const FILTERS: FilterType[] = ["all", "gym", "nutrition", "shop"];
 const SORTS: SortMode[] = ["distance", "rating", "name"];
 
-const DEFAULT_REGION: Region = {
-  latitude: 43.238949,
-  longitude: 76.889709,
-  latitudeDelta: 0.08,
-  longitudeDelta: 0.08,
-};
-
 const LOCAL_TEXT = {
   en: {
     title: "Explore",
@@ -105,6 +97,11 @@ const LOCAL_TEXT = {
     backendFallback:
       "Nearby search is not available yet. Showing saved places from CoachFlow.",
     routeUnavailable: "Route is unavailable for this place.",
+    mapDisabledTitle: "Map preview",
+    mapDisabledMessage:
+      "Interactive map is disabled in this test build to keep the app stable. Use the route button to open Google Maps.",
+    yourLocation: "Your location",
+    savedPlaces: "Saved places",
   },
   ru: {
     title: "Карта",
@@ -139,6 +136,11 @@ const LOCAL_TEXT = {
     backendFallback:
       "Поиск мест рядом пока недоступен. Показываем сохранённые места CoachFlow.",
     routeUnavailable: "Маршрут для этого места недоступен.",
+    mapDisabledTitle: "Предпросмотр карты",
+    mapDisabledMessage:
+      "Интерактивная карта временно отключена в тестовой сборке, чтобы приложение не вылетало. Для маршрута нажми кнопку Google Maps.",
+    yourLocation: "Твоя геолокация",
+    savedPlaces: "Сохранённые места",
   },
   kk: {
     title: "Карта",
@@ -173,6 +175,11 @@ const LOCAL_TEXT = {
     backendFallback:
       "Жақын орындарды іздеу әзірше қолжетімсіз. CoachFlow сақталған орындарын көрсетеміз.",
     routeUnavailable: "Бұл орын үшін маршрут қолжетімсіз.",
+    mapDisabledTitle: "Карта алдын ала қарау",
+    mapDisabledMessage:
+      "Қолданба тұрақты жұмыс істеуі үшін интерактивті карта тест нұсқасында уақытша өшірілген. Маршрут үшін Google Maps батырмасын бас.",
+    yourLocation: "Сенің геолокацияң",
+    savedPlaces: "Сақталған орындар",
   },
 };
 
@@ -269,7 +276,11 @@ function formatDistance(place: ExtendedPlace) {
 function buildMapsUrl(place: ExtendedPlace) {
   if (
     typeof place.latitude === "number" &&
-    typeof place.longitude === "number"
+    typeof place.longitude === "number" &&
+    Number.isFinite(place.latitude) &&
+    Number.isFinite(place.longitude) &&
+    place.latitude !== 0 &&
+    place.longitude !== 0
   ) {
     return `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=walking`;
   }
@@ -388,8 +399,6 @@ export default function Explore() {
   const { lang } = useI18n();
   const { db } = useData();
 
-  const mapRef = useRef<MapView | null>(null);
-
   const txt = getLocalText(lang);
 
   const background = getThemeColor(theme, "background", "#F8FAFC");
@@ -465,15 +474,6 @@ export default function Explore() {
       };
 
       setLocation(nextLocation);
-
-      mapRef.current?.animateToRegion(
-        {
-          ...nextLocation,
-          latitudeDelta: 0.04,
-          longitudeDelta: 0.04,
-        },
-        600,
-      );
     } catch (error) {
       console.log("[explore] location error", error);
       setLocationError(txt.locationDenied);
@@ -512,6 +512,10 @@ export default function Explore() {
         setNearbyPlaces([]);
         setUsingFallback(true);
       }
+    } catch (error) {
+      console.log("[explore] load nearby error", error);
+      setNearbyPlaces([]);
+      setUsingFallback(true);
     } finally {
       setLoadingPlaces(false);
     }
@@ -567,70 +571,39 @@ export default function Explore() {
       });
   }, [sourcePlaces, filter, sortMode, query]);
 
-  const mapRegion = useMemo<Region>(() => {
-    if (location) {
-      return {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.04,
-        longitudeDelta: 0.04,
-      };
-    }
-
-    const firstWithCoordinates = items.find(
-      (item) =>
-        typeof item.latitude === "number" &&
-        typeof item.longitude === "number",
-    );
-
-    if (firstWithCoordinates) {
-      return {
-        latitude: firstWithCoordinates.latitude,
-        longitude: firstWithCoordinates.longitude,
-        latitudeDelta: 0.06,
-        longitudeDelta: 0.06,
-      };
-    }
-
-    return DEFAULT_REGION;
-  }, [items, location]);
+  const previewPlaces = useMemo(() => {
+    return items
+      .filter(
+        (place) =>
+          typeof place.latitude === "number" &&
+          typeof place.longitude === "number",
+      )
+      .slice(0, 3);
+  }, [items]);
 
   const resultLabel = items.length === 1 ? txt.result : txt.results;
 
   const openRoute = useCallback(
     async (place: ExtendedPlace) => {
-      const url = buildMapsUrl(place);
+      try {
+        const url = buildMapsUrl(place);
 
-      if (!url) {
-        console.log("[explore]", txt.routeUnavailable);
-        return;
-      }
+        if (!url) {
+          console.log("[explore]", txt.routeUnavailable);
+          return;
+        }
 
-      const supported = await Linking.canOpenURL(url);
-
-      if (supported || Platform.OS !== "web") {
         await Linking.openURL(url);
+      } catch (error) {
+        console.log("[explore] open route error", error);
       }
     },
     [txt.routeUnavailable],
   );
 
   const centerToUser = useCallback(() => {
-    if (!location) {
-      loadLocation();
-      return;
-    }
-
-    mapRef.current?.animateToRegion(
-      {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.04,
-        longitudeDelta: 0.04,
-      },
-      600,
-    );
-  }, [loadLocation, location]);
+    loadLocation();
+  }, [loadLocation]);
 
   const clearSearch = () => {
     setQuery("");
@@ -675,7 +648,7 @@ export default function Explore() {
 
                     <AppText variant="caption" color={muted} numberOfLines={2}>
                       {location
-                        ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
+                        ? `${txt.yourLocation}: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
                         : txt.mapHint}
                     </AppText>
                   </View>
@@ -689,62 +662,148 @@ export default function Explore() {
                     borderWidth: 1,
                     borderColor: border,
                     overflow: "hidden",
-                    height: 260,
+                    minHeight: 260,
                     backgroundColor: background,
+                    padding: 16,
+                    gap: 14,
                   }}
                 >
-                  <MapView
-                    ref={mapRef}
-                    provider={
-                      Platform.OS === "android" ? PROVIDER_GOOGLE : undefined
-                    }
-                    style={{ flex: 1 }}
-                    initialRegion={mapRegion}
-                    region={mapRegion}
-                    showsUserLocation={!!location}
-                    showsMyLocationButton={false}
-                    showsCompass
-                    toolbarEnabled={false}
+                  <View
+                    style={{
+                      position: "absolute",
+                      left: -50,
+                      top: -50,
+                      width: 180,
+                      height: 180,
+                      borderRadius: 90,
+                      backgroundColor: `${primary}22`,
+                    }}
+                  />
+
+                  <View
+                    style={{
+                      position: "absolute",
+                      right: -40,
+                      bottom: -60,
+                      width: 190,
+                      height: 190,
+                      borderRadius: 95,
+                      backgroundColor: `${primary}18`,
+                    }}
+                  />
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
                   >
-                    {items
-                      .filter(
-                        (place) =>
-                          typeof place.latitude === "number" &&
-                          typeof place.longitude === "number",
-                      )
-                      .slice(0, 40)
-                      .map((place) => {
+                    <View
+                      style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: 23,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: card,
+                        borderWidth: 1,
+                        borderColor: border,
+                      }}
+                    >
+                      <LocateFixed color={primary} size={22} />
+                    </View>
+
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <AppText variant="bodyStrong">
+                        {txt.mapDisabledTitle}
+                      </AppText>
+
+                      <AppText variant="caption" color={muted}>
+                        {txt.mapDisabledMessage}
+                      </AppText>
+                    </View>
+                  </View>
+
+                  <View style={{ gap: 10 }}>
+                    {previewPlaces.length > 0 ? (
+                      previewPlaces.map((place, index) => {
                         const Icon = getPlaceIcon(place.type);
+                        const distance = formatDistance(place);
 
                         return (
-                          <Marker
-                            key={`marker-${place.id}`}
-                            coordinate={{
-                              latitude: Number(place.latitude),
-                              longitude: Number(place.longitude),
-                            }}
-                            title={place.name}
-                            description={place.address}
+                          <Pressable
+                            key={`preview-${place.id}`}
                             onPress={() => openRoute(place)}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: 12,
+                              borderRadius: 18,
+                              backgroundColor: card,
+                              borderWidth: 1,
+                              borderColor: border,
+                            }}
                           >
                             <View
                               style={{
-                                width: 38,
-                                height: 38,
-                                borderRadius: 19,
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
                                 alignItems: "center",
                                 justifyContent: "center",
-                                backgroundColor: card,
-                                borderWidth: 2,
-                                borderColor: primary,
+                                backgroundColor:
+                                  index === 0 ? primary : background,
                               }}
                             >
-                              <Icon color={primary} size={18} />
+                              <Icon
+                                color={index === 0 ? "#FFFFFF" : primary}
+                                size={17}
+                              />
                             </View>
-                          </Marker>
+
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <AppText variant="bodyStrong" numberOfLines={1}>
+                                {place.name}
+                              </AppText>
+
+                              <AppText
+                                variant="caption"
+                                color={muted}
+                                numberOfLines={1}
+                              >
+                                {distance ?? txt.distanceSoon}
+                              </AppText>
+                            </View>
+
+                            <ExternalLink color={primary} size={18} />
+                          </Pressable>
                         );
-                      })}
-                  </MapView>
+                      })
+                    ) : (
+                      <View
+                        style={{
+                          padding: 14,
+                          borderRadius: 18,
+                          backgroundColor: card,
+                          borderWidth: 1,
+                          borderColor: border,
+                          gap: 4,
+                        }}
+                      >
+                        <AppText variant="bodyStrong">
+                          {txt.savedPlaces}
+                        </AppText>
+
+                        <AppText variant="caption" color={muted}>
+                          {loadingLocation || loadingPlaces
+                            ? txt.loadingPlaces
+                            : txt.noResultsMessage}
+                        </AppText>
+                      </View>
+                    )}
+                  </View>
 
                   {(loadingLocation || loadingPlaces) && (
                     <View

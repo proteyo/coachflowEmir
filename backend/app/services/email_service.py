@@ -6,7 +6,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import parseaddr
-from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 logger = logging.getLogger(__name__)
@@ -66,17 +66,28 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
 def _is_valid_email_address(email: str) -> bool:
     parsed_name, parsed_email = parseaddr(email)
 
-    return bool(parsed_email and "@" in parsed_email and "." in parsed_email.split("@")[-1])
+    return bool(
+        parsed_email
+        and "@" in parsed_email
+        and "." in parsed_email.split("@")[-1]
+    )
 
 
 def _build_reset_link(token: str) -> str:
     """
     Builds password reset link.
 
-    FRONTEND_RESET_URL examples:
+    Recommended production env:
+    FRONTEND_RESET_URL=coachflow://reset-password
+
+    Supported examples:
     - coachflow://reset-password
+    - coachflow://reset-password?source=email
     - https://coachflow.app/reset-password
     - https://your-domain.com/reset-password?source=email
+
+    Result:
+    - coachflow://reset-password?token=...
     """
     base_url = _get_required_env("FRONTEND_RESET_URL")
 
@@ -97,7 +108,7 @@ def _build_reset_link(token: str) -> str:
     )
 
 
-def _build_plain_text_email(name: str, reset_link: str) -> str:
+def _build_plain_text_email(name: str, reset_link: str, token: str) -> str:
     safe_name = name.strip() or "there"
 
     return f"""
@@ -105,21 +116,74 @@ Hi {safe_name},
 
 We received a request to reset your CoachFlow password.
 
-Open this link to set a new password:
-
+Tap or open this link to set a new password:
 {reset_link}
 
-This link expires in 30 minutes.
+If the button or link does not open the app, copy this token and paste it into the reset password screen:
+{token}
+
+This link and token expire in 30 minutes.
 
 If you did not request this, you can safely ignore this email.
+
+---
+
+Здравствуйте, {safe_name}!
+
+Мы получили запрос на сброс пароля в CoachFlow.
+
+Откройте эту ссылку, чтобы установить новый пароль:
+{reset_link}
+
+Если кнопка или ссылка не открывает приложение, скопируйте этот токен и вставьте его на экране сброса пароля:
+{token}
+
+Ссылка и токен действуют 30 минут.
+
+Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.
+
+---
+
+Сәлеметсіз бе, {safe_name}!
+
+CoachFlow құпиясөзін қалпына келтіру сұранысы алынды.
+
+Жаңа құпиясөз орнату үшін мына сілтемені ашыңыз:
+{reset_link}
+
+Егер батырма немесе сілтеме қолданбаны ашпаса, осы токенді көшіріп, құпиясөзді қалпына келтіру экранына қойыңыз:
+{token}
+
+Сілтеме мен токен 30 минут ішінде жарамды.
+
+Егер бұл сұранысты сіз жібермесеңіз, бұл хатты елемеуге болады.
 
 CoachFlow Team
 """.strip()
 
 
-def _build_html_email(name: str, reset_link: str) -> str:
+def _html_section_title(text: str) -> str:
+    return (
+        '<h3 style="margin:22px 0 8px;font-size:18px;line-height:1.35;'
+        'color:#111827;">'
+        f"{text}"
+        "</h3>"
+    )
+
+
+def _html_paragraph(text: str, color: str = "#374151") -> str:
+    return (
+        f'<p style="font-size:15px;line-height:1.65;color:{color};'
+        'margin:8px 0;">'
+        f"{text}"
+        "</p>"
+    )
+
+
+def _build_html_email(name: str, reset_link: str, token: str) -> str:
     safe_name = html.escape(name.strip() or "there")
     safe_reset_link = html.escape(reset_link, quote=True)
+    safe_token = html.escape(token, quote=True)
 
     return f"""
 <!doctype html>
@@ -127,50 +191,93 @@ def _build_html_email(name: str, reset_link: str) -> str:
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Reset your CoachFlow password</title>
+    <title>CoachFlow password reset</title>
   </head>
 
-  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,sans-serif;color:#111827;">
-    <div style="max-width:560px;margin:0 auto;padding:32px 16px;">
-      <div style="background:#ffffff;border-radius:18px;padding:28px;border:1px solid #e5e7eb;">
-        <h2 style="margin:0 0 12px;font-size:24px;line-height:1.3;color:#111827;">
-          Reset your CoachFlow password
-        </h2>
+  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+    <div style="max-width:620px;margin:0 auto;padding:30px 14px;">
+      <div style="background:#07111f;border-radius:24px;padding:24px 22px 26px;border:1px solid #102033;">
+        <div style="display:inline-block;background:#16c784;color:#02140d;
+                    border-radius:999px;padding:7px 12px;font-weight:800;
+                    font-size:13px;letter-spacing:0.3px;">
+          CoachFlow
+        </div>
 
-        <p style="font-size:15px;line-height:1.6;color:#374151;">
-          Hi {safe_name},
+        <h1 style="margin:18px 0 8px;font-size:26px;line-height:1.25;color:#ffffff;">
+          Password reset / Сброс пароля / Құпиясөзді қалпына келтіру
+        </h1>
+
+        <p style="font-size:15px;line-height:1.65;color:#cbd5e1;margin:0;">
+          Use the button below to set a new password. If it does not open the app,
+          copy the token from this email manually.
         </p>
+      </div>
 
-        <p style="font-size:15px;line-height:1.6;color:#374151;">
-          We received a request to reset your CoachFlow password.
-          Tap the button below to create a new password.
-        </p>
+      <div style="background:#ffffff;border-radius:22px;padding:26px 22px;margin-top:14px;border:1px solid #e5e7eb;">
+        {_html_section_title("English")}
+        {_html_paragraph(f"Hi {safe_name},")}
+        {_html_paragraph("We received a request to reset your CoachFlow password. Tap the button below to create a new password.")}
+        {_html_paragraph("If the button does not open the app, copy the token below and paste it into the reset password screen.")}
 
-        <div style="margin:24px 0;">
+        {_html_section_title("Русский")}
+        {_html_paragraph(f"Здравствуйте, {safe_name}!")}
+        {_html_paragraph("Мы получили запрос на сброс пароля в CoachFlow. Нажмите кнопку ниже, чтобы установить новый пароль.")}
+        {_html_paragraph("Если кнопка не открывает приложение, скопируйте токен ниже и вставьте его на экране сброса пароля.")}
+
+        {_html_section_title("Қазақша")}
+        {_html_paragraph(f"Сәлеметсіз бе, {safe_name}!")}
+        {_html_paragraph("CoachFlow құпиясөзін қалпына келтіру сұранысы алынды. Жаңа құпиясөз орнату үшін төмендегі батырманы басыңыз.")}
+        {_html_paragraph("Егер батырма қолданбаны ашпаса, төмендегі токенді көшіріп, құпиясөзді қалпына келтіру экранына қойыңыз.")}
+
+        <div style="margin:26px 0 18px;text-align:center;">
           <a href="{safe_reset_link}"
-             style="display:inline-block;background:#16c784;color:#ffffff;text-decoration:none;
-                    padding:13px 20px;border-radius:12px;font-weight:700;font-size:15px;">
+             style="display:inline-block;background:#16c784;color:#06140f;text-decoration:none;
+                    padding:15px 24px;border-radius:14px;font-weight:800;font-size:16px;">
             Reset password
           </a>
         </div>
 
-        <p style="font-size:13px;line-height:1.6;color:#6b7280;">
-          This link expires in 30 minutes.
+        <div style="margin:18px 0;padding:16px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;">
+          <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 8px;font-weight:700;">
+            Reset token / Токен сброса / Қалпына келтіру токені
+          </p>
+
+          <p style="font-size:15px;line-height:1.6;color:#111827;word-break:break-all;margin:0;font-family:Consolas,Monaco,monospace;">
+            {safe_token}
+          </p>
+        </div>
+
+        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:16px 0 6px;">
+          The link and token expire in 30 minutes.
         </p>
 
-        <p style="font-size:13px;line-height:1.6;color:#6b7280;">
-          If the button does not work, copy and paste this link:
+        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
+          Ссылка и токен действуют 30 минут.
         </p>
 
-        <p style="font-size:12px;line-height:1.6;color:#6b7280;word-break:break-all;">
-          {safe_reset_link}
+        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
+          Сілтеме мен токен 30 минут ішінде жарамды.
         </p>
+
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid #e5e7eb;">
+          <p style="font-size:12px;line-height:1.6;color:#6b7280;margin:0 0 8px;">
+            If the button does not work, copy and paste this link:
+          </p>
+
+          <p style="font-size:12px;line-height:1.6;color:#6b7280;word-break:break-all;margin:0;">
+            {safe_reset_link}
+          </p>
+        </div>
 
         <p style="font-size:13px;line-height:1.6;color:#6b7280;margin-top:22px;">
           If you did not request this, you can safely ignore this email.
+          <br>
+          Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.
+          <br>
+          Егер бұл сұранысты сіз жібермесеңіз, бұл хатты елемеуге болады.
         </p>
 
-        <p style="font-size:14px;line-height:1.6;color:#111827;margin-top:24px;">
+        <p style="font-size:14px;line-height:1.6;color:#111827;margin-top:24px;font-weight:800;">
           CoachFlow Team
         </p>
       </div>
@@ -254,10 +361,12 @@ async def send_password_reset_email(
     if not _is_valid_email_address(to_email):
         raise ValueError("Invalid recipient email address")
 
-    if not token or not token.strip():
+    clean_token = token.strip()
+
+    if not clean_token:
         raise ValueError("Password reset token is required")
 
-    reset_link = _build_reset_link(token.strip())
+    reset_link = _build_reset_link(clean_token)
 
     smtp_host = _get_env("SMTP_HOST")
     smtp_port = _get_int_env("SMTP_PORT", 587)
@@ -276,6 +385,11 @@ async def send_password_reset_email(
                 to_email,
                 reset_link,
             )
+            logger.warning(
+                "SMTP is not configured. Password reset token for %s: %s",
+                to_email,
+                clean_token,
+            )
             return
 
         raise EmailConfigurationError(
@@ -289,9 +403,9 @@ async def send_password_reset_email(
             "Use SMTP_USE_TLS=true for port 587 or SMTP_USE_SSL=true for port 465."
         )
 
-    subject = "Reset your CoachFlow password"
-    plain_body = _build_plain_text_email(name, reset_link)
-    html_body = _build_html_email(name, reset_link)
+    subject = "CoachFlow password reset / Сброс пароля / Құпиясөзді қалпына келтіру"
+    plain_body = _build_plain_text_email(name, reset_link, clean_token)
+    html_body = _build_html_email(name, reset_link, clean_token)
 
     try:
         await asyncio.to_thread(
