@@ -35,6 +35,7 @@ import { useI18n } from "@/src/i18n/I18nContext";
 import { apiPost, toAbsoluteUrl } from "@/src/services/api";
 
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
+type AppLangCode = "en" | "ru" | "kk";
 
 const DAY_KEYS: DayKey[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -211,23 +212,201 @@ function getFramesFromImageUrl(imageUrl?: string): string[] {
   return [imageUrl];
 }
 
-function findLibraryExercise(exercise: {
-  name?: string;
-  imageUrl?: string;
-  muscleGroup?: string;
-}) {
-  if (exercise.imageUrl) {
+function getLangSafe(lang: string): AppLangCode {
+  if (lang === "ru" || lang === "kk" || lang === "en") return lang;
+  return "en";
+}
+
+function pickText(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .find((value) => typeof value === "string" && value.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+type LocalizedWorkoutLike = {
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
+
+  description?: string | null;
+  descriptionRu?: string | null;
+  descriptionKk?: string | null;
+  description_ru?: string | null;
+  description_kk?: string | null;
+
+  weeklyPlanTitle?: string | null;
+  weeklyPlanTitleRu?: string | null;
+  weeklyPlanTitleKk?: string | null;
+  weekly_plan_title?: string | null;
+  weekly_plan_title_ru?: string | null;
+  weekly_plan_title_kk?: string | null;
+
+  source?: string | null;
+};
+
+type LocalizedExerciseLike = {
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
+
+  notes?: string | null;
+  notesRu?: string | null;
+  notesKk?: string | null;
+  notes_ru?: string | null;
+  notes_kk?: string | null;
+
+  imageUrl?: string | null;
+  image_url?: string | null;
+  gifUrl?: string | null;
+  gif_url?: string | null;
+  animationFrames?: string | string[] | null;
+  animation_frames?: string | string[] | null;
+  muscleGroup?: string | null;
+  muscle_group?: string | null;
+  libraryExerciseId?: string | null;
+  library_exercise_id?: string | null;
+};
+
+function getLocalizedWorkoutName(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(workout.nameRu, workout.name_ru, workout.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.nameKk, workout.name_kk, workout.name);
+  }
+
+  return pickText(workout.name);
+}
+
+function getLocalizedWeeklyPlanTitle(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(
+      workout.weeklyPlanTitleRu,
+      workout.weekly_plan_title_ru,
+      "Недельный план",
+    );
+  }
+
+  if (lang === "kk") {
+    return pickText(
+      workout.weeklyPlanTitleKk,
+      workout.weekly_plan_title_kk,
+      "Апталық жоспар",
+    );
+  }
+
+  return pickText(
+    workout.weeklyPlanTitle,
+    workout.weekly_plan_title,
+    "Weekly plan",
+  );
+}
+
+function getExerciseImageUrl(exercise: LocalizedExerciseLike) {
+  return pickText(exercise.imageUrl, exercise.image_url);
+}
+
+function getExerciseGifUrl(exercise: LocalizedExerciseLike) {
+  return pickText(exercise.gifUrl, exercise.gif_url);
+}
+
+function parseExerciseFrames(value: string | string[] | null | undefined) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (item): item is string => typeof item === "string" && item.trim().length > 0,
+    );
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string =>
+            typeof item === "string" && item.trim().length > 0,
+        );
+      }
+    } catch {
+      return value.trim().length > 0 ? [value] : [];
+    }
+  }
+
+  return [];
+}
+
+function getExerciseFrames(exercise: LocalizedExerciseLike) {
+  const explicitFrames = [
+    ...parseExerciseFrames(exercise.animationFrames),
+    ...parseExerciseFrames(exercise.animation_frames),
+  ];
+
+  if (explicitFrames.length > 0) return explicitFrames;
+
+  const gifUrl = getExerciseGifUrl(exercise);
+  if (gifUrl) return [gifUrl];
+
+  return getFramesFromImageUrl(getExerciseImageUrl(exercise));
+}
+
+function getLocalizedExerciseName(
+  exercise: LocalizedExerciseLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(exercise.nameRu, exercise.name_ru, exercise.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(exercise.nameKk, exercise.name_kk, exercise.name);
+  }
+
+  return pickText(exercise.name);
+}
+
+function findLibraryExercise(exercise: LocalizedExerciseLike) {
+  const libraryExerciseId = pickText(
+    exercise.libraryExerciseId,
+    exercise.library_exercise_id,
+  );
+
+  if (libraryExerciseId) {
+    const byId = EXERCISE_LIBRARY.find((item: any) => item.id === libraryExerciseId);
+
+    if (byId) return byId;
+  }
+
+  const imageUrl = getExerciseImageUrl(exercise);
+
+  if (imageUrl) {
     const byImage = EXERCISE_LIBRARY.find(
       (item) =>
-        item.imageUrl === exercise.imageUrl ||
-        getExerciseAnimationFrames(item).includes(exercise.imageUrl ?? ""),
+        item.imageUrl === imageUrl ||
+        getExerciseAnimationFrames(item).includes(imageUrl),
     );
 
     if (byImage) return byImage;
   }
 
-  if (exercise.name) {
-    const cleanName = exercise.name.trim().toLowerCase();
+  const exerciseName = pickText(exercise.name);
+
+  if (exerciseName) {
+    const cleanName = exerciseName.trim().toLowerCase();
 
     const byName = EXERCISE_LIBRARY.find(
       (item) => item.name.trim().toLowerCase() === cleanName,
@@ -311,6 +490,7 @@ function ExerciseAnimatedImage({
 export default function ClientToday() {
   const { theme } = useTheme();
   const { t, lang } = useI18n();
+  const currentLang = getLangSafe(lang);
   const { user, token } = useAuth();
   const { db, update, refreshFromBackend } = useData();
 
@@ -379,7 +559,7 @@ export default function ClientToday() {
 
   const toggleSupp = async (suppId: string, time: string) => {
     if (!user || !token) {
-      Alert.alert(getAuthErrorTitle(lang), getLoginAgainText(lang));
+      Alert.alert(getAuthErrorTitle(currentLang), getLoginAgainText(currentLang));
       return;
     }
 
@@ -466,8 +646,8 @@ export default function ClientToday() {
       console.log("[today] supplement log save error", e);
 
       Alert.alert(
-        getSupplementErrorTitle(lang),
-        e?.message || getSupplementErrorText(lang),
+        getSupplementErrorTitle(currentLang),
+        e?.message || getSupplementErrorText(currentLang),
       );
     } finally {
       setSavingSuppKey(null);
@@ -511,7 +691,7 @@ export default function ClientToday() {
               color="rgba(255,255,255,0.72)"
               style={{ marginTop: 4 }}
             >
-              {formatTodayLabel(currentDate, lang)}
+              {formatTodayLabel(currentDate, currentLang)}
             </AppText>
           </View>
 
@@ -612,7 +792,7 @@ export default function ClientToday() {
                     >
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <AppText variant="h3" numberOfLines={1}>
-                          {workout.name}
+                          {getLocalizedWorkoutName(workout, currentLang)}
                         </AppText>
 
                         <View
@@ -636,6 +816,12 @@ export default function ClientToday() {
                             {t("workouts.exercises").toLowerCase()} ·{" "}
                             {workout.durationMinutes ?? 0}
                             {t("common.minutes")}
+                            {workout.source === "weekly_template"
+                              ? ` · ${getLocalizedWeeklyPlanTitle(
+                                  workout,
+                                  currentLang,
+                                )}`
+                              : ""}
                           </AppText>
                         </View>
 
@@ -654,11 +840,11 @@ export default function ClientToday() {
                               const libraryExercise = findLibraryExercise(exercise);
                               const frames = libraryExercise
                                 ? getExerciseAnimationFrames(libraryExercise)
-                                : getFramesFromImageUrl(exercise.imageUrl);
+                                : getExerciseFrames(exercise);
 
                               const translatedName = libraryExercise
-                                ? getExerciseName(libraryExercise, lang)
-                                : exercise.name;
+                                ? getExerciseName(libraryExercise, currentLang)
+                                : getLocalizedExerciseName(exercise, currentLang);
 
                               return (
                                 <View
@@ -700,7 +886,7 @@ export default function ClientToday() {
                             style={{ marginTop: 6 }}
                             numberOfLines={1}
                           >
-                            +{getMoreLabel(hiddenExerciseCount, lang)}
+                            +{getMoreLabel(hiddenExerciseCount, currentLang)}
                           </AppText>
                         ) : null}
                       </View>
@@ -745,7 +931,7 @@ export default function ClientToday() {
 
         {data.allSupps.length > 0 ? (
           <AppText variant="caption" color={theme.colors.textMuted}>
-            {getTodaySupplementsHint(todayDay, lang)}
+            {getTodaySupplementsHint(todayDay, currentLang)}
           </AppText>
         ) : null}
 
@@ -753,7 +939,7 @@ export default function ClientToday() {
           <AppCard variant="outline">
             <AppText variant="small" color={theme.colors.textMuted}>
               {data.allSupps.length > 0
-                ? getNoSupplementsTodayText(lang)
+                ? getNoSupplementsTodayText(currentLang)
                 : t("supps.none")}
             </AppText>
           </AppCard>
@@ -800,7 +986,7 @@ export default function ClientToday() {
                       </AppText>
 
                       <AppText variant="caption" color={theme.colors.textFaint}>
-                        {formatActiveDays(supplement, lang)}
+                        {formatActiveDays(supplement, currentLang)}
                       </AppText>
                     </View>
 

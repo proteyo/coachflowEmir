@@ -19,6 +19,29 @@ const COLORS = ["#16C784", "#3B82F6", "#FF7A1A", "#A855F7", "#EF4444", "#FFB020"
 
 type AppLangCode = "en" | "ru" | "kk";
 
+type LocalizedWorkoutLike = {
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
+
+  category?: string | null;
+  categoryRu?: string | null;
+  categoryKk?: string | null;
+  category_ru?: string | null;
+  category_kk?: string | null;
+
+  weeklyPlanTitle?: string | null;
+  weeklyPlanTitleRu?: string | null;
+  weeklyPlanTitleKk?: string | null;
+  weekly_plan_title?: string | null;
+  weekly_plan_title_ru?: string | null;
+  weekly_plan_title_kk?: string | null;
+
+  source?: string | null;
+};
+
 const TEXT = {
   en: {
     minuteShort: "m",
@@ -31,6 +54,7 @@ const TEXT = {
     categoryStretching: "Stretching",
     categoryRecovery: "Recovery",
     categoryOther: "Workout",
+    weeklyPlan: "Weekly plan",
   },
   ru: {
     minuteShort: "мин",
@@ -43,6 +67,7 @@ const TEXT = {
     categoryStretching: "Растяжка",
     categoryRecovery: "Восстановление",
     categoryOther: "Тренировка",
+    weeklyPlan: "Недельный план",
   },
   kk: {
     minuteShort: "мин",
@@ -55,6 +80,7 @@ const TEXT = {
     categoryStretching: "Созылу",
     categoryRecovery: "Қалпына келу",
     categoryOther: "Жаттығу",
+    weeklyPlan: "Апталық жоспар",
   },
 };
 
@@ -62,6 +88,73 @@ function getLangSafe(lang: string): AppLangCode {
   if (lang === "ru" || lang === "kk" || lang === "en") return lang;
 
   return "en";
+}
+
+function pickText(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .find((value) => typeof value === "string" && value.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+function getLocalizedWorkoutName(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(workout.nameRu, workout.name_ru, workout.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.nameKk, workout.name_kk, workout.name);
+  }
+
+  return pickText(workout.name);
+}
+
+function getLocalizedWorkoutCategory(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(workout.categoryRu, workout.category_ru, workout.category);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.categoryKk, workout.category_kk, workout.category);
+  }
+
+  return pickText(workout.category);
+}
+
+function getLocalizedWeeklyPlanTitle(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  const L = TEXT[lang];
+
+  if (lang === "ru") {
+    return pickText(
+      workout.weeklyPlanTitleRu,
+      workout.weekly_plan_title_ru,
+      L.weeklyPlan,
+    );
+  }
+
+  if (lang === "kk") {
+    return pickText(
+      workout.weeklyPlanTitleKk,
+      workout.weekly_plan_title_kk,
+      L.weeklyPlan,
+    );
+  }
+
+  return pickText(
+    workout.weeklyPlanTitle,
+    workout.weekly_plan_title,
+    L.weeklyPlan,
+  );
 }
 
 function getLocale(lang: AppLangCode) {
@@ -349,7 +442,11 @@ export default function CoachCalendar() {
               >
                 <AppText
                   variant="small"
-                  color={isSelected ? theme.colors.primaryContrast : theme.colors.text}
+                  color={
+                    isSelected
+                      ? theme.colors.primaryContrast
+                      : theme.colors.text
+                  }
                   style={{ fontWeight: "800" }}
                 >
                   {date.getDate()}
@@ -409,6 +506,12 @@ export default function CoachCalendar() {
           sessions.map(({ workout, clientUser, color }) => {
             if (!clientUser) return null;
 
+            const workoutName = getLocalizedWorkoutName(workout, currentLang);
+            const localizedCategory = getLocalizedWorkoutCategory(
+              workout,
+              currentLang,
+            );
+
             return (
               <Pressable
                 key={workout.id}
@@ -443,7 +546,9 @@ export default function CoachCalendar() {
                     />
 
                     <View style={{ flex: 1 }}>
-                      <AppText variant="bodyStrong">{workout.name}</AppText>
+                      <AppText variant="bodyStrong">
+                        {workoutName || L.categoryOther}
+                      </AppText>
 
                       <View
                         style={{
@@ -468,9 +573,15 @@ export default function CoachCalendar() {
                       >
                         {workout.durationMinutes ?? 0}
                         {L.minuteShort}
-                        {workout.category
+                        {localizedCategory
                           ? ` · ${getWorkoutCategoryLabel(
-                              workout.category,
+                              localizedCategory,
+                              currentLang,
+                            )}`
+                          : ""}
+                        {workout.source === "weekly_template"
+                          ? ` · ${getLocalizedWeeklyPlanTitle(
+                              workout,
                               currentLang,
                             )}`
                           : ""}

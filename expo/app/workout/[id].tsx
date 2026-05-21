@@ -53,10 +53,32 @@ type WorkoutExerciseLike = {
   sets: number;
   reps: number;
   restSeconds?: number;
-  weight?: number;
-  name?: string;
-  muscleGroup?: string;
-  imageUrl?: string;
+  weight?: number | null;
+
+  libraryExerciseId?: string | null;
+  library_exercise_id?: string | null;
+
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
+
+  notes?: string | null;
+  notesRu?: string | null;
+  notesKk?: string | null;
+  notes_ru?: string | null;
+  notes_kk?: string | null;
+
+  muscleGroup?: string | null;
+  muscle_group?: string | null;
+
+  imageUrl?: string | null;
+  image_url?: string | null;
+  gifUrl?: string | null;
+  gif_url?: string | null;
+  animationFrames?: string[] | string | null;
+  animation_frames?: string[] | string | null;
 };
 
 const BODYWEIGHT_KEYWORDS = [
@@ -127,13 +149,13 @@ function getSessionKey(workoutId: string) {
   return `coachflow:workout-session:${workoutId}`;
 }
 
-function cleanExerciseName(name?: string) {
+function cleanExerciseName(name?: string | null) {
   return (name ?? "").trim().toLowerCase();
 }
 
 function shouldRequireWeight(exercise: WorkoutExerciseLike) {
   const name = cleanExerciseName(exercise.name);
-  const group = (exercise.muscleGroup ?? "").toLowerCase();
+  const group = (exercise.muscleGroup ?? exercise.muscle_group ?? "").toLowerCase();
 
   if (
     exercise.weight !== undefined &&
@@ -275,18 +297,33 @@ function getFramesFromImageUrl(imageUrl?: string): string[] {
 }
 
 function findLibraryExercise(exercise: WorkoutExerciseLike) {
-  if (exercise.imageUrl) {
+  const libraryExerciseId = pickText(
+    exercise.libraryExerciseId,
+    exercise.library_exercise_id,
+  );
+
+  if (libraryExerciseId) {
+    const byId = EXERCISE_LIBRARY.find((item) => item.id === libraryExerciseId);
+
+    if (byId) return byId;
+  }
+
+  const imageUrl = getExerciseImageUrl(exercise);
+
+  if (imageUrl) {
     const byImage = EXERCISE_LIBRARY.find(
       (item) =>
-        item.imageUrl === exercise.imageUrl ||
-        getExerciseAnimationFrames(item).includes(exercise.imageUrl ?? ""),
+        item.imageUrl === imageUrl ||
+        getExerciseAnimationFrames(item).includes(imageUrl),
     );
 
     if (byImage) return byImage;
   }
 
-  if (exercise.name) {
-    const cleanName = exercise.name.trim().toLowerCase();
+  const exerciseName = pickText(exercise.name, exercise.nameRu, exercise.nameKk);
+
+  if (exerciseName) {
+    const cleanName = exerciseName.trim().toLowerCase();
 
     const byName = EXERCISE_LIBRARY.find(
       (item) => item.name.trim().toLowerCase() === cleanName,
@@ -298,7 +335,7 @@ function findLibraryExercise(exercise: WorkoutExerciseLike) {
   return undefined;
 }
 
-function getMuscleGroupLabel(group: string | undefined, t: (key: any) => string) {
+function getMuscleGroupLabel(group: string | null | undefined, t: (key: any) => string) {
   if (!group) return "";
 
   if (group === "Chest") return t("exerciseLib.chest");
@@ -328,6 +365,108 @@ function getLocalText(
 
   return values.en;
 }
+
+function getSafeLang(lang: string): "en" | "ru" | "kk" {
+  if (lang === "ru" || lang === "kk" || lang === "en") return lang;
+
+  return "en";
+}
+
+function pickText(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .find((value) => typeof value === "string" && value.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+function getLocalizedWorkoutName(
+  workout: {
+    name?: string | null;
+    nameRu?: string | null;
+    nameKk?: string | null;
+    name_ru?: string | null;
+    name_kk?: string | null;
+  },
+  lang: "en" | "ru" | "kk",
+) {
+  if (lang === "ru") {
+    return pickText(workout.nameRu, workout.name_ru, workout.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.nameKk, workout.name_kk, workout.name);
+  }
+
+  return pickText(workout.name, workout.nameRu, workout.nameKk);
+}
+
+function getLocalizedExerciseName(
+  exercise: WorkoutExerciseLike,
+  lang: "en" | "ru" | "kk",
+) {
+  const libraryExercise = findLibraryExercise(exercise);
+
+  if (libraryExercise) {
+    return getExerciseName(libraryExercise, lang);
+  }
+
+  if (lang === "ru") {
+    return pickText(exercise.nameRu, exercise.name_ru, exercise.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(exercise.nameKk, exercise.name_kk, exercise.name);
+  }
+
+  return pickText(exercise.name, exercise.nameRu, exercise.nameKk);
+}
+
+function getExerciseImageUrl(exercise: WorkoutExerciseLike) {
+  return pickText(exercise.imageUrl, exercise.image_url);
+}
+
+function parseAnimationFrames(value: string[] | string | null | undefined) {
+  if (Array.isArray(value)) {
+    return value.filter((item) => typeof item === "string" && item.trim().length > 0);
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item) => typeof item === "string" && item.trim().length > 0,
+        );
+      }
+    } catch {
+      return [value];
+    }
+  }
+
+  return [];
+}
+
+function getExerciseFrames(exercise: WorkoutExerciseLike) {
+  const explicitFrames = [
+    ...parseAnimationFrames(exercise.animationFrames),
+    ...parseAnimationFrames(exercise.animation_frames),
+  ];
+
+  if (explicitFrames.length > 0) {
+    return explicitFrames;
+  }
+
+  const gifUrl = pickText(exercise.gifUrl, exercise.gif_url);
+
+  if (gifUrl) {
+    return [gifUrl];
+  }
+
+  return getFramesFromImageUrl(getExerciseImageUrl(exercise));
+}
+
 
 function ExerciseAnimatedImage({
   frames,
@@ -420,6 +559,11 @@ export default function WorkoutPlayer() {
   const totalSets = exercises.reduce((acc, exercise) => acc + exercise.sets, 0);
   const completedSets = Object.values(doneSet).reduce((a, b) => a + b, 0);
   const progress = totalSets ? completedSets / totalSets : 0;
+
+  const currentLang = getSafeLang(lang);
+  const localizedWorkoutName = workout
+    ? getLocalizedWorkoutName(workout, currentLang)
+    : "";
 
   const text = {
     workoutError: getLocalText(lang, {
@@ -723,8 +867,8 @@ export default function WorkoutPlayer() {
       const rows = resultDraft[exercise.id] ?? [];
       const libraryExercise = findLibraryExercise(exercise);
       const translatedExerciseName = libraryExercise
-        ? getExerciseName(libraryExercise, lang)
-        : exercise.name;
+        ? getExerciseName(libraryExercise, currentLang)
+        : getLocalizedExerciseName(exercise, currentLang);
 
       for (let index = 0; index < exercise.sets; index++) {
         const row = rows[index];
@@ -767,8 +911,8 @@ export default function WorkoutPlayer() {
         return {
           workout_id: workout.id,
           exercise_id: exercise.id,
-          exercise_name: exercise.name,
-          muscle_group: exercise.muscleGroup ?? undefined,
+          exercise_name: pickText(exercise.name, exercise.nameRu, exercise.nameKk, "Exercise"),
+muscle_group: exercise.muscleGroup ?? undefined,
           set_number: index + 1,
           target_reps: exercise.reps || 10,
           actual_reps:
@@ -935,7 +1079,7 @@ export default function WorkoutPlayer() {
   return (
     <SubscriptionGate>
       <ScreenContainer scroll padded={false}>
-        <Stack.Screen options={{ title: workout.name }} />
+        <Stack.Screen options={{ title: localizedWorkoutName }} />
 
         <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
           <AppCard variant="elevated">
@@ -1051,12 +1195,12 @@ export default function WorkoutPlayer() {
               const libraryExercise = findLibraryExercise(exercise);
 
               const translatedExerciseName = libraryExercise
-                ? getExerciseName(libraryExercise, lang)
-                : exercise.name;
+                ? getExerciseName(libraryExercise, currentLang)
+                : getLocalizedExerciseName(exercise, currentLang);
 
               const frames = libraryExercise
                 ? getExerciseAnimationFrames(libraryExercise)
-                : getFramesFromImageUrl(exercise.imageUrl);
+                : getExerciseFrames(exercise);
 
               const translatedMuscleGroup = getMuscleGroupLabel(
                 exercise.muscleGroup,

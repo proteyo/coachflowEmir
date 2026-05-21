@@ -286,6 +286,27 @@ const en = {
     "Backend request failed, but client was linked locally as fallback.",
 },
   workouts: {
+    
+    addWorkout: "Add workout",
+editWorkout: "Edit workout",
+forClient: "For client",
+createSession: "Create session",
+
+workoutName: "Workout name",
+workoutNamePlaceholder: "Enter workout name",
+durationMinutes: "Duration (minutes)",
+notesPlaceholder: "Add notes for the client",
+
+chooseFromLibrary: "Choose from library",
+noExercisesYet: "No exercises yet",
+customExercise: "Custom exercise",
+
+weightMode: "Weight mode",
+saved: "Workout saved",
+errorTitle: "Workout error",
+dateRequired: "Date is required.",
+addAtLeastOneExercise: "Add at least one exercise.",
+onlyCoachesCanCreate: "Only coaches can create workouts.",
     name: "Workout name",
     namePlaceholder: "e.g. Upper body push",
     date: "Date",
@@ -1263,6 +1284,26 @@ const ru: typeof en = {
 },
 
   workouts: {
+    addWorkout: "Добавить тренировку",
+editWorkout: "Изменить тренировку",
+forClient: "Для клиента",
+createSession: "Создать тренировку",
+
+workoutName: "Название тренировки",
+workoutNamePlaceholder: "Введите название тренировки",
+durationMinutes: "Длительность (минуты)",
+notesPlaceholder: "Добавьте заметки для клиента",
+
+chooseFromLibrary: "Выбрать из библиотеки",
+noExercisesYet: "Упражнения пока не добавлены",
+customExercise: "Своё упражнение",
+
+weightMode: "Режим веса",
+saved: "Тренировка сохранена",
+errorTitle: "Ошибка тренировки",
+dateRequired: "Дата обязательна.",
+addAtLeastOneExercise: "Добавьте хотя бы одно упражнение.",
+onlyCoachesCanCreate: "Только тренеры могут создавать тренировки.",
     name: "Название тренировки",
     namePlaceholder: "напр. Жимовая верх",
     date: "Дата",
@@ -2238,6 +2279,26 @@ const kk: typeof en = {
 },
 
   workouts: {
+    addWorkout: "Жаттығу қосу",
+editWorkout: "Жаттығуды өзгерту",
+forClient: "Клиент үшін",
+createSession: "Жаттығу жасау",
+
+workoutName: "Жаттығу атауы",
+workoutNamePlaceholder: "Жаттығу атауын енгізіңіз",
+durationMinutes: "Ұзақтығы (минут)",
+notesPlaceholder: "Клиентке ескертпе қосыңыз",
+
+chooseFromLibrary: "Кітапханадан таңдау",
+noExercisesYet: "Әзірге жаттығулар қосылмаған",
+customExercise: "Өз жаттығуыңыз",
+
+weightMode: "Салмақ режимі",
+saved: "Жаттығу сақталды",
+errorTitle: "Жаттығу қатесі",
+dateRequired: "Күнді енгізу міндетті.",
+addAtLeastOneExercise: "Кемінде бір жаттығу қосыңыз.",
+onlyCoachesCanCreate: "Жаттығуды тек жаттықтырушылар жасай алады.",
     name: "Жаттығу аты",
     namePlaceholder: "мысалы Жоғарғы дене",
     date: "Күні",

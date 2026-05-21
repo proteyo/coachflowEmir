@@ -251,7 +251,79 @@ function getTranslatedExerciseName(name: string, lang: AppLangCode) {
 
   return getExerciseName(libraryItem, lang);
 }
+type LocalizedWorkoutLike = {
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
 
+  weeklyPlanTitle?: string | null;
+  weeklyPlanTitleRu?: string | null;
+  weeklyPlanTitleKk?: string | null;
+  weekly_plan_title?: string | null;
+  weekly_plan_title_ru?: string | null;
+  weekly_plan_title_kk?: string | null;
+
+  source?: string | null;
+};
+
+function pickText(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .find((value) => typeof value === "string" && value.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+function getLocalizedWorkoutName(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(workout.nameRu, workout.name_ru, workout.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.nameKk, workout.name_kk, workout.name);
+  }
+
+  return pickText(workout.name);
+}
+
+function getLocalizedWeeklyPlanTitle(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(
+      workout.weeklyPlanTitleRu,
+      workout.weekly_plan_title_ru,
+      "Недельный план",
+    );
+  }
+
+  if (lang === "kk") {
+    return pickText(
+      workout.weeklyPlanTitleKk,
+      workout.weekly_plan_title_kk,
+      "Апталық жоспар",
+    );
+  }
+
+  return pickText(
+    workout.weeklyPlanTitle,
+    workout.weekly_plan_title,
+    "Weekly plan",
+  );
+}
+
+function getAssignWeeklyPlanLabel(lang: AppLangCode) {
+  if (lang === "ru") return "Назначить недельный план";
+  if (lang === "kk") return "Апталық жоспар тағайындау";
+
+  return "Assign weekly plan";
+}
 function ymd(date: Date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -1575,7 +1647,7 @@ export default function ClientDetail() {
               />
 
               <AppButton
-  title="Назначить недельный план"
+  title={getAssignWeeklyPlanLabel(currentLang)}
   variant="secondary"
   icon={<Target size={18} color={theme.colors.text} />}
   onPress={() =>
@@ -1605,18 +1677,20 @@ export default function ClientDetail() {
                         }}
                       >
                         <View style={{ flex: 1 }}>
-                          <AppText variant="bodyStrong">{workout.name}</AppText>
+                          <AppText variant="bodyStrong">
+  {getLocalizedWorkoutName(workout, currentLang)}
+</AppText>
 
-                          <AppText variant="small" color={theme.colors.textMuted}>
-                            {workout.date}
-                            {workout.time ? ` · ${workout.time}` : ""} ·{" "}
-                            {ex.length} {t("workouts.exercises").toLowerCase()} ·{" "}
-                            {workout.durationMinutes}
-                            {t("common.minutes")}
-                            {workout.source === "weekly_template"
-                              ? " · Weekly plan"
-                              : ""}
-                          </AppText>
+<AppText variant="small" color={theme.colors.textMuted}>
+  {workout.date}
+  {workout.time ? ` · ${workout.time}` : ""} ·{" "}
+  {ex.length} {t("workouts.exercises").toLowerCase()} ·{" "}
+  {workout.durationMinutes}
+  {t("common.minutes")}
+  {workout.source === "weekly_template"
+    ? ` · ${getLocalizedWeeklyPlanTitle(workout, currentLang)}`
+    : ""}
+</AppText>
                         </View>
 
                         {workout.completed ? (

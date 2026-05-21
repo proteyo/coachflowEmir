@@ -22,7 +22,6 @@ import {
   EXERCISE_LIBRARY,
   getExerciseAnimationFrames,
   getExerciseName,
-  MuscleGroup,
 } from "@/src/data/exerciseLibrary";
 import { useI18n } from "@/src/i18n/I18nContext";
 
@@ -43,6 +42,7 @@ const LOCAL_TEXT = {
     showingSupplementsFor: "Showing supplements scheduled for",
     everyDay: "Every day",
     noSupplementsForToday: "No supplements scheduled for this day.",
+    weeklyPlan: "Weekly plan",
     weekDays: {
       Mon: "MON",
       Tue: "TUE",
@@ -72,6 +72,7 @@ const LOCAL_TEXT = {
     showingSupplementsFor: "Показаны добавки на",
     everyDay: "Каждый день",
     noSupplementsForToday: "На этот день добавки не запланированы.",
+    weeklyPlan: "Недельный план",
     weekDays: {
       Mon: "ПН",
       Tue: "ВТ",
@@ -101,6 +102,7 @@ const LOCAL_TEXT = {
     showingSupplementsFor: "Қоспалар көрсетілген күн:",
     everyDay: "Күн сайын",
     noSupplementsForToday: "Бұл күнге қоспалар жоспарланбаған.",
+    weeklyPlan: "Апталық жоспар",
     weekDays: {
       Mon: "ДС",
       Tue: "СС",
@@ -122,9 +124,76 @@ const LOCAL_TEXT = {
   },
 };
 
+type LocalizedWorkoutLike = {
+  name?: string | null;
+  nameRu?: string | null;
+  nameKk?: string | null;
+  name_ru?: string | null;
+  name_kk?: string | null;
+
+  weeklyPlanTitle?: string | null;
+  weeklyPlanTitleRu?: string | null;
+  weeklyPlanTitleKk?: string | null;
+  weekly_plan_title?: string | null;
+  weekly_plan_title_ru?: string | null;
+  weekly_plan_title_kk?: string | null;
+
+  source?: string | null;
+};
+
 function getLangSafe(lang: string): AppLangCode {
   if (lang === "ru" || lang === "kk" || lang === "en") return lang;
   return "en";
+}
+
+function pickText(...values: Array<string | null | undefined>) {
+  return (
+    values
+      .find((value) => typeof value === "string" && value.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+function getLocalizedWorkoutName(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(workout.nameRu, workout.name_ru, workout.name);
+  }
+
+  if (lang === "kk") {
+    return pickText(workout.nameKk, workout.name_kk, workout.name);
+  }
+
+  return pickText(workout.name);
+}
+
+function getLocalizedWeeklyPlanTitle(
+  workout: LocalizedWorkoutLike,
+  lang: AppLangCode,
+) {
+  if (lang === "ru") {
+    return pickText(
+      workout.weeklyPlanTitleRu,
+      workout.weekly_plan_title_ru,
+      LOCAL_TEXT.ru.weeklyPlan,
+    );
+  }
+
+  if (lang === "kk") {
+    return pickText(
+      workout.weeklyPlanTitleKk,
+      workout.weekly_plan_title_kk,
+      LOCAL_TEXT.kk.weeklyPlan,
+    );
+  }
+
+  return pickText(
+    workout.weeklyPlanTitle,
+    workout.weekly_plan_title,
+    LOCAL_TEXT.en.weeklyPlan,
+  );
 }
 
 function toLocalYMD(date: Date) {
@@ -229,11 +298,18 @@ function getPluralWorkoutText(count: number, lang: AppLangCode) {
 }
 
 function getExerciseLibraryItem(exercise: any) {
+  const libraryExerciseId = String(
+    exercise?.libraryExerciseId ??
+      exercise?.library_exercise_id ??
+      exercise?.libId ??
+      "",
+  );
+
   const name = String(exercise?.name ?? "").trim().toLowerCase();
-  const imageUrl = String(exercise?.imageUrl ?? "");
+  const imageUrl = String(exercise?.imageUrl ?? exercise?.image_url ?? "");
 
   return (
-    EXERCISE_LIBRARY.find((item) => item.id === exercise?.libId) ??
+    EXERCISE_LIBRARY.find((item) => item.id === libraryExerciseId) ??
     EXERCISE_LIBRARY.find(
       (item) => item.name.trim().toLowerCase() === name,
     ) ??
@@ -243,23 +319,67 @@ function getExerciseLibraryItem(exercise: any) {
 }
 
 function getTranslatedExerciseName(exercise: any, lang: AppLangCode) {
+  if (lang === "ru") {
+    const direct = pickText(exercise?.nameRu, exercise?.name_ru);
+    if (direct) return direct;
+  }
+
+  if (lang === "kk") {
+    const direct = pickText(exercise?.nameKk, exercise?.name_kk);
+    if (direct) return direct;
+  }
+
   const libraryItem = getExerciseLibraryItem(exercise);
 
   if (libraryItem) {
     return getExerciseName(libraryItem, lang);
   }
 
-  return exercise?.name ?? "";
+  return pickText(exercise?.name);
+}
+
+function parseAnimationFrames(value: any) {
+  if (Array.isArray(value)) {
+    return value.filter((frame) => typeof frame === "string" && frame.length > 0);
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (frame) => typeof frame === "string" && frame.length > 0,
+        );
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
 }
 
 function getExerciseFrames(exercise: any) {
+  const backendFrames = parseAnimationFrames(
+    exercise?.animationFrames ?? exercise?.animation_frames,
+  );
+
+  if (backendFrames.length > 0) return backendFrames;
+
+  const gifUrl = exercise?.gifUrl ?? exercise?.gif_url;
+
+  if (typeof gifUrl === "string" && gifUrl.trim().length > 0) {
+    return [gifUrl.trim()];
+  }
+
   const libraryItem = getExerciseLibraryItem(exercise);
 
   if (libraryItem) {
     return getExerciseAnimationFrames(libraryItem);
   }
 
-  const imageUrl = exercise?.imageUrl;
+  const imageUrl = exercise?.imageUrl ?? exercise?.image_url;
 
   if (!imageUrl) return [];
 
@@ -583,6 +703,14 @@ export default function ClientSchedule() {
           <View style={{ gap: 12 }}>
             {selectedWorkouts.map((workout) => {
               const exercises = exercisesByWorkout[workout.id] ?? [];
+              const localizedWorkoutName = getLocalizedWorkoutName(
+                workout,
+                currentLang,
+              );
+              const localizedWeeklyPlanTitle = getLocalizedWeeklyPlanTitle(
+                workout,
+                currentLang,
+              );
 
               return (
                 <Pressable
@@ -611,7 +739,9 @@ export default function ClientSchedule() {
                       </View>
 
                       <View style={{ flex: 1 }}>
-                        <AppText variant="bodyStrong">{workout.name}</AppText>
+                        <AppText variant="bodyStrong">
+                          {localizedWorkoutName}
+                        </AppText>
 
                         <View
                           style={{
@@ -629,6 +759,9 @@ export default function ClientSchedule() {
                             {t("workouts.exercises").toLowerCase()} ·{" "}
                             {workout.durationMinutes ?? 0}
                             {t("common.minutes")}
+                            {workout.source === "weekly_template"
+                              ? ` · ${localizedWeeklyPlanTitle}`
+                              : ""}
                           </AppText>
                         </View>
                       </View>
