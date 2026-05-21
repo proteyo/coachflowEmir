@@ -70,10 +70,16 @@ class ClientWithProfileOut(BaseModel):
     phone: Optional[str] = None
     avatarUrl: Optional[str] = None
     clientCode: Optional[str] = None
+
+    # Online / last seen status
+    lastSeenAt: Optional[str] = None
+    isOnline: bool = False
+
     profile: Optional[ClientProfileOut] = None
 
     model_config = {"from_attributes": True}
-    
+
+
 class InviteClientRequest(BaseModel):
     email: str
 

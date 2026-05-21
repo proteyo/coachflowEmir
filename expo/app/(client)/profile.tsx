@@ -8,6 +8,7 @@ import {
   Copy,
   Edit3,
   Globe,
+  HelpCircle,
   LogOut,
   Moon,
   Sun,
@@ -869,6 +870,40 @@ export default function ClientProfile() {
               numberOfLines={1}
             >
               {LANGUAGES.find((item) => item.code === lang)?.label}
+            </AppText>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/faq")}
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingVertical: 8,
+              gap: 12,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                flex: 1,
+              }}
+            >
+              <HelpCircle color={theme.colors.text} size={18} />
+
+              <AppText variant="body" style={{ flex: 1 }}>
+                FAQ
+              </AppText>
+            </View>
+
+            <AppText
+              variant="small"
+              color={theme.colors.primary}
+              style={{ fontWeight: "700" }}
+            >
+              ?
             </AppText>
           </Pressable>
         </AppCard>

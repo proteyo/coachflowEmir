@@ -58,6 +58,8 @@ interface DraftExercise {
   requiresWeight: boolean;
   notes?: string;
   imageUrl?: string;
+  gifUrl?: string;
+  animationFrames?: string[];
   muscleGroup?: string;
 }
 
@@ -232,6 +234,12 @@ function normalizeHistory(raw: any): LatestExerciseResult | null {
 }
 
 function getFramesFromDraft(exercise: DraftExercise) {
+  if (exercise.gifUrl) return [exercise.gifUrl];
+
+  if (exercise.animationFrames?.length) {
+    return Array.from(new Set(exercise.animationFrames.filter(Boolean)));
+  }
+
   if (exercise.libId) {
     const lib = EXERCISE_LIBRARY.find((item) => item.id === exercise.libId);
 
@@ -309,6 +317,8 @@ function createDraftFromLibrary(exercise: LibraryExercise): DraftExercise {
     requiresWeight,
     notes: "",
     imageUrl: exercise.imageUrl,
+    gifUrl: exercise.gifUrl,
+    animationFrames: getExerciseAnimationFrames(exercise),
     muscleGroup: exercise.muscleGroup,
   };
 }
@@ -337,13 +347,17 @@ function createDraftFromExisting(exercise: Exercise): DraftExercise {
     reps: exercise.reps,
     restSeconds: exercise.restSeconds,
     weight: requiresWeight
-      ? exercise.weight ?? getDefaultWeight(exercise.name, exercise.muscleGroup)
-      : undefined,
+  ? exercise.weight ?? getDefaultWeight(exercise.name, exercise.muscleGroup ?? undefined)
+  : undefined,
     requiresWeight,
-    notes: exercise.notes,
+    notes: exercise.notes ?? undefined,
     imageUrl: exercise.imageUrl ?? libraryExercise?.imageUrl,
-    muscleGroup: exercise.muscleGroup ?? libraryExercise?.muscleGroup,
-  };
+    gifUrl: (exercise as any).gifUrl ?? (exercise as any).gif_url ?? libraryExercise?.gifUrl,
+    animationFrames:
+      (exercise as any).animationFrames ??
+      (exercise as any).animation_frames ??
+      (libraryExercise ? getExerciseAnimationFrames(libraryExercise) : undefined),
+muscleGroup: exercise.muscleGroup ?? libraryExercise?.muscleGroup ?? undefined,  };
 }
 
 function buildWorkoutPayload(params: {
@@ -416,6 +430,83 @@ function getBestLabel(lang: string) {
   return "Best";
 }
 
+function getAddExerciseButtonLabel(lang: string) {
+  if (lang === "ru") return "Добавить упражнение";
+  if (lang === "kk") return "Жаттығу қосу";
+
+  return "Add exercise";
+}
+
+function getWorkoutAutoNameNotice(lang: string) {
+  if (lang === "ru") {
+    return "Название тренировки не было введено, поэтому приложение автоматически создало понятное название по упражнениям.";
+  }
+
+  if (lang === "kk") {
+    return "Жаттығу атауы енгізілмеді, сондықтан қолданба жаттығуларға қарап атауды автоматты түрде құрды.";
+  }
+
+  return "Workout name was empty, so the app automatically created a clear name from the selected exercises.";
+}
+
+function buildAutoWorkoutName(params: {
+  exercises: DraftExercise[];
+  date: string;
+  lang: string;
+}) {
+  const firstExercise = params.exercises[0]?.name?.trim();
+
+  if (!firstExercise) {
+    if (params.lang === "ru") return `Тренировка · ${params.date}`;
+    if (params.lang === "kk") return `Жаттығу · ${params.date}`;
+
+    return `Workout · ${params.date}`;
+  }
+
+  const extraCount = Math.max(0, params.exercises.length - 1);
+
+  if (params.lang === "ru") {
+    return extraCount > 0
+      ? `${firstExercise} + ещё ${extraCount} · ${params.date}`
+      : `${firstExercise} · ${params.date}`;
+  }
+
+  if (params.lang === "kk") {
+    return extraCount > 0
+      ? `${firstExercise} + тағы ${extraCount} · ${params.date}`
+      : `${firstExercise} · ${params.date}`;
+  }
+
+  return extraCount > 0
+    ? `${firstExercise} + ${extraCount} more · ${params.date}`
+    : `${firstExercise} · ${params.date}`;
+}
+
+function makeLocalId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildLocalExercises(workoutId: string, exercises: DraftExercise[]): Exercise[] {
+  return exercises.map((exercise, index) => ({
+    id: exercise.id.startsWith("draft_")
+      ? makeLocalId("local_exercise")
+      : exercise.id,
+    workoutId,
+    libraryExerciseId: exercise.libId ?? null,
+    name: exercise.name.trim(),
+    sets: Math.max(1, exercise.sets),
+    reps: Math.max(1, exercise.reps),
+    restSeconds: Math.max(0, exercise.restSeconds),
+    weight: exercise.requiresWeight ? exercise.weight : undefined,
+    notes: exercise.notes?.trim() || undefined,
+    imageUrl: exercise.imageUrl,
+    gifUrl: exercise.gifUrl,
+    animationFrames: exercise.animationFrames,
+    muscleGroup: exercise.muscleGroup,
+    order: index + 1,
+  } as Exercise));
+}
+
 function getNoClientText(lang: string) {
   if (lang === "ru") return "Клиент не выбран.";
   if (lang === "kk") return "Клиент таңдалмаған.";
@@ -429,7 +520,7 @@ export default function AddWorkout() {
   const tt = (key: string) => t(key as any);
   const appLang = getLangSafe(lang);
   const { user, token } = useAuth();
-  const { db, refreshFromBackend } = useData();
+  const { db, update, refreshFromBackend } = useData();
   const params = useLocalSearchParams<{
     clientId?: string;
     workoutId?: string;
@@ -604,11 +695,6 @@ export default function AddWorkout() {
       return;
     }
 
-    if (!name.trim()) {
-      Alert.alert(tt("workouts.errorTitle"), tt("workouts.nameRequired"));
-      return;
-    }
-
     if (!date.trim()) {
       Alert.alert(tt("workouts.errorTitle"), tt("workouts.dateRequired"));
       return;
@@ -633,13 +719,25 @@ export default function AddWorkout() {
     }
 
     const durationMinutes = parsePositiveInt(duration, 45);
+    const cleanName = name.trim();
+    const finalWorkoutName =
+      cleanName ||
+      buildAutoWorkoutName({
+        exercises: draft,
+        date,
+        lang,
+      });
+
+    if (!cleanName) {
+      setName(finalWorkoutName);
+    }
 
     try {
       setSaving(true);
 
       const workoutPayload = buildWorkoutPayload({
         clientId: targetClientId,
-        name,
+        name: finalWorkoutName,
         date,
         time,
         durationMinutes,
@@ -654,13 +752,60 @@ export default function AddWorkout() {
       }
 
       await refreshFromBackend();
+
+      if (!cleanName) {
+        Alert.alert(tt("workouts.saved"), getWorkoutAutoNameNotice(lang), [
+          { text: tt("common.done"), onPress: () => router.back() },
+        ]);
+        return;
+      }
+
       router.back();
     } catch (e: any) {
       console.log("[add-workout] save error", e);
 
+      const localWorkoutId = editing ? workoutId : makeLocalId("local_workout");
+      const localExercises = buildLocalExercises(localWorkoutId, draft);
+
+      update((current) => ({
+        ...current,
+        workouts: [
+          ...current.workouts.filter((workout) => workout.id !== localWorkoutId),
+          {
+            id: localWorkoutId,
+            coachId: user.id,
+            clientId: targetClientId,
+            date: date.trim(),
+            time: time.trim() || undefined,
+            name: finalWorkoutName,
+            description: notes.trim() || undefined,
+            category: existingWorkout?.category ?? "Manual",
+            completed: existingWorkout?.completed ?? false,
+            completedAt: existingWorkout?.completedAt ?? undefined,
+            durationMinutes,
+            source: (existingWorkout as any)?.source ?? "manual",
+            weeklyPlanId: (existingWorkout as any)?.weeklyPlanId ?? null,
+            weeklyPlanTitle: (existingWorkout as any)?.weeklyPlanTitle ?? null,
+            weeklyPlanDayIndex: (existingWorkout as any)?.weeklyPlanDayIndex ?? null,
+            difficulty: (existingWorkout as any)?.difficulty ?? null,
+            focus: (existingWorkout as any)?.focus ?? null,
+            coachNotes: (existingWorkout as any)?.coachNotes ?? null,
+          },
+        ],
+        exercises: [
+          ...current.exercises.filter(
+            (exercise) => exercise.workoutId !== localWorkoutId,
+          ),
+          ...localExercises,
+        ],
+      }));
+
       Alert.alert(
-        tt("workouts.saveWorkoutError"),
-        e?.message || tt("workouts.saveWorkoutError"),
+        tt("workouts.saved"),
+        cleanName
+          ? "Backend did not accept the request, so the workout was saved locally and can still be edited in the app."
+          : getWorkoutAutoNameNotice(lang),
+        [{ text: tt("common.done"), onPress: () => router.back() }],
       );
     } finally {
       setSaving(false);
@@ -788,7 +933,7 @@ export default function AddWorkout() {
               </View>
 
               <AppButton
-                title={tt("workouts.addExercise")}
+                title={getAddExerciseButtonLabel(lang)}
                 size="sm"
                 icon={<Plus color={theme.colors.primaryContrast} size={16} />}
                 onPress={() => setPickerOpen(true)}

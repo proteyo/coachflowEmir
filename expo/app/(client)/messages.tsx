@@ -1,7 +1,8 @@
 import { router } from "expo-router";
 import { Check, MessageCircle, UserPlus, X } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
+
 import {
   AppAvatar,
   AppButton,
@@ -15,6 +16,7 @@ import { useData } from "@/src/context/DataContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { apiGet, apiPost, toAbsoluteUrl } from "@/src/services/api";
+import { Message } from "@/src/types/models";
 
 type AppLangCode = "en" | "ru" | "kk";
 
@@ -31,7 +33,38 @@ type ClientInvite = {
   clientName?: string | null;
 };
 
-const CLIENT_MESSAGES_TEXT = {
+type ClientMessagesLabels = {
+  defaultCoachName: string;
+  noCoachTitle: string;
+  noCoachMessage: string;
+  coachInvites: string;
+  coachWantsToAdd: string;
+  inviteDescription: string;
+  accepting: string;
+  rejecting: string;
+  accept: string;
+  reject: string;
+  inviteAcceptedTitle: string;
+  inviteAcceptedMessage: string;
+  inviteRejectedTitle: string;
+  inviteRejectedMessage: string;
+  inviteErrorTitle: string;
+  acceptInviteError: string;
+  rejectInviteError: string;
+  sayHi: string;
+  voiceMessage: string;
+  viewCoachProfile: string;
+  openChat: string;
+  defaultSpecialty: string;
+  noBio: string;
+  achievements: string;
+  onlineNow: string;
+  lastSeenPrefix: string;
+  lastSeenUnavailable: string;
+  lastSeenAfterActivity: string;
+};
+
+const CLIENT_MESSAGES_TEXT: Record<AppLangCode, ClientMessagesLabels> = {
   en: {
     defaultCoachName: "Coach",
     noCoachTitle: "No coach yet",
@@ -55,9 +88,14 @@ const CLIENT_MESSAGES_TEXT = {
     sayHi: "Say hi to your coach",
     voiceMessage: "Voice message",
     viewCoachProfile: "View coach profile",
+    openChat: "Open chat",
     defaultSpecialty: "Personal Trainer",
     noBio: "This coach has not added a description yet.",
     achievements: "Achievements",
+    onlineNow: "Online now",
+    lastSeenPrefix: "Last seen",
+    lastSeenUnavailable: "Last seen unavailable",
+    lastSeenAfterActivity: "Last seen will appear after activity",
   },
   ru: {
     defaultCoachName: "Тренер",
@@ -82,9 +120,14 @@ const CLIENT_MESSAGES_TEXT = {
     sayHi: "Напишите тренеру",
     voiceMessage: "Голосовое сообщение",
     viewCoachProfile: "Посмотреть профиль тренера",
+    openChat: "Открыть чат",
     defaultSpecialty: "Персональный тренер",
     noBio: "Этот тренер ещё не добавил описание.",
     achievements: "Достижения",
+    onlineNow: "В сети",
+    lastSeenPrefix: "Был(а) в сети",
+    lastSeenUnavailable: "Время активности недоступно",
+    lastSeenAfterActivity: "Статус появится после активности",
   },
   kk: {
     defaultCoachName: "Жаттықтырушы",
@@ -109,14 +152,21 @@ const CLIENT_MESSAGES_TEXT = {
     sayHi: "Жаттықтырушыға жазыңыз",
     voiceMessage: "Дауыс хабарламасы",
     viewCoachProfile: "Жаттықтырушы профилін көру",
+    openChat: "Чатты ашу",
     defaultSpecialty: "Жеке жаттықтырушы",
     noBio: "Бұл жаттықтырушы әлі сипаттама қоспаған.",
     achievements: "Жетістіктер",
+    onlineNow: "Желіде",
+    lastSeenPrefix: "Соңғы белсенділік",
+    lastSeenUnavailable: "Белсенділік уақыты қолжетімсіз",
+    lastSeenAfterActivity: "Белсенділіктен кейін статус шығады",
   },
 };
 
 function getLangSafe(lang: string): AppLangCode {
-  if (lang === "ru" || lang === "kk" || lang === "en") return lang;
+  if (lang === "ru" || lang === "kk" || lang === "en") {
+    return lang;
+  }
 
   return "en";
 }
@@ -151,7 +201,16 @@ function getSpecialtyLabel(value: string | undefined | null, lang: AppLangCode) 
   return value ?? CLIENT_MESSAGES_TEXT[lang].defaultSpecialty;
 }
 
-function getMessagePreview(content: string | undefined | null, lang: AppLangCode) {
+function getMessagePreview(message: Message | undefined, lang: AppLangCode) {
+  if (!message) {
+    return CLIENT_MESSAGES_TEXT[lang].sayHi;
+  }
+
+  if (message.messageType === "voice") {
+    return CLIENT_MESSAGES_TEXT[lang].voiceMessage;
+  }
+
+  const content = String(message.content ?? "").trim();
   const normalized = normalizeText(content);
 
   if (
@@ -167,11 +226,64 @@ function getMessagePreview(content: string | undefined | null, lang: AppLangCode
   return content || CLIENT_MESSAGES_TEXT[lang].sayHi;
 }
 
+function getMessageTime(message: Message | undefined) {
+  if (!message) return 0;
+
+  const time = new Date(message.createdAt).getTime();
+
+  if (!Number.isNaN(time)) {
+    return time;
+  }
+
+  const idNumber = Number(String(message.id ?? "").replace(/\D/g, ""));
+
+  return Number.isNaN(idNumber) ? 0 : idNumber;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatLastSeen(
+  value: string | null | undefined,
+  labels: ClientMessagesLabels,
+) {
+  if (!value) {
+    return labels.lastSeenAfterActivity;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return labels.lastSeenUnavailable;
+  }
+
+  const time = date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (isSameDay(date, new Date())) {
+    return `${labels.lastSeenPrefix} ${time}`;
+  }
+
+  return `${labels.lastSeenPrefix} ${date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  })} ${time}`;
+}
+
 export default function ClientMessages() {
   const { theme } = useTheme();
   const { t, lang } = useI18n();
   const { user, token } = useAuth();
   const { db, refreshFromBackend } = useData();
+
+  const refreshRef = useRef(refreshFromBackend);
 
   const currentLang = getLangSafe(lang);
   const L = CLIENT_MESSAGES_TEXT[currentLang];
@@ -181,6 +293,10 @@ export default function ClientMessages() {
   const [processingInviteId, setProcessingInviteId] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    refreshRef.current = refreshFromBackend;
+  }, [refreshFromBackend]);
 
   const loadInvites = useCallback(async () => {
     if (!token || user?.role !== "client") return;
@@ -202,37 +318,38 @@ export default function ClientMessages() {
     loadInvites();
   }, [loadInvites]);
 
+  useEffect(() => {
+    refreshRef.current();
+
+    const interval = setInterval(() => {
+      refreshRef.current();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const data = useMemo(() => {
     if (!db || !user) return null;
 
-    const profile = db.clientProfiles.find((c) => c.userId === user.id);
+    const profile = db.clientProfiles.find((client) => client.userId === user.id);
 
     const coach = profile?.coachId
-      ? db.users.find((u) => u.id === profile.coachId)
+      ? db.users.find((userItem) => userItem.id === profile.coachId)
       : null;
 
     const coachProfile = profile?.coachId
-      ? db.coachProfiles.find((p) => p.userId === profile.coachId)
+      ? db.coachProfiles.find((profileItem) => profileItem.userId === profile.coachId)
       : null;
 
     const lastMsg = coach
       ? db.messages
           .filter(
-            (m) =>
-              (m.senderId === user.id && m.receiverId === coach.id) ||
-              (m.senderId === coach.id && m.receiverId === user.id),
+            (message) =>
+              (message.senderId === user.id && message.receiverId === coach.id) ||
+              (message.senderId === coach.id && message.receiverId === user.id),
           )
           .slice()
-          .sort((a, b) => {
-            const at = new Date(a.createdAt).getTime();
-            const bt = new Date(b.createdAt).getTime();
-
-            if (!Number.isNaN(at) && !Number.isNaN(bt)) {
-              return bt - at;
-            }
-
-            return String(b.createdAt).localeCompare(String(a.createdAt));
-          })[0]
+          .sort((a, b) => getMessageTime(b) - getMessageTime(a))[0]
       : undefined;
 
     return {
@@ -296,6 +413,12 @@ export default function ClientMessages() {
       pathname: "/coach/[id]",
       params: { id: data.coach.id },
     } as any);
+  };
+
+  const openChat = () => {
+    if (!data?.coach?.id) return;
+
+    router.push(`/chat/${data.coach.id}`);
   };
 
   const pendingInvites = invites.filter((invite) => invite.status === "pending");
@@ -413,10 +536,12 @@ export default function ClientMessages() {
 
   const coachBio = data.coachProfile?.bio?.trim() || L.noBio;
 
-  const lastMessagePreview = getMessagePreview(
-    data.lastMsg?.content,
-    currentLang,
-  );
+  const lastMessagePreview = getMessagePreview(data.lastMsg, currentLang);
+
+  const coachOnline = Boolean(data.coach.isOnline);
+  const coachPresenceText = coachOnline
+    ? L.onlineNow
+    : formatLastSeen(data.coach.lastSeenAt, L);
 
   return (
     <ScreenContainer scroll>
@@ -503,25 +628,51 @@ export default function ClientMessages() {
           </View>
         ) : null}
 
-        <Pressable onPress={openCoachProfile}>
+        <Pressable onPress={openChat}>
           <AppCard variant="elevated">
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <AppAvatar
-                uri={toAbsoluteUrl(
-                  data.coachProfile?.profileImageUrl ?? data.coach.avatarUrl,
-                )}
-                name={data.coach.name}
-                size={56}
-                ring
-              />
+              <View>
+                <AppAvatar
+                  uri={toAbsoluteUrl(
+                    data.coachProfile?.profileImageUrl ?? data.coach.avatarUrl,
+                  )}
+                  name={data.coach.name}
+                  size={56}
+                  ring
+                />
+
+                <View
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    bottom: 1,
+                    width: 14,
+                    height: 14,
+                    borderRadius: 7,
+                    backgroundColor: coachOnline ? "#22C55E" : "#9CA3AF",
+                    borderWidth: 2,
+                    borderColor: "#FFFFFF",
+                  }}
+                />
+              </View>
 
               <View style={{ flex: 1 }}>
                 <AppText variant="bodyStrong">{data.coach.name}</AppText>
 
                 <AppText
+                  variant="caption"
+                  color={coachOnline ? "#22C55E" : theme.colors.textMuted}
+                  numberOfLines={1}
+                  style={{ marginTop: 2 }}
+                >
+                  {coachPresenceText}
+                </AppText>
+
+                <AppText
                   variant="small"
                   color={theme.colors.textMuted}
                   numberOfLines={1}
+                  style={{ marginTop: 4 }}
                 >
                   {lastMessagePreview}
                 </AppText>
@@ -530,11 +681,30 @@ export default function ClientMessages() {
           </AppCard>
         </Pressable>
 
-        <AppButton
-          title={L.viewCoachProfile}
-          onPress={openCoachProfile}
-          fullWidth
-        />
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <AppButton
+              title={L.openChat}
+              onPress={openChat}
+              icon={
+                <MessageCircle
+                  size={16}
+                  color={theme.colors.primaryContrast}
+                />
+              }
+              fullWidth
+            />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <AppButton
+              title={L.viewCoachProfile}
+              variant="secondary"
+              onPress={openCoachProfile}
+              fullWidth
+            />
+          </View>
+        </View>
 
         <AppCard variant="outline">
           <AppText variant="h3">{data.coach.name}</AppText>
@@ -545,6 +715,14 @@ export default function ClientMessages() {
             style={{ marginTop: 4 }}
           >
             {coachSpecialty}
+          </AppText>
+
+          <AppText
+            variant="caption"
+            color={coachOnline ? "#22C55E" : theme.colors.textMuted}
+            style={{ marginTop: 6 }}
+          >
+            {coachPresenceText}
           </AppText>
 
           <AppText variant="small" style={{ marginTop: 8 }}>

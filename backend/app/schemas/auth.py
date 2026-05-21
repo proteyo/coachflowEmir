@@ -53,10 +53,14 @@ class UserOut(BaseModel):
     clientCode: Optional[str] = None
     createdAt: str
 
+    # Online / last seen status
+    lastSeenAt: Optional[str] = None
+    isOnline: bool = False
+
     model_config = {"from_attributes": True}
 
 
 class AuthResponse(BaseModel):
-    token: str           # access token (фронтенд ожидает это поле)
+    token: str
     refresh_token: str
     user: UserOut

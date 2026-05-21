@@ -4,9 +4,25 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
 
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
+
 type ApiOptions = {
   token?: string | null;
 };
+
+type SendMessagePayload = {
+  receiver_id: string;
+  content: string;
+  message_type?: "text" | "voice";
+  voice_url?: string | null;
+  voice_duration_ms?: number | null;
+};
+
+function buildUrl(path: string) {
+  const cleanBase = API_BASE_URL.replace(/\/+$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+
+  return `${cleanBase}${cleanPath}`;
+}
 
 function getErrorMessage(data: any, status: number) {
   const detail = data?.detail ?? data?.message;
@@ -52,6 +68,12 @@ async function handleResponse(res: Response) {
   return data;
 }
 
+function getAuthHeaders(options?: ApiOptions) {
+  return {
+    ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  };
+}
+
 export function toAbsoluteUrl(url?: string | null) {
   if (!url) return undefined;
 
@@ -95,22 +117,26 @@ function getMimeType(uri: string) {
 }
 
 export async function apiGet(path: string, options?: ApiOptions) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(buildUrl(path), {
     method: "GET",
     headers: {
-      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...getAuthHeaders(options),
     },
   });
 
   return handleResponse(res);
 }
 
-export async function apiPost(path: string, body?: unknown, options?: ApiOptions) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+export async function apiPost(
+  path: string,
+  body?: unknown,
+  options?: ApiOptions,
+) {
+  const res = await fetch(buildUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...getAuthHeaders(options),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -118,12 +144,16 @@ export async function apiPost(path: string, body?: unknown, options?: ApiOptions
   return handleResponse(res);
 }
 
-export async function apiPatch(path: string, body?: unknown, options?: ApiOptions) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+export async function apiPatch(
+  path: string,
+  body?: unknown,
+  options?: ApiOptions,
+) {
+  const res = await fetch(buildUrl(path), {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
-      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...getAuthHeaders(options),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -132,10 +162,10 @@ export async function apiPatch(path: string, body?: unknown, options?: ApiOption
 }
 
 export async function apiDelete(path: string, options?: ApiOptions) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(buildUrl(path), {
     method: "DELETE",
     headers: {
-      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...getAuthHeaders(options),
     },
   });
 
@@ -167,13 +197,64 @@ export async function apiUploadFile(
     } as any);
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(buildUrl(path), {
     method: "POST",
     headers: {
-      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...getAuthHeaders(options),
     },
     body: formData,
   });
 
   return handleResponse(res);
+}
+
+/**
+ * Chat API helpers
+ */
+
+export async function apiGetMessages(
+  partnerId: string,
+  options?: ApiOptions & {
+    markAsRead?: boolean;
+  },
+) {
+  const markAsRead = options?.markAsRead ?? true;
+
+  const query = new URLSearchParams({
+    partner_id: partnerId,
+    mark_as_read: markAsRead ? "true" : "false",
+    _: String(Date.now()),
+  });
+
+  return apiGet(`/messages?${query.toString()}`, options);
+}
+
+export async function apiSendMessage(
+  payload: SendMessagePayload,
+  options?: ApiOptions,
+) {
+  return apiPost("/messages", payload, options);
+}
+
+export async function apiMarkConversationRead(
+  partnerId: string,
+  options?: ApiOptions,
+) {
+  const query = new URLSearchParams({
+    partner_id: partnerId,
+    _: String(Date.now()),
+  });
+
+  return apiPost(`/messages/read-conversation?${query.toString()}`, {}, options);
+}
+
+export async function apiMarkMessageRead(
+  messageId: string,
+  options?: ApiOptions,
+) {
+  return apiPost(`/messages/${messageId}/read`, {}, options);
+}
+
+export async function apiGetUnreadCount(options?: ApiOptions) {
+  return apiGet(`/messages/unread-count?_=${Date.now()}`, options);
 }

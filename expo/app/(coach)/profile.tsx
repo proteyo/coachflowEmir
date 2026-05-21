@@ -9,6 +9,7 @@ import {
   CreditCard,
   Edit3,
   Globe,
+  HelpCircle,
   LogOut,
   Moon,
   Star,
@@ -230,13 +231,16 @@ function getLocale(lang: AppLangCode) {
   return "en-US";
 }
 
-function formatSubscriptionDate(value: string | undefined, lang: AppLangCode) {
+function formatSubscriptionDate(
+  value: string | null | undefined,
+  lang: AppLangCode,
+) {
   if (!value) return "—";
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return value.slice(0, 10);
+    return String(value).slice(0, 10);
   }
 
   return date.toLocaleDateString(getLocale(lang), {
@@ -997,6 +1001,30 @@ export default function CoachProfile() {
               style={{ fontWeight: "700" }}
             >
               {LANGUAGES.find((item) => item.code === lang)?.label}
+            </AppText>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/faq")}
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingVertical: 8,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <HelpCircle color={theme.colors.text} size={18} />
+
+              <AppText variant="body">FAQ</AppText>
+            </View>
+
+            <AppText
+              variant="small"
+              color={theme.colors.primary}
+              style={{ fontWeight: "700" }}
+            >
+              ?
             </AppText>
           </Pressable>
         </AppCard>

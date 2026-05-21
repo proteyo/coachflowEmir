@@ -10,13 +10,21 @@ import {
   cancelCoachFlowReminders,
   syncReminders,
 } from "@/src/services/notifications";
-import { DBShape, SupplementDay } from "@/src/types/models";
+import {
+  DBShape,
+  Exercise,
+  Message,
+  SupplementDay,
+  User,
+  WorkoutAssignment,
+} from "@/src/types/models";
 
 const DB_KEY = "coachflow:db:production:v1";
 const TOKEN_KEY = "coachflow:token";
 
 function arr(value: any) {
   if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.messages)) return value.messages;
   if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.results)) return value.results;
@@ -46,18 +54,380 @@ function getLocalDayKey(date = new Date()): SupplementDay {
   return days[date.getDay()];
 }
 
-function normalizeUser(user: any) {
+
+export type WeeklyPlanExerciseInput = {
+  id?: string | null;
+  exerciseId?: string | null;
+
+  name: string;
+  nameRu?: string | null;
+  nameKk?: string | null;
+
+  sets: number;
+  reps: number;
+  restSeconds?: number | null;
+  weight?: number | null;
+
+  notes?: string | null;
+  notesRu?: string | null;
+  notesKk?: string | null;
+
+  imageUrl?: string | null;
+  gifUrl?: string | null;
+  animationFrames?: string[];
+
+  muscleGroup?: string | null;
+  tempo?: string | null;
+  targetRpe?: number | null;
+};
+
+export type WeeklyPlanDayInput = {
+  id?: string | null;
+  dayOffset?: number;
+  day?: number;
+
+  name: string;
+  nameRu?: string | null;
+  nameKk?: string | null;
+
+  description?: string | null;
+  descriptionRu?: string | null;
+  descriptionKk?: string | null;
+
+  category?: string | null;
+  categoryRu?: string | null;
+  categoryKk?: string | null;
+
+  durationMinutes?: number | null;
+  time?: string | null;
+  exercises: WeeklyPlanExerciseInput[];
+};
+
+export type WeeklyTrainingPlanInput = {
+  id: string;
+
+  title?: string;
+  name?: string;
+  titleRu?: string | null;
+  titleKk?: string | null;
+
+  subtitle?: string | null;
+  subtitleRu?: string | null;
+  subtitleKk?: string | null;
+
+  goal?: string;
+  goalLabel?: string;
+  goalLabelRu?: string | null;
+  goalLabelKk?: string | null;
+
+  description?: string | null;
+  descriptionRu?: string | null;
+  descriptionKk?: string | null;
+
+  level?: any;
+  equipment?: string | null;
+  sessionsPerWeek?: number;
+  estimatedMinutesPerSession?: number;
+  tags?: string[];
+
+  coachAnalysis?: string | null;
+  coachAnalysisRu?: string | null;
+  coachAnalysisKk?: string | null;
+
+  safetyNotes?: string[];
+  safetyNotesRu?: string[];
+  safetyNotesKk?: string[];
+
+  progressionNotes?: string[];
+  progressionNotesRu?: string[];
+  progressionNotesKk?: string[];
+
+  days: WeeklyPlanDayInput[];
+};
+
+export type AssignWeeklyPlanOptions = {
+  clientId: string;
+  plan: WeeklyTrainingPlanInput;
+  startDate?: string;
+  coachId?: string;
+};
+
+export type AssignWeeklyPlanResult = {
+  workoutIds: string[];
+  exerciseIds: string[];
+};
+
+function makeLocalId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseDateKey(dateKey?: string | null): Date {
+  if (!dateKey) return new Date();
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+
+  if (!year || !month || !day) return new Date();
+
+  return new Date(year, month - 1, day);
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = parseDateKey(dateKey);
+
+  date.setDate(date.getDate() + days);
+
+  return getLocalDateKey(date);
+}
+
+function toSafeNumber(value: unknown, fallback: number): number {
+  const numberValue = Number(value);
+
+  if (Number.isFinite(numberValue)) return numberValue;
+
+  return fallback;
+}
+
+function joinLocalizedParts(parts: Array<string | null | undefined>): string | null {
+  const cleaned = parts
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean);
+
+  return cleaned.length > 0 ? cleaned.join("\n\n") : null;
+}
+
+function getPlanDisplayName(plan: WeeklyTrainingPlanInput): string {
+  return plan.title ?? plan.name ?? "Weekly Plan";
+}
+
+function buildWorkoutFromPlanDay(input: {
+  coachId: string;
+  clientId: string;
+  plan: WeeklyTrainingPlanInput;
+  day: WeeklyPlanDayInput;
+  index: number;
+  startDate: string;
+  now: string;
+}): WorkoutAssignment {
+  const dayOffset = toSafeNumber(
+    input.day.dayOffset ?? input.day.day,
+    input.index * 2,
+  );
+
+  const planName = getPlanDisplayName(input.plan);
+  const planNameRu = input.plan.titleRu ?? null;
+  const planNameKk = input.plan.titleKk ?? null;
+
+  const fallbackName = `${planName} • Day ${input.index + 1}`;
+  const fallbackNameRu =
+    planNameRu || input.plan.name
+      ? `${planNameRu ?? input.plan.name} • День ${input.index + 1}`
+      : null;
+  const fallbackNameKk =
+    planNameKk || input.plan.name
+      ? `${planNameKk ?? input.plan.name} • ${input.index + 1}-күн`
+      : null;
+
+  const description = joinLocalizedParts([
+    input.day.description,
+    input.plan.description,
+    input.plan.coachAnalysis ? `Coach analysis: ${input.plan.coachAnalysis}` : null,
+    input.plan.safetyNotes?.length
+      ? `Safety notes:\n${input.plan.safetyNotes.map((note) => `• ${note}`).join("\n")}`
+      : null,
+    input.plan.progressionNotes?.length
+      ? `Progression:\n${input.plan.progressionNotes.map((note) => `• ${note}`).join("\n")}`
+      : null,
+    input.plan.goalLabel ?? input.plan.goal
+      ? `Goal: ${input.plan.goalLabel ?? input.plan.goal}`
+      : null,
+  ]);
+
+  const descriptionRu = joinLocalizedParts([
+    input.day.descriptionRu,
+    input.plan.descriptionRu,
+    input.plan.coachAnalysisRu
+      ? `AI-анализ плана: ${input.plan.coachAnalysisRu}`
+      : null,
+    input.plan.safetyNotesRu?.length
+      ? `Безопасность:\n${input.plan.safetyNotesRu
+          .map((note) => `• ${note}`)
+          .join("\n")}`
+      : null,
+    input.plan.progressionNotesRu?.length
+      ? `Прогрессия:\n${input.plan.progressionNotesRu
+          .map((note) => `• ${note}`)
+          .join("\n")}`
+      : null,
+    input.plan.goalLabelRu ?? input.plan.goalLabel
+      ? `Цель: ${input.plan.goalLabelRu ?? input.plan.goalLabel}`
+      : null,
+  ]);
+
+  const descriptionKk = joinLocalizedParts([
+    input.day.descriptionKk,
+    input.plan.descriptionKk,
+    input.plan.coachAnalysisKk
+      ? `AI жоспар талдауы: ${input.plan.coachAnalysisKk}`
+      : null,
+    input.plan.safetyNotesKk?.length
+      ? `Қауіпсіздік:\n${input.plan.safetyNotesKk
+          .map((note) => `• ${note}`)
+          .join("\n")}`
+      : null,
+    input.plan.progressionNotesKk?.length
+      ? `Прогрессия:\n${input.plan.progressionNotesKk
+          .map((note) => `• ${note}`)
+          .join("\n")}`
+      : null,
+    input.plan.goalLabelKk ?? input.plan.goalLabel
+      ? `Мақсат: ${input.plan.goalLabelKk ?? input.plan.goalLabel}`
+      : null,
+  ]);
+
+  return {
+    id: makeLocalId("local_weekly_workout"),
+    coachId: input.coachId,
+    clientId: input.clientId,
+    date: addDaysToDateKey(input.startDate, dayOffset),
+    time: input.day.time ?? "18:00",
+
+    name: input.day.name || fallbackName,
+    nameRu: input.day.nameRu ?? fallbackNameRu ?? input.day.name ?? fallbackName,
+    nameKk: input.day.nameKk ?? fallbackNameKk ?? input.day.name ?? fallbackName,
+
+    description: description ?? `Workout from ${planName}.`,
+    descriptionRu:
+      descriptionRu ??
+      description ??
+      `Тренировка из плана ${planNameRu ?? planName}.`,
+    descriptionKk:
+      descriptionKk ??
+      description ??
+      `${planNameKk ?? planName} жоспарынан жаттығу.`,
+
+    category: input.day.category ?? input.plan.goalLabel ?? input.plan.goal ?? "Weekly plan",
+    categoryRu:
+      input.day.categoryRu ??
+      input.plan.goalLabelRu ??
+      input.plan.goalLabel ??
+      input.day.category ??
+      "Недельный план",
+    categoryKk:
+      input.day.categoryKk ??
+      input.plan.goalLabelKk ??
+      input.plan.goalLabel ??
+      input.day.category ??
+      "Апталық жоспар",
+
+    completed: false,
+    completedAt: null,
+    durationMinutes:
+      input.day.durationMinutes === undefined ||
+      input.day.durationMinutes === null
+        ? input.plan.estimatedMinutesPerSession ?? 60
+        : Number(input.day.durationMinutes),
+
+    source: "weekly_template",
+    weeklyPlanId: input.plan.id,
+    weeklyPlanTitle: planName,
+    weeklyPlanTitleRu: planNameRu ?? planName,
+    weeklyPlanTitleKk: planNameKk ?? planName,
+    weeklyPlanDayIndex: input.index,
+    difficulty: input.plan.level ?? null,
+    focus: input.plan.goalLabel ?? input.plan.goal ?? "Weekly plan",
+    focusRu: input.plan.goalLabelRu ?? input.plan.goalLabel ?? null,
+    focusKk: input.plan.goalLabelKk ?? input.plan.goalLabel ?? null,
+    coachNotes: input.plan.coachAnalysis ?? null,
+    coachNotesRu: input.plan.coachAnalysisRu ?? input.plan.coachAnalysis ?? null,
+    coachNotesKk: input.plan.coachAnalysisKk ?? input.plan.coachAnalysis ?? null,
+  };
+}
+
+function buildExercisesFromPlanDay(input: {
+  workoutId: string;
+  day: WeeklyPlanDayInput;
+}): Exercise[] {
+  return input.day.exercises.map((exercise, index) => ({
+    id: makeLocalId("local_weekly_exercise"),
+    workoutId: input.workoutId,
+    libraryExerciseId: exercise.exerciseId ?? null,
+
+    name: exercise.name,
+    nameRu: exercise.nameRu ?? exercise.name,
+    nameKk: exercise.nameKk ?? exercise.name,
+
+    sets: Math.max(1, Math.round(toSafeNumber(exercise.sets, 3))),
+    reps: Math.max(1, Math.round(toSafeNumber(exercise.reps, 10))),
+    restSeconds: Math.max(
+      0,
+      Math.round(toSafeNumber(exercise.restSeconds, 60)),
+    ),
+    weight:
+      exercise.weight === undefined || exercise.weight === null
+        ? undefined
+        : Number(exercise.weight),
+
+    notes:
+      exercise.notes ??
+      (exercise.exerciseId
+        ? `Library exercise: ${exercise.exerciseId}`
+        : undefined),
+    notesRu: exercise.notesRu ?? exercise.notes ?? undefined,
+    notesKk: exercise.notesKk ?? exercise.notes ?? undefined,
+
+    imageUrl: exercise.imageUrl ?? undefined,
+    gifUrl: exercise.gifUrl ?? undefined,
+    animationFrames: exercise.animationFrames ?? undefined,
+
+    muscleGroup: exercise.muscleGroup ?? undefined,
+    tempo: exercise.tempo ?? undefined,
+    targetRpe: exercise.targetRpe ?? undefined,
+    order: index + 1,
+  }));
+}
+
+function getWeekPlanTargetMinutes(workouts: WorkoutAssignment[]): number {
+  return workouts.reduce(
+    (sum, workout) => sum + Number(workout.durationMinutes ?? 0),
+    0,
+  );
+}
+
+function normalizeUser(user: any): User {
   return {
     id: String(user.id),
-    email: user.email,
+    email: user.email ?? "",
     password: undefined,
-    name: user.name,
+    name: user.name ?? "",
     role: user.role,
-    phone: user.phone ?? undefined,
-    avatarUrl: user.avatarUrl ?? user.avatar_url ?? undefined,
-    clientCode: user.clientCode ?? user.client_code ?? undefined,
+    phone: user.phone ?? null,
+    avatarUrl: user.avatarUrl ?? user.avatar_url ?? null,
+    clientCode: user.clientCode ?? user.client_code ?? null,
     createdAt: user.createdAt ?? user.created_at ?? new Date().toISOString(),
+    lastSeenAt: user.lastSeenAt ?? user.last_seen_at ?? null,
+    isOnline: Boolean(user.isOnline ?? user.is_online ?? false),
   };
+}
+
+function mergeUsers(localUsers: User[], backendUsers: User[]): User[] {
+  const map = new Map<string, User>();
+
+  for (const user of localUsers) {
+    map.set(user.id, user);
+  }
+
+  for (const user of backendUsers) {
+    const previous = map.get(user.id);
+
+    map.set(user.id, {
+      ...(previous ?? {}),
+      ...user,
+      lastSeenAt: user.lastSeenAt ?? previous?.lastSeenAt ?? null,
+      isOnline: Boolean(user.isOnline ?? previous?.isOnline ?? false),
+    });
+  }
+
+  return Array.from(map.values());
 }
 
 function normalizeCoachProfile(profile: any) {
@@ -101,13 +471,42 @@ function normalizeWorkout(workout: any) {
     clientId: String(workout.clientId ?? workout.client_id),
     date: workout.date,
     time: workout.time ?? undefined,
+
     name: workout.name,
+    nameRu: workout.nameRu ?? workout.name_ru ?? undefined,
+    nameKk: workout.nameKk ?? workout.name_kk ?? undefined,
+
     description: workout.description ?? undefined,
+    descriptionRu: workout.descriptionRu ?? workout.description_ru ?? undefined,
+    descriptionKk: workout.descriptionKk ?? workout.description_kk ?? undefined,
+
     category: workout.category ?? undefined,
+    categoryRu: workout.categoryRu ?? workout.category_ru ?? undefined,
+    categoryKk: workout.categoryKk ?? workout.category_kk ?? undefined,
+
     completed: Boolean(workout.completed),
     completedAt: workout.completedAt ?? workout.completed_at ?? undefined,
     durationMinutes:
       workout.durationMinutes ?? workout.duration_minutes ?? undefined,
+
+    source: workout.source ?? undefined,
+    weeklyPlanId: workout.weeklyPlanId ?? workout.weekly_plan_id ?? undefined,
+    weeklyPlanTitle:
+      workout.weeklyPlanTitle ?? workout.weekly_plan_title ?? undefined,
+    weeklyPlanTitleRu:
+      workout.weeklyPlanTitleRu ?? workout.weekly_plan_title_ru ?? undefined,
+    weeklyPlanTitleKk:
+      workout.weeklyPlanTitleKk ?? workout.weekly_plan_title_kk ?? undefined,
+    weeklyPlanDayIndex:
+      workout.weeklyPlanDayIndex ?? workout.weekly_plan_day_index ?? undefined,
+
+    difficulty: workout.difficulty ?? undefined,
+    focus: workout.focus ?? undefined,
+    focusRu: workout.focusRu ?? workout.focus_ru ?? undefined,
+    focusKk: workout.focusKk ?? workout.focus_kk ?? undefined,
+    coachNotes: workout.coachNotes ?? workout.coach_notes ?? undefined,
+    coachNotesRu: workout.coachNotesRu ?? workout.coach_notes_ru ?? undefined,
+    coachNotesKk: workout.coachNotesKk ?? workout.coach_notes_kk ?? undefined,
   };
 }
 
@@ -115,14 +514,34 @@ function normalizeExercise(exercise: any) {
   return {
     id: String(exercise.id),
     workoutId: String(exercise.workoutId ?? exercise.workout_id),
+    libraryExerciseId:
+      exercise.libraryExerciseId ?? exercise.library_exercise_id ?? undefined,
+
     name: exercise.name,
+    nameRu: exercise.nameRu ?? exercise.name_ru ?? undefined,
+    nameKk: exercise.nameKk ?? exercise.name_kk ?? undefined,
+
     sets: Number(exercise.sets ?? 0),
     reps: Number(exercise.reps ?? 0),
-    restSeconds: Number(exercise.restSeconds ?? exercise.rest_seconds ?? 0),
-    weight: exercise.weight ?? undefined,
+    restSeconds: Number(exercise.restSeconds ?? exercise.rest_seconds ?? 60),
+    weight:
+      exercise.weight === undefined || exercise.weight === null
+        ? undefined
+        : Number(exercise.weight),
+
     notes: exercise.notes ?? undefined,
+    notesRu: exercise.notesRu ?? exercise.notes_ru ?? undefined,
+    notesKk: exercise.notesKk ?? exercise.notes_kk ?? undefined,
+
     imageUrl: exercise.imageUrl ?? exercise.image_url ?? undefined,
+    gifUrl: exercise.gifUrl ?? exercise.gif_url ?? undefined,
+    animationFrames:
+      exercise.animationFrames ?? exercise.animation_frames ?? undefined,
+
     muscleGroup: exercise.muscleGroup ?? exercise.muscle_group ?? undefined,
+    tempo: exercise.tempo ?? undefined,
+    targetRpe: exercise.targetRpe ?? exercise.target_rpe ?? undefined,
+    order: exercise.order ?? undefined,
   };
 }
 
@@ -137,11 +556,13 @@ function normalizeProgress(entry: any) {
   };
 }
 
-function normalizeMessage(message: any) {
+function normalizeMessage(message: any): Message {
+  const receiverValue = message.receiverId ?? message.receiver_id ?? null;
+
   return {
     id: String(message.id),
     senderId: String(message.senderId ?? message.sender_id),
-    receiverId: String(message.receiverId ?? message.receiver_id),
+    receiverId: receiverValue ? String(receiverValue) : null,
     content: message.content ?? "",
     messageType: message.messageType ?? message.message_type ?? "text",
     voiceUrl: message.voiceUrl ?? message.voice_url ?? undefined,
@@ -151,6 +572,39 @@ function normalizeMessage(message: any) {
     createdAt:
       message.createdAt ?? message.created_at ?? new Date().toISOString(),
   };
+}
+
+function mergeMessages(localMessages: Message[], backendMessages: Message[]) {
+  const map = new Map<string, Message>();
+
+  for (const message of localMessages) {
+    map.set(message.id, message);
+  }
+
+  for (const message of backendMessages) {
+    const previous = map.get(message.id);
+
+    map.set(message.id, {
+      ...(previous ?? {}),
+      ...message,
+
+      // Очень важно:
+      // если где-то сообщение уже стало read=true,
+      // не разрешаем старому локальному состоянию вернуть read=false.
+      read: Boolean(previous?.read || message.read),
+
+      receiverId: message.receiverId ?? previous?.receiverId ?? null,
+      voiceUrl: message.voiceUrl ?? previous?.voiceUrl,
+      voiceDurationMs: message.voiceDurationMs ?? previous?.voiceDurationMs,
+    });
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const at = new Date(a.createdAt).getTime();
+    const bt = new Date(b.createdAt).getTime();
+
+    return (Number.isNaN(at) ? 0 : at) - (Number.isNaN(bt) ? 0 : bt);
+  });
 }
 
 function normalizeWeeklyGoal(goal: any) {
@@ -459,12 +913,12 @@ async function loadBackendDB(localDB: DBShape, token: string): Promise<DBShape> 
     return {
       ...localDB,
 
-      users: [
-        ...localDB.users.filter(
+      users: mergeUsers(
+        localDB.users.filter(
           (user) => user.role !== "client" && user.id !== currentUser.id,
         ),
-        currentUser,
-      ],
+        [currentUser],
+      ),
 
       coachProfiles: coachProfile
         ? [
@@ -537,34 +991,35 @@ async function loadBackendDB(localDB: DBShape, token: string): Promise<DBShape> 
 
   const backendClientUsers = backendClients
     .map((client: any) => {
-      const clientUserRaw = client.user ?? client;
+      const clientUserRaw = client.user
+        ? {
+            ...client,
+            ...client.user,
+            lastSeenAt:
+              client.user.lastSeenAt ??
+              client.user.last_seen_at ??
+              client.lastSeenAt ??
+              client.last_seen_at ??
+              null,
+            isOnline:
+              client.user.isOnline ??
+              client.user.is_online ??
+              client.isOnline ??
+              client.is_online ??
+              false,
+          }
+        : client;
 
       return clientUserRaw?.email ? normalizeUser(clientUserRaw) : null;
     })
-    .filter(Boolean);
+    .filter(Boolean) as User[];
 
   let users =
     isCoach && clientsLoadedFromBackend
       ? localDB.users.filter((user) => user.role !== "client")
       : [...localDB.users];
 
-  const currentUserIndex = users.findIndex((user) => user.id === currentUser.id);
-
-  if (currentUserIndex >= 0) {
-    users[currentUserIndex] = currentUser;
-  } else {
-    users.push(currentUser);
-  }
-
-  for (const clientUser of backendClientUsers) {
-    const index = users.findIndex((user) => user.id === clientUser.id);
-
-    if (index >= 0) {
-      users[index] = clientUser;
-    } else {
-      users.push(clientUser);
-    }
-  }
+  users = mergeUsers(users, [currentUser, ...backendClientUsers]);
 
   let clientProfiles =
     isCoach && clientsLoadedFromBackend
@@ -625,6 +1080,10 @@ async function loadBackendDB(localDB: DBShape, token: string): Promise<DBShape> 
     arr(workout.exercises).map(normalizeExercise),
   );
 
+  const backendMessages = messagesLoadedFromBackend
+    ? arr(messages).map(normalizeMessage)
+    : [];
+
   return {
     ...localDB,
 
@@ -649,7 +1108,7 @@ async function loadBackendDB(localDB: DBShape, token: string): Promise<DBShape> 
       : localDB.progress,
 
     messages: messagesLoadedFromBackend
-      ? arr(messages).map(normalizeMessage)
+      ? mergeMessages(localDB.messages, backendMessages)
       : localDB.messages,
 
     weeklyGoals: weeklyGoalsLoadedFromBackend
@@ -866,6 +1325,115 @@ export const [DataProvider, useData] = createContextHook(() => {
     });
   }, []);
 
+  const assignWeeklyPlanToClient = useCallback(
+    async (
+      options: AssignWeeklyPlanOptions,
+    ): Promise<AssignWeeklyPlanResult> => {
+      if (!db) {
+        throw new Error("Database is not ready yet.");
+      }
+
+      const coachId = options.coachId ?? user?.id;
+
+      if (!coachId) {
+        throw new Error("Coach id is required to assign a weekly plan.");
+      }
+
+      if (!options.clientId) {
+        throw new Error("Client id is required to assign a weekly plan.");
+      }
+
+      if (!options.plan?.days?.length) {
+        throw new Error("Weekly plan must contain at least one workout day.");
+      }
+
+      const validDays = options.plan.days.filter(
+        (day) => Array.isArray(day.exercises) && day.exercises.length > 0,
+      );
+
+      if (!validDays.length) {
+        throw new Error("Weekly plan must contain exercises.");
+      }
+
+      const startDate = options.startDate ?? getLocalDateKey();
+      const now = new Date().toISOString();
+
+      const createdWorkouts: WorkoutAssignment[] = [];
+      const createdExercises: Exercise[] = [];
+
+      validDays.forEach((day, index) => {
+        const workout = buildWorkoutFromPlanDay({
+          coachId,
+          clientId: options.clientId,
+          plan: options.plan,
+          day,
+          index,
+          startDate,
+          now,
+        });
+
+        const exercises = buildExercisesFromPlanDay({
+          workoutId: workout.id,
+          day,
+        });
+
+        createdWorkouts.push(workout);
+        createdExercises.push(...exercises);
+      });
+
+      const targetMinutes = getWeekPlanTargetMinutes(createdWorkouts);
+      const existingGoalIndex = db.weeklyGoals.findIndex(
+        (goal) =>
+          goal.clientId === options.clientId && goal.weekStart === startDate,
+      );
+
+      const weeklyGoals = [...db.weeklyGoals];
+
+      if (existingGoalIndex >= 0) {
+        const existingGoal = weeklyGoals[existingGoalIndex];
+
+        weeklyGoals[existingGoalIndex] = {
+          ...existingGoal,
+          targetWorkouts: Math.max(
+            existingGoal.targetWorkouts,
+            createdWorkouts.length,
+          ),
+          targetMinutes: Math.max(existingGoal.targetMinutes, targetMinutes),
+        };
+      } else {
+        weeklyGoals.push({
+          id: makeLocalId("local_weekly_goal"),
+          clientId: options.clientId,
+          weekStart: startDate,
+          targetMinutes,
+          completedMinutes: 0,
+          targetWorkouts: createdWorkouts.length,
+          completedWorkouts: 0,
+        });
+      }
+
+      const next: DBShape = {
+        ...db,
+        workouts: [...db.workouts, ...createdWorkouts],
+        exercises: [...db.exercises, ...createdExercises],
+        weeklyGoals,
+        progressInsights: db.progressInsights ?? [],
+        meta: {
+          seeded: true,
+          version: Math.max(db.meta?.version ?? 1, 3),
+        },
+      };
+
+      await persist(next);
+
+      return {
+        workoutIds: createdWorkouts.map((workout) => workout.id),
+        exerciseIds: createdExercises.map((exercise) => exercise.id),
+      };
+    },
+    [db, persist, user?.id],
+  );
+
   const reset = useCallback(async () => {
     await AsyncStorage.removeItem(DB_KEY);
 
@@ -882,7 +1450,15 @@ export const [DataProvider, useData] = createContextHook(() => {
       reset,
       ready: ready && !!db,
       refreshFromBackend,
+      assignWeeklyPlanToClient,
     }),
-    [db, update, reset, ready, refreshFromBackend],
+    [
+      db,
+      update,
+      reset,
+      ready,
+      refreshFromBackend,
+      assignWeeklyPlanToClient,
+    ],
   );
 });

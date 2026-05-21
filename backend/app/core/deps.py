@@ -2,7 +2,7 @@
 FastAPI dependencies for authentication, role checks and subscription checks.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,6 +17,10 @@ from app.models.user import User
 
 
 bearer = HTTPBearer(auto_error=False)
+
+# How often we write last_seen_at to the database.
+# Smaller value = more accurate online/last seen, but more DB writes.
+LAST_SEEN_UPDATE_INTERVAL_SECONDS = 10
 
 
 def now_utc() -> datetime:
@@ -48,12 +52,52 @@ def forbidden(detail: str) -> HTTPException:
     )
 
 
+async def update_user_last_seen(
+    user: User,
+    db: AsyncSession,
+    *,
+    force: bool = False,
+) -> None:
+    """
+    Updates user's last_seen_at.
+
+    This is used for chat presence:
+    - if user makes authenticated requests, we know they are active;
+    - frontend can show green online dot;
+    - frontend can show exact last seen time when the user becomes inactive.
+
+    By default we do not update on every request to avoid too many database writes.
+    Use force=True only for special presence endpoints if needed later.
+    """
+
+    try:
+        current_time = now_utc()
+        previous_seen = ensure_aware(getattr(user, "last_seen_at", None))
+
+        if not force and previous_seen is not None:
+            diff = current_time - previous_seen
+
+            if diff < timedelta(seconds=LAST_SEEN_UPDATE_INTERVAL_SECONDS):
+                return
+
+        user.last_seen_at = current_time
+
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    except Exception as error:
+        await db.rollback()
+        print("[deps] update last_seen_at error:", error)
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
     Returns current authenticated user from Bearer access token.
+    Also updates last_seen_at so the app can show online / last seen status.
     """
 
     if credentials is None:
@@ -83,6 +127,8 @@ async def get_current_user(
 
     if not user:
         raise unauthorized("Invalid or expired token")
+
+    await update_user_last_seen(user=user, db=db)
 
     return user
 

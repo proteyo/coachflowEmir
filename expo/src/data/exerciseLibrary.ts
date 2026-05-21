@@ -132,7 +132,7 @@ function item(input: {
 
 export function getExerciseAnimationFrames(exercise: LibraryExercise): string[] {
   if (exercise.gifUrl) return [exercise.gifUrl];
-  if (exercise.animationFrames?.length) return exercise.animationFrames;
+  if (exercise.animationFrames?.length) return Array.from(new Set(exercise.animationFrames.filter(Boolean)));
   if (exercise.imageUrl.includes("/0.jpg")) {
     return [exercise.imageUrl, exercise.imageUrl.replace("/0.jpg", "/1.jpg")];
   }
@@ -796,6 +796,96 @@ export const EXERCISE_LIBRARY: LibraryExercise[] = [
   item({ id: "lib_stretching_round_world_shoulder", name: "Round The World Shoulder Stretch", nameRu: "Круговая растяжка плеч", nameKk: "Иықты айналдыра созу", muscleGroup: "Stretching", category: "Mobility", defaultSets: 2, defaultReps: 10, defaultRestSeconds: 15, description: "Shoulder and chest mobility movement.", descriptionRu: "Движение для мобильности плеч и груди.", descriptionKk: "Иық пен кеуде қозғалғыштығына арналған қозғалыс.", exdbId: "Round_The_World_Shoulder_Stretch" }),
 ];
 
+export const EXERCISE_LIBRARY_BY_ID: Record<string, LibraryExercise> =
+  EXERCISE_LIBRARY.reduce<Record<string, LibraryExercise>>((acc, exercise) => {
+    acc[exercise.id] = exercise;
+    return acc;
+  }, {});
+
+export function getExerciseById(id?: string | null): LibraryExercise | undefined {
+  if (!id) return undefined;
+  return EXERCISE_LIBRARY_BY_ID[id];
+}
+
+export function requireExerciseById(id: string): LibraryExercise {
+  const exercise = getExerciseById(id);
+
+  if (!exercise) {
+    throw new Error(`Exercise with id "${id}" was not found in EXERCISE_LIBRARY.`);
+  }
+
+  return exercise;
+}
+
+export function getExercisesByMuscleGroup(group: MuscleGroup | "All"): LibraryExercise[] {
+  if (group === "All") return EXERCISE_LIBRARY;
+  return EXERCISE_LIBRARY.filter((exercise) => exercise.muscleGroup === group);
+}
+
+export function searchExerciseLibrary(query: string, lang: AppLangCode = "en"): LibraryExercise[] {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) return EXERCISE_LIBRARY;
+
+  return EXERCISE_LIBRARY.filter((exercise) => {
+    const values = [
+      exercise.id,
+      exercise.name,
+      exercise.nameRu,
+      exercise.nameKk,
+      exercise.muscleGroup,
+      getExerciseCategory(exercise, lang),
+      getExerciseDescription(exercise, lang),
+    ];
+
+    return values.some((value) => value.toLowerCase().includes(normalizedQuery));
+  });
+}
+
+export function getExerciseMedia(exercise: LibraryExercise): {
+  previewUrl: string;
+  frames: string[];
+  hasGif: boolean;
+  hasAnimation: boolean;
+} {
+  const rawFrames = getExerciseAnimationFrames(exercise).filter(Boolean);
+  const framesList = Array.from(new Set(rawFrames));
+  const previewUrl = getExercisePreviewUrl(exercise);
+
+  return {
+    previewUrl,
+    frames: framesList.length > 0 ? framesList : [previewUrl],
+    hasGif: Boolean(exercise.gifUrl),
+    hasAnimation: Boolean(exercise.gifUrl || exercise.animationFrames?.length > 1),
+  };
+}
+
+export function getExerciseLibraryStats(): {
+  total: number;
+  byMuscleGroup: Record<MuscleGroup, number>;
+  withGifOrAnimation: number;
+} {
+  const byMuscleGroup = MUSCLE_GROUPS.reduce<Record<MuscleGroup, number>>((acc, group) => {
+    acc[group] = 0;
+    return acc;
+  }, {} as Record<MuscleGroup, number>);
+
+  let withGifOrAnimation = 0;
+
+  for (const exercise of EXERCISE_LIBRARY) {
+    byMuscleGroup[exercise.muscleGroup] += 1;
+
+    if (exercise.gifUrl || exercise.animationFrames?.length > 1) {
+      withGifOrAnimation += 1;
+    }
+  }
+
+  return {
+    total: EXERCISE_LIBRARY.length,
+    byMuscleGroup,
+    withGifOrAnimation,
+  };
+}
 
 export type SupplementSuggestion = {
   name: string;

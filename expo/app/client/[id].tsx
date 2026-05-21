@@ -372,6 +372,30 @@ function normalizeSupplementLog(item: any): SupplementLogForCoach {
   };
 }
 
+function normalizeClientProgressEntry(item: any, clientId: string, addedBy: string) {
+  const createdAt = new Date().toISOString();
+
+  return {
+    id: String(item.id ?? `pr_${Date.now()}_${Math.random().toString(16).slice(2)}`),
+    clientId: String(item.clientId ?? item.client_id ?? clientId),
+    weight: Number(item.weight ?? 0),
+    date: String(item.date ?? item.createdAt ?? item.created_at ?? createdAt),
+    notes: item.notes ?? undefined,
+    addedBy: String(item.addedBy ?? item.added_by ?? addedBy),
+  };
+}
+
+function sortProgressByDate<T extends { date: string }>(items: T[]) {
+  return items.slice().sort((a, b) => {
+    const aTime = getSafeDate(a.date).getTime();
+    const bTime = getSafeDate(b.date).getTime();
+
+    if (aTime !== bTime) return aTime - bTime;
+
+    return a.date.localeCompare(b.date);
+  });
+}
+
 function normalizeBackendHistoryItem(item: any): ExerciseHistoryItem {
   const exerciseName = String(
     item.exerciseName ?? item.exercise_name ?? "Exercise",
@@ -657,6 +681,8 @@ export default function ClientDetail() {
   const [weightValue, setWeightValue] = useState<string>("");
   const [savingWeight, setSavingWeight] = useState<boolean>(false);
   const [weightError, setWeightError] = useState<string>("");
+  const [progressLoading, setProgressLoading] = useState<boolean>(false);
+  const [progressError, setProgressError] = useState<string>("");
 
   const w = Dimensions.get("window").width;
   const today = ymd(new Date());
@@ -685,7 +711,7 @@ export default function ClientDetail() {
       ? db.supplementItems.filter((s) => s.planId === plan.id)
       : [];
 
-    const progress = db.progress.filter((p) => p.clientId === id);
+    const progress = sortProgressByDate(db.progress.filter((p) => p.clientId === id));
     const streak = db.streaks.find((s) => s.clientId === id);
     const attendance = db.attendance.filter((a) => a.clientId === id);
     const weekly = db.weeklyGoals.find((w) => w.clientId === id);
@@ -703,6 +729,51 @@ export default function ClientDetail() {
       weekly,
     };
   }, [db, id]);
+
+  const loadClientProgress = useCallback(async () => {
+    if (!id || !token || user?.role !== "coach") return;
+
+    try {
+      setProgressLoading(true);
+      setProgressError("");
+
+      const res = await apiGet(`/progress?client_id=${id}`, { token });
+      const backendProgress = Array.isArray(res) ? res : [];
+
+      const normalizedProgress = sortProgressByDate(
+        backendProgress
+          .map((item: any) => normalizeClientProgressEntry(item, id, user.id))
+          .filter((item) => Number.isFinite(item.weight) && item.weight > 0),
+      );
+
+      const latestWeight = normalizedProgress[normalizedProgress.length - 1]?.weight;
+
+      update((d) => ({
+        ...d,
+        progress: [
+          ...d.progress.filter((item) => item.clientId !== id),
+          ...normalizedProgress,
+        ],
+        clientProfiles: d.clientProfiles.map((profile) =>
+          profile.userId === id && latestWeight
+            ? { ...profile, currentWeight: latestWeight }
+            : profile,
+        ),
+      }));
+    } catch (e: any) {
+      console.log("[client-detail] load client progress error", e);
+      setProgressError(
+        e?.message ||
+          "Could not load client weight progress. Please check backend permissions.",
+      );
+    } finally {
+      setProgressLoading(false);
+    }
+  }, [id, token, user?.role, user?.id, update]);
+
+  useEffect(() => {
+    loadClientProgress();
+  }, [loadClientProgress]);
 
   const gridDays: {
     date: string;
@@ -1025,22 +1096,22 @@ export default function ClientDetail() {
   };
 
   const addProgress = () => {
-  if (!id || !user || !token) {
-    Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
-    return;
-  }
+    if (!id || !user || !token) {
+      Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
+      return;
+    }
 
-  const current = data?.profile?.currentWeight ?? "";
+    const current = data?.profile?.currentWeight ?? "";
 
-  setWeightValue(
-    Number.isFinite(Number(current)) && Number(current) > 0
-      ? String(current)
-      : "",
-  );
+    setWeightValue(
+      Number.isFinite(Number(current)) && Number(current) > 0
+        ? String(current)
+        : "",
+    );
 
-  setWeightError("");
-  setWeightModalOpen(true);
-};
+    setWeightError("");
+    setWeightModalOpen(true);
+  };
 
   const saveProgress = async () => {
     if (!id || !user || !token || savingWeight) return;
@@ -1075,26 +1146,32 @@ export default function ClientDetail() {
         { token },
       );
 
-      const savedEntry = {
-        id: String(saved?.id ?? localId),
-        clientId: String(saved?.clientId ?? saved?.client_id ?? id),
-        weight: Number(saved?.weight ?? weight),
-        date: String(saved?.date ?? saved?.createdAt ?? saved?.created_at ?? createdAt),
-        addedBy: String(saved?.addedBy ?? saved?.added_by ?? user.id),
-      };
+      const savedEntry = normalizeClientProgressEntry(
+        saved ?? {
+          id: localId,
+          client_id: id,
+          weight,
+          date: createdAt,
+          added_by: user.id,
+        },
+        id,
+        user.id,
+      );
 
       update((d) => ({
         ...d,
-        progress: [
-          ...d.progress.filter((item) => item.id !== savedEntry.id),
+        progress: sortProgressByDate([
+          ...d.progress.filter(
+            (item) => item.clientId !== id || item.id !== savedEntry.id,
+          ),
           savedEntry,
-        ],
+        ]),
         clientProfiles: d.clientProfiles.map((c) =>
-          c.userId === id ? { ...c, currentWeight: weight } : c,
+          c.userId === id ? { ...c, currentWeight: savedEntry.weight } : c,
         ),
       }));
 
-      await refreshFromBackend();
+      await loadClientProgress();
 
       setWeightModalOpen(false);
       setWeightValue("");
@@ -1497,6 +1574,19 @@ export default function ClientDetail() {
                 fullWidth
               />
 
+              <AppButton
+  title="Назначить недельный план"
+  variant="secondary"
+  icon={<Target size={18} color={theme.colors.text} />}
+  onPress={() =>
+    router.push({
+      pathname: "/assign-weekly-plan" as any,
+      params: { clientId: String(id) },
+    })
+  }
+  fullWidth
+/>
+
               {data.workouts.length === 0 ? (
                 <AppEmptyState title={t("clients.noWorkouts")} />
               ) : (
@@ -1523,6 +1613,9 @@ export default function ClientDetail() {
                             {ex.length} {t("workouts.exercises").toLowerCase()} ·{" "}
                             {workout.durationMinutes}
                             {t("common.minutes")}
+                            {workout.source === "weekly_template"
+                              ? " · Weekly plan"
+                              : ""}
                           </AppText>
                         </View>
 
@@ -1790,11 +1883,42 @@ export default function ClientDetail() {
           {tab === "progress" && (
             <>
               <AppCard variant="elevated">
-                <AppText variant="h3" style={{ marginBottom: 8 }}>
-                  {t("clients.weightTrend")}
-                </AppText>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  <AppText variant="h3">{t("clients.weightTrend")}</AppText>
 
-                <WeightChart values={data.progress} width={w - 80} />
+                  {progressLoading ? (
+                    <AppText variant="caption" color={theme.colors.textMuted}>
+                      Loading
+                    </AppText>
+                  ) : null}
+                </View>
+
+                {progressError ? (
+                  <AppText
+                    variant="small"
+                    color={theme.colors.danger}
+                    style={{ marginBottom: 8 }}
+                  >
+                    {progressError}
+                  </AppText>
+                ) : null}
+
+                {data.progress.length === 0 ? (
+                  <AppEmptyState
+                    title="No weight entries yet"
+                    message="Add the first weight entry to build the client progress chart."
+                  />
+                ) : (
+                  <WeightChart values={data.progress} width={w - 80} />
+                )}
               </AppCard>
 
               <AppButton
@@ -1805,8 +1929,7 @@ export default function ClientDetail() {
               />
 
               <View style={{ gap: 8 }}>
-                {data.progress
-                  .slice()
+                {sortProgressByDate(data.progress)
                   .reverse()
                   .map((item) => (
                     <AppCard key={item.id} variant="outline">

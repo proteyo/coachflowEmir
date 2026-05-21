@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+
 import { AuthProvider } from "@/src/context/AuthContext";
 import { DataProvider } from "@/src/context/DataContext";
 import { SubscriptionProvider } from "@/src/context/SubscriptionContext";
@@ -24,7 +25,14 @@ const queryClient = new QueryClient({
 
 function Nav() {
   const { theme } = useTheme();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+
+  const faqTitle =
+    lang === "ru"
+      ? "FAQ / Помощь"
+      : lang === "kk"
+        ? "FAQ / Көмек"
+        : "FAQ / Help";
 
   return (
     <>
@@ -60,6 +68,14 @@ function Nav() {
         />
 
         <Stack.Screen
+          name="faq"
+          options={{
+            title: faqTitle,
+            presentation: "modal",
+          }}
+        />
+
+        <Stack.Screen
           name="client/[id]"
           options={{
             title: t("clients.profile"),
@@ -69,7 +85,12 @@ function Nav() {
         <Stack.Screen
           name="coach/[id]"
           options={{
-            title: "Coach profile",
+            title:
+              lang === "ru"
+                ? "Профиль тренера"
+                : lang === "kk"
+                  ? "Жаттықтырушы профилі"
+                  : "Coach profile",
           }}
         />
 
