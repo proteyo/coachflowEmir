@@ -71,9 +71,41 @@ class Settings(BaseSettings):
     # https://coachflow-api.onrender.com
     APP_PUBLIC_URL: str | None = None
 
+    # ── File storage ──────────────────────────────────────────────────────────
+    # local = current backend/uploads folder
+    # s3    = Amazon S3 or any S3-compatible storage
+    # r2    = Cloudflare R2, also S3-compatible
+    #
+    # Keep STORAGE_PROVIDER=local until cloud storage is fully configured.
+    STORAGE_PROVIDER: Literal["local", "s3", "r2"] = "local"
+
+    # S3 / Cloudflare R2 settings.
+    # For Cloudflare R2:
+    # STORAGE_PROVIDER=r2
+    # STORAGE_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+    # STORAGE_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
+    # STORAGE_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
+    # STORAGE_BUCKET_NAME=<BUCKET_NAME>
+    # STORAGE_PUBLIC_BASE_URL=https://<PUBLIC_DOMAIN_OR_R2_DEV_URL>
+    # STORAGE_REGION=auto
+    STORAGE_ENDPOINT_URL: str | None = None
+    STORAGE_ACCESS_KEY_ID: str | None = None
+    STORAGE_SECRET_ACCESS_KEY: str | None = None
+    STORAGE_BUCKET_NAME: str | None = None
+    STORAGE_PUBLIC_BASE_URL: str | None = None
+    STORAGE_REGION: str = "auto"
+
+    # Folder names inside the storage bucket.
+    STORAGE_AVATAR_PREFIX: str = "avatars"
+    STORAGE_VOICE_PREFIX: str = "voice"
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    @property
+    def uses_cloud_storage(self) -> bool:
+        return self.STORAGE_PROVIDER in {"s3", "r2"}
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -97,6 +129,7 @@ class Settings(BaseSettings):
         self._validate_production_flags()
         self._validate_smtp_settings()
         self._validate_google_play_settings()
+        self._validate_storage_settings()
 
     def _validate_secret_key(self) -> None:
         secret = self.SECRET_KEY.strip() if self.SECRET_KEY else ""
@@ -209,6 +242,29 @@ class Settings(BaseSettings):
         if self.GOOGLE_PLAY_PACKAGE_NAME != "com.emirkamilov.coachflow":
             raise RuntimeError(
                 "GOOGLE_PLAY_PACKAGE_NAME does not match Android package name."
+            )
+
+    def _validate_storage_settings(self) -> None:
+        if not self.uses_cloud_storage:
+            return
+
+        missing = []
+
+        if not self.STORAGE_ENDPOINT_URL:
+            missing.append("STORAGE_ENDPOINT_URL")
+        if not self.STORAGE_ACCESS_KEY_ID:
+            missing.append("STORAGE_ACCESS_KEY_ID")
+        if not self.STORAGE_SECRET_ACCESS_KEY:
+            missing.append("STORAGE_SECRET_ACCESS_KEY")
+        if not self.STORAGE_BUCKET_NAME:
+            missing.append("STORAGE_BUCKET_NAME")
+        if not self.STORAGE_PUBLIC_BASE_URL:
+            missing.append("STORAGE_PUBLIC_BASE_URL")
+
+        if missing:
+            raise RuntimeError(
+                "Cloud storage is enabled, but required storage settings are missing. "
+                f"Missing: {', '.join(missing)}"
             )
 
 
