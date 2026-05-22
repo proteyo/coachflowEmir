@@ -1,5 +1,6 @@
 import createContextHook from "@nkzw/create-context-hook";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "@/src/services/api";
 import { FitnessLevel, GoalType, Role, User } from "@/src/types/models";
@@ -81,6 +82,58 @@ function getNormalizedGoalForStorage(input: RegisterInput) {
   };
 }
 
+async function saveSecureToken(key: string, value: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(key, value, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+
+    // Remove legacy token from AsyncStorage after successful secure save.
+    await AsyncStorage.removeItem(key);
+  } catch (error) {
+    console.log("[auth] SecureStore save failed, falling back to AsyncStorage", error);
+
+    // Fallback keeps the app usable if SecureStore is unavailable on a device.
+    await AsyncStorage.setItem(key, value);
+  }
+}
+
+async function getSecureToken(key: string): Promise<string | null> {
+  try {
+    const secureValue = await SecureStore.getItemAsync(key);
+
+    if (secureValue) {
+      return secureValue;
+    }
+  } catch (error) {
+    console.log("[auth] SecureStore read failed", error);
+  }
+
+  // Backward compatibility for users who logged in before SecureStore migration.
+  const legacyValue = await AsyncStorage.getItem(key);
+
+  if (legacyValue) {
+    try {
+      await saveSecureToken(key, legacyValue);
+    } catch (error) {
+      console.log("[auth] legacy token migration failed", error);
+    }
+  }
+
+  return legacyValue;
+}
+
+async function deleteSecureToken(key: string): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(key);
+  } catch (error) {
+    console.log("[auth] SecureStore delete failed", error);
+  }
+
+  // Also delete old AsyncStorage token copies.
+  await AsyncStorage.removeItem(key);
+}
+
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -93,13 +146,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       setToken(accessToken);
       setRefreshToken(refresh ?? null);
 
-      await AsyncStorage.setItem(TOKEN_KEY, accessToken);
+      await saveSecureToken(TOKEN_KEY, accessToken);
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(nextUser));
 
       if (refresh) {
-        await AsyncStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+        await saveSecureToken(REFRESH_TOKEN_KEY, refresh);
       } else {
-        await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+        await deleteSecureToken(REFRESH_TOKEN_KEY);
       }
     },
     [],
@@ -110,8 +163,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     setToken(null);
     setRefreshToken(null);
 
-    await AsyncStorage.removeItem(TOKEN_KEY);
-    await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+    await deleteSecureToken(TOKEN_KEY);
+    await deleteSecureToken(REFRESH_TOKEN_KEY);
     await AsyncStorage.removeItem(USER_KEY);
   }, []);
 
@@ -147,8 +200,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     (async () => {
       try {
         const [savedToken, savedRefresh] = await Promise.all([
-          AsyncStorage.getItem(TOKEN_KEY),
-          AsyncStorage.getItem(REFRESH_TOKEN_KEY),
+          getSecureToken(TOKEN_KEY),
+          getSecureToken(REFRESH_TOKEN_KEY),
         ]);
 
         if (!savedToken && !savedRefresh) {
