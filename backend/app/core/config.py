@@ -75,11 +75,13 @@ class Settings(BaseSettings):
     # local = current backend/uploads folder
     # s3    = Amazon S3 or any S3-compatible storage
     # r2    = Cloudflare R2, also S3-compatible
+    # gcs   = Google Cloud Storage
     #
     # Keep STORAGE_PROVIDER=local until cloud storage is fully configured.
-    STORAGE_PROVIDER: Literal["local", "s3", "r2"] = "local"
+    STORAGE_PROVIDER: Literal["local", "s3", "r2", "gcs"] = "local"
 
     # S3 / Cloudflare R2 settings.
+    #
     # For Cloudflare R2:
     # STORAGE_PROVIDER=r2
     # STORAGE_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
@@ -95,7 +97,20 @@ class Settings(BaseSettings):
     STORAGE_PUBLIC_BASE_URL: str | None = None
     STORAGE_REGION: str = "auto"
 
-    # Folder names inside the storage bucket.
+    # Google Cloud Storage settings.
+    #
+    # For Render, the most convenient production option is to store
+    # the whole Google service account JSON in this env variable.
+    #
+    # STORAGE_PROVIDER=gcs
+    # GCS_BUCKET_NAME=<BUCKET_NAME>
+    # GCS_PUBLIC_BASE_URL=https://storage.googleapis.com/<BUCKET_NAME>
+    # GCS_SERVICE_ACCOUNT_JSON=<FULL_SERVICE_ACCOUNT_JSON>
+    GCS_BUCKET_NAME: str | None = None
+    GCS_PUBLIC_BASE_URL: str | None = None
+    GCS_SERVICE_ACCOUNT_JSON: str | None = None
+
+    # Folder names inside storage bucket.
     STORAGE_AVATAR_PREFIX: str = "avatars"
     STORAGE_VOICE_PREFIX: str = "voice"
 
@@ -104,8 +119,16 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "production"
 
     @property
-    def uses_cloud_storage(self) -> bool:
+    def uses_s3_storage(self) -> bool:
         return self.STORAGE_PROVIDER in {"s3", "r2"}
+
+    @property
+    def uses_gcs_storage(self) -> bool:
+        return self.STORAGE_PROVIDER == "gcs"
+
+    @property
+    def uses_cloud_storage(self) -> bool:
+        return self.uses_s3_storage or self.uses_gcs_storage
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -245,9 +268,18 @@ class Settings(BaseSettings):
             )
 
     def _validate_storage_settings(self) -> None:
-        if not self.uses_cloud_storage:
+        if self.STORAGE_PROVIDER == "local":
             return
 
+        if self.uses_s3_storage:
+            self._validate_s3_storage_settings()
+            return
+
+        if self.uses_gcs_storage:
+            self._validate_gcs_storage_settings()
+            return
+
+    def _validate_s3_storage_settings(self) -> None:
         missing = []
 
         if not self.STORAGE_ENDPOINT_URL:
@@ -263,7 +295,23 @@ class Settings(BaseSettings):
 
         if missing:
             raise RuntimeError(
-                "Cloud storage is enabled, but required storage settings are missing. "
+                "S3/R2 storage is enabled, but required storage settings are missing. "
+                f"Missing: {', '.join(missing)}"
+            )
+
+    def _validate_gcs_storage_settings(self) -> None:
+        missing = []
+
+        if not self.GCS_BUCKET_NAME:
+            missing.append("GCS_BUCKET_NAME")
+        if not self.GCS_PUBLIC_BASE_URL:
+            missing.append("GCS_PUBLIC_BASE_URL")
+        if not self.GCS_SERVICE_ACCOUNT_JSON:
+            missing.append("GCS_SERVICE_ACCOUNT_JSON")
+
+        if missing:
+            raise RuntimeError(
+                "Google Cloud Storage is enabled, but required storage settings are missing. "
                 f"Missing: {', '.join(missing)}"
             )
 
