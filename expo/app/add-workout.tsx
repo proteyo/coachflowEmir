@@ -621,7 +621,7 @@ export default function AddWorkout() {
           setHistoryErrorName(null);
 
           const data = await apiGet(
-            `/exercise-history/latest?client_id=${encodeURIComponent(
+            `/exercise-results/latest?client_id=${encodeURIComponent(
               targetClientId,
             )}&exercise_name=${encodeURIComponent(exerciseName)}`,
             { token },
