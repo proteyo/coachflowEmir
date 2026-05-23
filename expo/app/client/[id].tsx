@@ -1015,13 +1015,57 @@ export default function ClientDetail() {
   };
 
   const unlinkClientLocalFallback = () => {
-    update((d) => ({
+  if (!id) return;
+
+  update((d) => {
+    const removedWorkoutIds = new Set(
+      d.workouts
+        .filter((workout) => workout.clientId === id)
+        .map((workout) => workout.id),
+    );
+
+    const removedSupplementPlanIds = new Set(
+      d.supplementPlans
+        .filter((plan) => plan.clientId === id)
+        .map((plan) => plan.id),
+    );
+
+    return {
       ...d,
+
       clientProfiles: d.clientProfiles.map((profile) =>
-        profile.userId === id ? { ...profile, coachId: "" } : profile,
+        profile.userId === id
+          ? {
+              ...profile,
+              coachId: "",
+            }
+          : profile,
       ),
-    }));
-  };
+
+      workouts: d.workouts.filter((workout) => workout.clientId !== id),
+
+      exercises: d.exercises.filter(
+        (exercise) => !removedWorkoutIds.has(exercise.workoutId),
+      ),
+
+      supplementPlans: d.supplementPlans.filter(
+        (plan) => plan.clientId !== id,
+      ),
+
+      supplementItems: d.supplementItems.filter(
+        (item) => !removedSupplementPlanIds.has(item.planId),
+      ),
+
+      progress: d.progress.filter((entry) => entry.clientId !== id),
+
+      streaks: d.streaks.filter((streak) => streak.clientId !== id),
+
+      attendance: d.attendance.filter((entry) => entry.clientId !== id),
+
+      weeklyGoals: d.weeklyGoals.filter((goal) => goal.clientId !== id),
+    };
+  });
+};
 
   const removeClient = () => {
     if (!id || !token || removingClient) return;
@@ -1044,9 +1088,21 @@ export default function ClientDetail() {
               setRemovingClient(true);
 
               await apiDelete(`/clients/${id}`, { token });
-              await refreshFromBackend();
 
-              router.replace("/(coach)/clients");
+unlinkClientLocalFallback();
+
+try {
+  await refreshFromBackend();
+} catch (refreshError) {
+  console.log(
+    "[client-detail] refresh after remove client failed",
+    refreshError,
+  );
+}
+
+unlinkClientLocalFallback();
+
+router.replace("/(coach)/clients");
             } catch (e: any) {
               console.log("[client-detail] remove client error", e);
 
