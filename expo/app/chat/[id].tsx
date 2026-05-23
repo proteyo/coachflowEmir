@@ -798,20 +798,22 @@ export default function Chat() {
   }, [chatItems.length, scrollToBottom]);
 
   const openPartnerProfile = () => {
-  if (!id || !partner) return;
+  if (!id || !user) return;
 
-  if (partner.role === "client") {
+  const partnerId = String(id);
+
+  if (user.role === "coach") {
     router.push({
       pathname: "/client/[id]",
-      params: { id },
+      params: { id: partnerId },
     } as any);
     return;
   }
 
-  if (partner.role === "coach") {
+  if (user.role === "client") {
     router.push({
       pathname: "/coach/[id]",
-      params: { id },
+      params: { id: partnerId },
     } as any);
   }
 };

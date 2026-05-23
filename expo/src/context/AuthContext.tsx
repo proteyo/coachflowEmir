@@ -124,12 +124,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
         const accessToken = res.token ?? res.access_token;
         const nextRefresh = res.refresh_token ?? res.refreshToken ?? null;
-        const normalizedUser = normalizeUser(res.user);
 
-        if (!accessToken) {
+        if (!accessToken || !res.user) {
           await clearAuth();
           return false;
         }
+
+        const normalizedUser = normalizeUser(res.user);
 
         await persistAuth(normalizedUser, accessToken, nextRefresh);
 
@@ -144,6 +145,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   );
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
         const [savedToken, savedRefresh] = await Promise.all([
@@ -160,6 +163,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           try {
             const me = await apiGet("/auth/me", { token: savedToken });
             const normalizedUser = normalizeUser(me);
+
+            if (!mounted) return;
 
             setToken(savedToken);
             setRefreshToken(savedRefresh);
@@ -182,9 +187,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         console.log("[auth] hydrate error", error);
         await clearAuth();
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [clearAuth, refreshSession]);
 
   const login = useCallback(
@@ -197,14 +208,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
         const accessToken = res.token ?? res.access_token;
         const refresh = res.refresh_token ?? res.refreshToken ?? null;
-        const normalizedUser = normalizeUser(res.user);
 
-        if (!accessToken) {
+        if (!accessToken || !res.user) {
           return {
             ok: false,
             error: "Login failed",
           };
         }
+
+        const normalizedUser = normalizeUser(res.user);
 
         await persistAuth(normalizedUser, accessToken, refresh);
 
@@ -236,14 +248,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
         const accessToken = res.token ?? res.access_token;
         const refresh = res.refresh_token ?? res.refreshToken ?? null;
-        const normalizedUser = normalizeUser(res.user);
 
-        if (!accessToken) {
+        if (!accessToken || !res.user) {
           return {
             ok: false,
             error: "Registration failed",
           };
         }
+
+        const normalizedUser = normalizeUser(res.user);
 
         await persistAuth(normalizedUser, accessToken, refresh);
 
