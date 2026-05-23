@@ -5,7 +5,7 @@ Coach:
 GET    /clients                         — list my linked clients (active subscription)
 POST   /clients/link                    — link client by client code (active subscription)
 POST   /clients/invite                  — invite client by email (active subscription)
-DELETE /clients/{client_id}             — unlink client (active subscription)
+DELETE /clients/{client_id}             — unlink client and remove coach-assigned data
 GET    /clients/{client_id}             — get client detail (active subscription)
 
 Client:
@@ -19,17 +19,23 @@ Coach can also see invites they sent only with active subscription.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, require_active_coach_subscription
 from app.db.database import get_db
+from app.models.attendance import Attendance
 from app.models.client_invite import ClientInvite
+from app.models.exercise_result import ExerciseResult
 from app.models.message import Message
 from app.models.profile import ClientProfile
+from app.models.review import ClientAssessment
 from app.models.subscription import Subscription
+from app.models.supplement import SupplementItem, SupplementLog, SupplementPlan
 from app.models.user import User
+from app.models.weekly_goal import WeeklyGoal
+from app.models.workout import WorkoutAssignment
 from app.schemas.profile import (
     ClientInviteOut,
     ClientWithProfileOut,
@@ -153,6 +159,100 @@ async def _ensure_client_limit(coach_id: str, db: AsyncSession):
                 f"Upgrade your plan to add more clients."
             ),
         )
+
+
+async def _delete_coach_client_assigned_data(
+    coach_id: str,
+    client_id: str,
+    db: AsyncSession,
+) -> None:
+    """
+    Removes all data assigned by this coach to this client.
+
+    This does NOT delete:
+    - client account
+    - client profile
+    - client weight progress
+    - chat messages
+
+    It deletes:
+    - workouts assigned by this coach
+    - workout exercises through cascade
+    - exercise results connected to this coach/client
+    - supplement plans assigned by this coach
+    - supplement items/logs connected to these plans
+    - attendance created under this coach-client relationship
+    - weekly goals for this client
+    - private client assessment from this coach
+    - old invites between this coach and client
+    """
+
+    workout_ids = select(WorkoutAssignment.id).where(
+        WorkoutAssignment.coach_id == coach_id,
+        WorkoutAssignment.client_id == client_id,
+    )
+
+    supplement_plan_ids = select(SupplementPlan.id).where(
+        SupplementPlan.coach_id == coach_id,
+        SupplementPlan.client_id == client_id,
+    )
+
+    supplement_item_ids = select(SupplementItem.id).where(
+        SupplementItem.plan_id.in_(supplement_plan_ids)
+    )
+
+    await db.execute(
+        delete(ExerciseResult).where(
+            ExerciseResult.coach_id == coach_id,
+            ExerciseResult.client_id == client_id,
+        )
+    )
+
+    await db.execute(
+        delete(SupplementLog).where(
+            SupplementLog.client_id == client_id,
+            SupplementLog.supplement_item_id.in_(supplement_item_ids),
+        )
+    )
+
+    await db.execute(
+        delete(WorkoutAssignment).where(
+            WorkoutAssignment.id.in_(workout_ids),
+        )
+    )
+
+    await db.execute(
+        delete(SupplementPlan).where(
+            SupplementPlan.id.in_(supplement_plan_ids),
+        )
+    )
+
+    await db.execute(
+        delete(Attendance).where(
+            Attendance.coach_id == coach_id,
+            Attendance.client_id == client_id,
+        )
+    )
+
+    await db.execute(
+        delete(WeeklyGoal).where(
+            WeeklyGoal.client_id == client_id,
+        )
+    )
+
+    await db.execute(
+        delete(ClientAssessment).where(
+            ClientAssessment.coach_id == coach_id,
+            ClientAssessment.client_id == client_id,
+        )
+    )
+
+    await db.execute(
+        delete(ClientInvite).where(
+            ClientInvite.coach_id == coach_id,
+            ClientInvite.client_id == client_id,
+        )
+    )
 
 
 @router.get("", response_model=list[ClientWithProfileOut])
@@ -553,12 +653,24 @@ async def unlink_client(
 ):
     """
     Coach can unlink client only with active subscription.
+
+    When the coach removes a client, all coach-assigned data is removed too:
+    workouts, exercises, supplements, attendance, weekly goals,
+    exercise results and private client assessment.
+
+    The client account and personal profile are not deleted.
     """
     client_user = await _get_client_or_404(client_id, db)
     profile = client_user.client_profile
 
     if not profile or profile.coach_id != coach.id:
         raise HTTPException(status_code=403, detail="This client is not linked to you")
+
+    await _delete_coach_client_assigned_data(
+        coach_id=coach.id,
+        client_id=client_id,
+        db=db,
+    )
 
     profile.coach_id = None
 
