@@ -70,7 +70,8 @@
           "locationWhenInUsePermission": "Allow CoachFlow to show nearby gyms, nutrition spots and sport shops."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

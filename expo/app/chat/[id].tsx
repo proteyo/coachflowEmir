@@ -798,15 +798,23 @@ export default function Chat() {
   }, [chatItems.length, scrollToBottom]);
 
   const openPartnerProfile = () => {
-    if (!id || !partner) return;
+  if (!id || !partner) return;
 
-    if (partner.role === "client") {
-      router.push(`/client/${id}` as any);
-      return;
-    }
+  if (partner.role === "client") {
+    router.push({
+      pathname: "/client/[id]",
+      params: { id },
+    } as any);
+    return;
+  }
 
-    router.push("/(client)/coach" as any);
-  };
+  if (partner.role === "coach") {
+    router.push({
+      pathname: "/coach/[id]",
+      params: { id },
+    } as any);
+  }
+};
 
   const saveTheme = async (key: ChatThemeKey) => {
     setChatThemeKey(key);
