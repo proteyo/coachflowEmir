@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -39,7 +39,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String,
         nullable=False,
-    )  # coach | client
+    )
 
     phone: Mapped[str | None] = mapped_column(
         String,
@@ -63,22 +63,35 @@ class User(Base):
         nullable=False,
     )
 
-    # Presence.
-    # Updated when the user makes authenticated API requests.
-    # Frontend uses this field to show:
-    # - green online dot
-    # - gray offline dot
-    # - "last seen at ..."
-    #
-    # We do not store is_online as a separate boolean because it can become stale.
-    # It is safer to calculate online status from last_seen_at.
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         default=None,
     )
 
-    # Relationships
+    # Email verification.
+    # New users must verify email before login.
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
+    email_verification_code_hash: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    email_verification_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    email_verification_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     coach_profile: Mapped["CoachProfile"] = relationship(
         back_populates="user",
         uselist=False,
@@ -114,4 +127,5 @@ class User(Base):
         Index("ix_users_role", "role"),
         Index("ix_users_client_code", "client_code"),
         Index("ix_users_last_seen_at", "last_seen_at"),
+        Index("ix_users_email_verified", "email_verified"),
     )

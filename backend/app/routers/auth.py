@@ -3,6 +3,8 @@ Auth API.
 
 Routes:
 POST /auth/register
+POST /auth/verify-email
+POST /auth/resend-verification-code
 POST /auth/login
 POST /auth/refresh
 GET  /auth/me
@@ -37,9 +39,21 @@ from app.models.profile import ClientProfile, CoachProfile
 from app.models.streak import Streak
 from app.models.subscription import Subscription
 from app.models.user import User
-from app.schemas.auth import AuthResponse, LoginRequest, RefreshRequest, RegisterRequest
+from app.schemas.auth import (
+    AuthResponse,
+    LoginRequest,
+    RefreshRequest,
+    RegisterPendingResponse,
+    RegisterRequest,
+    ResendEmailVerificationRequest,
+    VerifyEmailRequest,
+)
 from app.schemas.password_reset import ForgotPasswordRequest, ResetPasswordRequest
-from app.services.email_service import EmailDeliveryError, send_password_reset_email
+from app.services.email_service import (
+    EmailDeliveryError,
+    send_email_verification_code,
+    send_password_reset_email,
+)
 from app.services.mappers import user_out
 
 
@@ -47,6 +61,8 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 CLIENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PASSWORD_RESET_TOKEN_TTL_MINUTES = 30
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60
 
 ALLOWED_ROLES = {"coach", "client"}
 
@@ -121,6 +137,25 @@ def hash_reset_token(token: str) -> str:
     return sha256(token.encode("utf-8")).hexdigest()
 
 
+def hash_email_verification_code(code: str) -> str:
+    clean_code = "".join(ch for ch in code.strip() if ch.isdigit())
+    return sha256(clean_code.encode("utf-8")).hexdigest()
+
+
+def generate_email_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def ensure_aware_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value
+
+
 def validate_password_strength(password: str) -> None:
     """
     Production password policy.
@@ -189,6 +224,57 @@ async def generate_unique_client_code(db: AsyncSession) -> str:
     )
 
 
+def build_user_payload(user: User):
+    payload = user_out(user)
+
+    if isinstance(payload, dict):
+        payload["emailVerified"] = bool(getattr(user, "email_verified", False))
+        return payload
+
+    if hasattr(payload, "model_dump"):
+        data = payload.model_dump()
+        data["emailVerified"] = bool(getattr(user, "email_verified", False))
+        return data
+
+    return payload
+
+
+def build_auth_response(user: User) -> AuthResponse:
+    return AuthResponse(
+        token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+        user=build_user_payload(user),
+    )
+
+
+def attach_new_email_verification_code(user: User) -> str:
+    code = generate_email_verification_code()
+    current_time = now_utc()
+
+    user.email_verified = False
+    user.email_verification_code_hash = hash_email_verification_code(code)
+    user.email_verification_expires_at = current_time + timedelta(
+        minutes=EMAIL_VERIFICATION_CODE_TTL_MINUTES
+    )
+    user.email_verification_sent_at = current_time
+
+    return code
+
+
+async def send_verification_code_or_503(user: User, raw_code: str) -> None:
+    try:
+        await send_email_verification_code(
+            email=user.email,
+            name=user.name,
+            code=raw_code,
+        )
+    except EmailDeliveryError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification email could not be sent. Please try again later.",
+        )
+
+
 async def expire_existing_reset_tokens(
     user_id: str,
     db: AsyncSession,
@@ -246,23 +332,15 @@ async def create_password_reset_token(
     return raw_token
 
 
-def build_auth_response(user: User) -> AuthResponse:
-    return AuthResponse(
-        token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-        user=user_out(user),
-    )
-
-
 @router.post(
     "/register",
-    response_model=AuthResponse,
+    response_model=RegisterPendingResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def register(
     data: RegisterRequest,
     db: AsyncSession = Depends(get_db),
-) -> AuthResponse:
+) -> RegisterPendingResponse:
     email = clean_email(data.email)
     name = clean_name(data.name)
     role = data.role.strip().lower()
@@ -279,10 +357,29 @@ async def register(
         select(User).where(User.email == email)
     )
 
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        if bool(getattr(existing_user, "email_verified", False)):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered",
+            )
+
+        raw_code = attach_new_email_verification_code(existing_user)
+        existing_user.password_hash = hash_password(data.password)
+        existing_user.name = name
+
+        db.add(existing_user)
+        await db.commit()
+        await db.refresh(existing_user)
+
+        await send_verification_code_or_503(existing_user, raw_code)
+
+        return RegisterPendingResponse(
+            email=existing_user.email,
+            emailVerificationRequired=True,
+            message="Verification code has been sent to your email.",
         )
 
     current_time = now_utc()
@@ -297,7 +394,10 @@ async def register(
         role=role,
         client_code=await generate_unique_client_code(db) if is_client else None,
         created_at=current_time,
+        email_verified=False,
     )
+
+    raw_code = attach_new_email_verification_code(user)
 
     db.add(user)
 
@@ -358,7 +458,127 @@ async def register(
     await db.commit()
     await db.refresh(user)
 
+    await send_verification_code_or_503(user, raw_code)
+
+    return RegisterPendingResponse(
+        email=user.email,
+        emailVerificationRequired=True,
+        message="Verification code has been sent to your email.",
+    )
+
+
+@router.post("/verify-email", response_model=AuthResponse)
+async def verify_email(
+    data: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    email = clean_email(data.email)
+    code = "".join(ch for ch in data.code.strip() if ch.isdigit())
+
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code",
+        )
+
+    if bool(getattr(user, "email_verified", False)):
+        return build_auth_response(user)
+
+    if not user.email_verification_code_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code",
+        )
+
+    expires_at = ensure_aware_datetime(user.email_verification_expires_at)
+
+    if not expires_at or expires_at < now_utc():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired",
+        )
+
+    code_hash = hash_email_verification_code(code)
+
+    if not secrets.compare_digest(code_hash, user.email_verification_code_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code",
+        )
+
+    user.email_verified = True
+    user.email_verification_code_hash = None
+    user.email_verification_expires_at = None
+    user.email_verification_sent_at = None
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
     return build_auth_response(user)
+
+
+@router.post("/resend-verification-code", response_model=RegisterPendingResponse)
+async def resend_verification_code(
+    data: ResendEmailVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> RegisterPendingResponse:
+    email = clean_email(data.email)
+
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return RegisterPendingResponse(
+            email=email,
+            emailVerificationRequired=True,
+            message="If this email exists, a verification code has been sent.",
+        )
+
+    if bool(getattr(user, "email_verified", False)):
+        return RegisterPendingResponse(
+            email=user.email,
+            emailVerificationRequired=False,
+            message="Email is already verified.",
+        )
+
+    sent_at = ensure_aware_datetime(user.email_verification_sent_at)
+
+    if sent_at:
+        seconds_since_last_send = (now_utc() - sent_at).total_seconds()
+
+        if seconds_since_last_send < EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:
+            wait_seconds = int(
+                EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS - seconds_since_last_send
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {wait_seconds} seconds before requesting a new code.",
+            )
+
+    raw_code = attach_new_email_verification_code(user)
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    await send_verification_code_or_503(user, raw_code)
+
+    return RegisterPendingResponse(
+        email=user.email,
+        emailVerificationRequired=True,
+        message="Verification code has been sent to your email.",
+    )
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -378,6 +598,12 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
+        )
+
+    if not bool(getattr(user, "email_verified", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email before logging in.",
         )
 
     return build_auth_response(user)
@@ -411,6 +637,12 @@ async def refresh(
             detail="Invalid or expired refresh token",
         )
 
+    if not bool(getattr(user, "email_verified", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email before continuing.",
+        )
+
     return build_auth_response(user)
 
 
@@ -418,7 +650,7 @@ async def refresh(
 async def me(
     current_user: User = Depends(get_current_user),
 ):
-    return user_out(current_user)
+    return build_user_payload(current_user)
 
 
 @router.post("/forgot-password")
