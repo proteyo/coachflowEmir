@@ -9,6 +9,7 @@ POST   /workouts/{id}/complete        — mark complete (client)
 """
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -32,6 +33,8 @@ from app.schemas.workout import (
 )
 from app.services.mappers import workout_out
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/workouts", tags=["Workouts"])
 
 
@@ -39,10 +42,8 @@ class AssignWeeklyPlanRequest(BaseModel):
     """
     Request body for assigning a weekly plan.
 
-    Important:
-    - plan_id is stored for history.
-    - plan is the selected full template from frontend.
-    - Backend saves generated workouts/exercises into the database.
+    Supports both snake_case and camelCase fields because frontend may send
+    either format.
     """
 
     client_id: str | None = None
@@ -70,6 +71,9 @@ def _new_exercise_id() -> str:
 
 
 def _get_value(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    if not isinstance(data, dict):
+        return default
+
     for key in keys:
         if key in data and data[key] is not None:
             return data[key]
@@ -81,16 +85,25 @@ def _to_string_or_none(value: Any) -> str | None:
     if value is None:
         return None
 
-    text = str(value).strip()
+    if isinstance(value, (dict, list)):
+        try:
+            text = json.dumps(value, ensure_ascii=False)
+        except Exception:
+            text = str(value)
+    else:
+        text = str(value)
+
+    text = text.strip()
 
     return text or None
 
 
 def _to_int(value: Any, fallback: int) -> int:
     try:
-        number = int(value)
+        if value is None:
+            return fallback
 
-        return number
+        return int(value)
     except Exception:
         return fallback
 
@@ -145,7 +158,12 @@ def _add_days_to_date_key(date_key: str, days: int) -> str:
 
 
 def _normalize_plan_id(data: AssignWeeklyPlanRequest) -> str:
-    plan_id = data.plan_id or data.planId or _get_value(data.plan, "id")
+    plan_id = data.plan_id or data.planId or _get_value(
+        data.plan,
+        "id",
+        "planId",
+        "plan_id",
+    )
 
     if not plan_id:
         raise HTTPException(status_code=400, detail="plan_id is required")
@@ -183,11 +201,13 @@ def _extract_days(plan: dict[str, Any]) -> list[dict[str, Any]]:
     valid_days: list[dict[str, Any]] = []
 
     for day in days:
-        if isinstance(day, dict):
-            exercises = _get_value(day, "exercises", default=[])
+        if not isinstance(day, dict):
+            continue
 
-            if isinstance(exercises, list) and exercises:
-                valid_days.append(day)
+        exercises = _get_value(day, "exercises", default=[])
+
+        if isinstance(exercises, list) and exercises:
+            valid_days.append(day)
 
     if not valid_days:
         raise HTTPException(
@@ -252,9 +272,7 @@ def _build_exercise_from_input(
 
         image_url=exercise.image_url,
         gif_url=getattr(exercise, "gif_url", None),
-        animation_frames=_to_json_list(
-            getattr(exercise, "animation_frames", None)
-        ),
+        animation_frames=_to_json_list(getattr(exercise, "animation_frames", None)),
 
         muscle_group=exercise.muscle_group,
 
@@ -269,19 +287,31 @@ def _build_exercise_from_template(
     workout_id: str,
     index: int,
 ) -> Exercise:
-    library_exercise_id = _get_value(
+    """
+    Creates DB exercise from weekly plan template.
+
+    IMPORTANT:
+    Template exercise id like lib_back_seated_cable_rows_3 must NOT be used as
+    Exercise.id, because Exercise.id is primary key in database.
+
+    We always generate a new unique Exercise.id.
+    The old template/library id is saved into library_exercise_id.
+    """
+
+    template_exercise_id = _get_value(
         exercise,
         "exerciseId",
         "exercise_id",
         "libraryExerciseId",
         "library_exercise_id",
+        "id",
     )
 
     return Exercise(
-        id=_to_string_or_none(_get_value(exercise, "id")) or _new_exercise_id(),
+        id=_new_exercise_id(),
         workout_id=workout_id,
 
-        library_exercise_id=_to_string_or_none(library_exercise_id),
+        library_exercise_id=_to_string_or_none(template_exercise_id),
 
         name=_to_string_or_none(_get_value(exercise, "name")) or "Exercise",
         name_ru=_to_string_or_none(_get_value(exercise, "nameRu", "name_ru")),
@@ -335,11 +365,11 @@ def _build_workout_from_template_day(
 
     date_key = _add_days_to_date_key(start_date, day_offset)
 
-    plan_title = _to_string_or_none(_get_value(plan, "title")) or "Weekly Plan"
+    plan_title = _to_string_or_none(_get_value(plan, "title", "name")) or "Weekly Plan"
     plan_title_ru = _to_string_or_none(_get_value(plan, "titleRu", "title_ru"))
     plan_title_kk = _to_string_or_none(_get_value(plan, "titleKk", "title_kk"))
 
-    goal_label = _to_string_or_none(_get_value(plan, "goalLabel", "goal_label"))
+    goal_label = _to_string_or_none(_get_value(plan, "goalLabel", "goal_label", "goal"))
     goal_label_ru = _to_string_or_none(
         _get_value(plan, "goalLabelRu", "goal_label_ru")
     )
@@ -363,7 +393,9 @@ def _build_workout_from_template_day(
         _get_value(plan, "descriptionKk", "description_kk")
     )
 
-    coach_analysis = _to_string_or_none(_get_value(plan, "coachAnalysis", "coach_analysis"))
+    coach_analysis = _to_string_or_none(
+        _get_value(plan, "coachAnalysis", "coach_analysis")
+    )
     coach_analysis_ru = _to_string_or_none(
         _get_value(plan, "coachAnalysisRu", "coach_analysis_ru")
     )
@@ -392,7 +424,10 @@ def _build_workout_from_template_day(
         date=date_key,
         time=_to_string_or_none(_get_value(day, "time")) or "18:00",
 
-        name=_to_string_or_none(_get_value(day, "name")) or f"{plan_title} · Day {day_index + 1}",
+        name=(
+            _to_string_or_none(_get_value(day, "name"))
+            or f"{plan_title} · Day {day_index + 1}"
+        ),
         name_ru=_to_string_or_none(_get_value(day, "nameRu", "name_ru")),
         name_kk=_to_string_or_none(_get_value(day, "nameKk", "name_kk")),
 
@@ -401,8 +436,14 @@ def _build_workout_from_template_day(
         description_kk=full_description_kk,
 
         category=_to_string_or_none(_get_value(day, "category")) or goal_label,
-        category_ru=_to_string_or_none(_get_value(day, "categoryRu", "category_ru")) or goal_label_ru,
-        category_kk=_to_string_or_none(_get_value(day, "categoryKk", "category_kk")) or goal_label_kk,
+        category_ru=(
+            _to_string_or_none(_get_value(day, "categoryRu", "category_ru"))
+            or goal_label_ru
+        ),
+        category_kk=(
+            _to_string_or_none(_get_value(day, "categoryKk", "category_kk"))
+            or goal_label_kk
+        ),
 
         completed=False,
         completed_at=None,
@@ -536,68 +577,80 @@ async def assign_weekly_plan(
     coach: User = Depends(require_active_coach_subscription),
     db: AsyncSession = Depends(get_db),
 ):
-    client_id = _normalize_client_id(data)
-    plan_id = _normalize_plan_id(data)
-    start_date = _normalize_start_date(data)
+    try:
+        client_id = _normalize_client_id(data)
+        plan_id = _normalize_plan_id(data)
+        start_date = _normalize_start_date(data)
 
-    if not data.plan:
-        raise HTTPException(
-            status_code=400,
-            detail="plan payload is required. Frontend must send the selected weekly plan object.",
-        )
-
-    await _verify_coach_client(coach.id, client_id, db)
-
-    plan = data.plan
-    days = _extract_days(plan)
-
-    created_workout_ids: list[str] = []
-    created_exercise_ids: list[str] = []
-    created_workouts: list[WorkoutAssignment] = []
-
-    for day_index, day in enumerate(days):
-        workout = _build_workout_from_template_day(
-            coach_id=coach.id,
-            client_id=client_id,
-            plan_id=plan_id,
-            plan=plan,
-            day=day,
-            day_index=day_index,
-            start_date=start_date,
-        )
-
-        db.add(workout)
-
-        exercises = _get_value(day, "exercises", default=[])
-
-        for exercise_index, exercise_data in enumerate(exercises):
-            if not isinstance(exercise_data, dict):
-                continue
-
-            exercise = _build_exercise_from_template(
-                exercise=exercise_data,
-                workout_id=workout.id,
-                index=exercise_index,
+        if not isinstance(data.plan, dict) or not data.plan:
+            raise HTTPException(
+                status_code=400,
+                detail="plan payload is required. Frontend must send the selected weekly plan object.",
             )
 
-            db.add(exercise)
-            created_exercise_ids.append(exercise.id)
+        await _verify_coach_client(coach.id, client_id, db)
 
-        created_workout_ids.append(workout.id)
-        created_workouts.append(workout)
+        plan = data.plan
+        days = _extract_days(plan)
 
-    await db.commit()
+        created_workout_ids: list[str] = []
+        created_exercise_ids: list[str] = []
 
-    loaded_workouts: list[WorkoutOut] = []
+        for day_index, day in enumerate(days):
+            workout = _build_workout_from_template_day(
+                coach_id=coach.id,
+                client_id=client_id,
+                plan_id=plan_id,
+                plan=plan,
+                day=day,
+                day_index=day_index,
+                start_date=start_date,
+            )
 
-    for workout_id in created_workout_ids:
-        loaded_workouts.append(workout_out(await _get_workout(workout_id, db)))
+            db.add(workout)
 
-    return AssignWeeklyPlanOut(
-        workoutIds=created_workout_ids,
-        exerciseIds=created_exercise_ids,
-        workouts=loaded_workouts,
-    )
+            exercises = _get_value(day, "exercises", default=[])
+
+            for exercise_index, exercise_data in enumerate(exercises):
+                if not isinstance(exercise_data, dict):
+                    continue
+
+                exercise = _build_exercise_from_template(
+                    exercise=exercise_data,
+                    workout_id=workout.id,
+                    index=exercise_index,
+                )
+
+                db.add(exercise)
+                created_exercise_ids.append(exercise.id)
+
+            created_workout_ids.append(workout.id)
+
+        await db.commit()
+
+        loaded_workouts: list[WorkoutOut] = []
+
+        for workout_id in created_workout_ids:
+            loaded_workouts.append(workout_out(await _get_workout(workout_id, db)))
+
+        return AssignWeeklyPlanOut(
+            workoutIds=created_workout_ids,
+            exerciseIds=created_exercise_ids,
+            workouts=loaded_workouts,
+        )
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Failed to assign weekly plan")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not assign weekly plan: {type(exc).__name__}",
+        ) from exc
 
 
 @router.get("/{workout_id}", response_model=WorkoutOut)
