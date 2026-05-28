@@ -8,7 +8,9 @@ import {
   Copy,
   Edit3,
   Globe,
+  ChevronRight,
   HelpCircle,
+  LifeBuoy,
   LogOut,
   Moon,
   Sun,
@@ -18,6 +20,7 @@ import React from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -68,6 +71,19 @@ const CLIENT_PROFILE_TEXT = {
     goalMobility: "Improve mobility",
     goalMaintain: "Maintain shape",
     customGoalPlaceholder: "Write your personal goal...",
+    supportTitle: "Support",
+    supportSubtitle: "Write to CoachFlow support",
+    supportSubject: "CoachFlow support request",
+    darkModeSubtitleOn: "Dark theme is enabled. Tap to switch to light mode.",
+    darkModeSubtitleOff: "Light theme is enabled. Tap to switch to dark mode.",
+    faqSubtitle: "Open answers to common questions",
+    open: "Open",
+    on: "On",
+    off: "Off",
+    phoneInvalidTitle: "Invalid phone",
+    phoneInvalidText: "Enter a Kazakhstan phone number in the format +7 777 123 45 67.",
+    supportErrorTitle: "Could not open email app",
+    supportErrorText: "Please email us directly: klaevers001@gmail.com",
   },
   ru: {
     goalLose: "Снижение веса",
@@ -75,6 +91,19 @@ const CLIENT_PROFILE_TEXT = {
     goalMobility: "Улучшение мобильности",
     goalMaintain: "Поддержание формы",
     customGoalPlaceholder: "Напишите личную цель...",
+    supportTitle: "Техподдержка",
+    supportSubtitle: "Написать в поддержку CoachFlow",
+    supportSubject: "Обращение в поддержку CoachFlow",
+    darkModeSubtitleOn: "Тёмная тема включена. Нажмите, чтобы перейти на светлую.",
+    darkModeSubtitleOff: "Светлая тема включена. Нажмите, чтобы перейти на тёмную.",
+    faqSubtitle: "Открыть ответы на частые вопросы",
+    open: "Открыть",
+    on: "Вкл",
+    off: "Выкл",
+    phoneInvalidTitle: "Неверный телефон",
+    phoneInvalidText: "Введите казахстанский номер в формате +7 777 123 45 67.",
+    supportErrorTitle: "Не удалось открыть почту",
+    supportErrorText: "Напишите нам напрямую: klaevers001@gmail.com",
   },
   kk: {
     goalLose: "Салмақ тастау",
@@ -82,6 +111,19 @@ const CLIENT_PROFILE_TEXT = {
     goalMobility: "Қозғалысты жақсарту",
     goalMaintain: "Форманы сақтау",
     customGoalPlaceholder: "Жеке мақсатыңызды жазыңыз...",
+    supportTitle: "Қолдау қызметі",
+    supportSubtitle: "CoachFlow қолдау қызметіне жазу",
+    supportSubject: "CoachFlow қолдау қызметіне өтініш",
+    darkModeSubtitleOn: "Қараңғы тақырып қосулы. Жарық тақырыпқа ауысу үшін басыңыз.",
+    darkModeSubtitleOff: "Жарық тақырып қосулы. Қараңғы тақырыпқа ауысу үшін басыңыз.",
+    faqSubtitle: "Жиі қойылатын сұрақтарды ашу",
+    open: "Ашу",
+    on: "Қосулы",
+    off: "Өшірулі",
+    phoneInvalidTitle: "Телефон дұрыс емес",
+    phoneInvalidText: "Қазақстан нөмірін +7 777 123 45 67 форматында енгізіңіз.",
+    supportErrorTitle: "Пошта қолданбасын ашу мүмкін болмады",
+    supportErrorText: "Бізге тікелей жазыңыз: klaevers001@gmail.com",
   },
 };
 
@@ -230,6 +272,54 @@ function sanitizeDecimalInput(value: string) {
   return value.replace(/[^0-9.,]/g, "");
 }
 
+function formatKazakhstanPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  let normalized = digits;
+
+  if (normalized.startsWith("8")) {
+    normalized = `7${normalized.slice(1)}`;
+  }
+
+  if (!normalized.startsWith("7") && normalized.length > 0) {
+    normalized = `7${normalized}`;
+  }
+
+  normalized = normalized.slice(0, 11);
+
+  const p1 = normalized.slice(0, 1);
+  const p2 = normalized.slice(1, 4);
+  const p3 = normalized.slice(4, 7);
+  const p4 = normalized.slice(7, 9);
+  const p5 = normalized.slice(9, 11);
+
+  let formatted = "";
+
+  if (p1) formatted += `+${p1}`;
+  if (p2) formatted += ` ${p2}`;
+  if (p3) formatted += ` ${p3}`;
+  if (p4) formatted += ` ${p4}`;
+  if (p5) formatted += ` ${p5}`;
+
+  return formatted;
+}
+
+function getPhoneDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.startsWith("8")) {
+    return `7${digits.slice(1)}`;
+  }
+
+  return digits;
+}
+
+function isValidKazakhstanPhone(value: string) {
+  const digits = getPhoneDigits(value);
+
+  return digits.length === 11 && digits.startsWith("7");
+}
+
 function parseOptionalInteger(value: string) {
   const clean = value.trim();
 
@@ -285,7 +375,7 @@ export default function ClientProfile() {
 
   const openEdit = () => {
     setEditName(user.name ?? "");
-    setEditPhone(user.phone ?? "");
+    setEditPhone(user.phone ? formatKazakhstanPhone(user.phone) : "");
     setEditGoal(getGoalValueForEdit(profile?.goal, (profile as any)?.goalType));
     setEditAge(profile?.age ? String(profile.age) : "");
     setEditStartWeight(profile?.startWeight ? String(profile.startWeight) : "");
@@ -311,8 +401,40 @@ export default function ClientProfile() {
     }
   };
 
+  const openSupportEmail = async () => {
+    const subject = encodeURIComponent(L.supportSubject);
+    const body = encodeURIComponent(
+      `User: ${user.name}\nEmail: ${user.email}\nRole: client\n\n`,
+    );
+
+    const mailUrl = `mailto:klaevers001@gmail.com?subject=${subject}&body=${body}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(mailUrl);
+
+      if (!canOpen) {
+        Alert.alert(L.supportErrorTitle, L.supportErrorText);
+        return;
+      }
+
+      await Linking.openURL(mailUrl);
+    } catch (e) {
+      console.log("[profile] support email err", e);
+      Alert.alert(L.supportErrorTitle, L.supportErrorText);
+    }
+  };
+
   const saveProfile = async () => {
     if (!token || !user || saving) return;
+
+    const phoneValue = editPhone.trim();
+
+    if (phoneValue && !isValidKazakhstanPhone(phoneValue)) {
+      Alert.alert(L.phoneInvalidTitle, L.phoneInvalidText);
+      return;
+    }
+
+    const normalizedPhone = phoneValue ? `+${getPhoneDigits(phoneValue)}` : undefined;
 
     const ageValue = parseOptionalInteger(editAge);
     const startWeightValue = parseDecimalOrZero(editStartWeight);
@@ -360,7 +482,7 @@ export default function ClientProfile() {
         "/users/me",
         {
           name: editName.trim(),
-          phone: editPhone.trim() || undefined,
+          phone: normalizedPhone,
         },
         { token },
       );
@@ -391,7 +513,7 @@ export default function ClientProfile() {
               ? {
                   ...item,
                   name: editName.trim(),
-                  phone: editPhone.trim() || undefined,
+                  phone: normalizedPhone,
                 }
               : item,
           ),
@@ -430,7 +552,7 @@ export default function ClientProfile() {
 
       await updateMe({
         name: editName.trim(),
-        phone: editPhone.trim() || undefined,
+        phone: normalizedPhone,
       });
 
       await refreshFromBackend();
@@ -800,112 +922,80 @@ export default function ClientProfile() {
         <SectionHeader title={t("profile.preferences")} />
 
         <AppCard variant="outline">
-          <Pressable
-            onPress={toggle}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                flex: 1,
-              }}
-            >
-              {mode === "dark" ? (
+          <PreferenceRow
+            icon={
+              mode === "dark" ? (
                 <Moon color={theme.colors.text} size={18} />
               ) : (
                 <Sun color={theme.colors.text} size={18} />
-              )}
+              )
+            }
+            title={t("profile.darkMode")}
+            subtitle={
+              mode === "dark"
+                ? L.darkModeSubtitleOn
+                : L.darkModeSubtitleOff
+            }
+            right={
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <AppText
+                  variant="small"
+                  color={theme.colors.primary}
+                  style={{ fontWeight: "800" }}
+                >
+                  {mode === "dark" ? L.on : L.off}
+                </AppText>
 
-              <AppText variant="body" style={{ flex: 1 }}>
-                {t("profile.darkMode")}
-              </AppText>
-            </View>
+                <Switch
+                  value={mode === "dark"}
+                  onValueChange={toggle}
+                  trackColor={{
+                    true: theme.colors.primary,
+                    false: theme.colors.border,
+                  }}
+                  thumbColor="#fff"
+                />
+              </View>
+            }
+            onPress={toggle}
+          />
 
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-            >
-              {mode === "dark" ? t("common.on") : t("common.off")}
-            </AppText>
-          </Pressable>
-
-          <Pressable
+          <PreferenceRow
+            icon={<Globe color={theme.colors.text} size={18} />}
+            title={t("profile.language")}
+            subtitle={LANGUAGES.find((item) => item.code === lang)?.label ?? ""}
+            right={<ChevronRight color={theme.colors.textMuted} size={18} />}
             onPress={() => setLangOpen(true)}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                flex: 1,
-              }}
-            >
-              <Globe color={theme.colors.text} size={18} />
+          />
 
-              <AppText variant="body" style={{ flex: 1 }}>
-                {t("profile.language")}
-              </AppText>
-            </View>
+          <PreferenceRow
+            icon={<HelpCircle color={theme.colors.text} size={18} />}
+            title="FAQ"
+            subtitle={L.faqSubtitle}
+            right={
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <AppText
+                  variant="small"
+                  color={theme.colors.primary}
+                  style={{ fontWeight: "800" }}
+                >
+                  {L.open}
+                </AppText>
 
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-              numberOfLines={1}
-            >
-              {LANGUAGES.find((item) => item.code === lang)?.label}
-            </AppText>
-          </Pressable>
-
-          <Pressable
+                <ChevronRight color={theme.colors.primary} size={18} />
+              </View>
+            }
             onPress={() => router.push("/faq")}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                flex: 1,
-              }}
-            >
-              <HelpCircle color={theme.colors.text} size={18} />
+          />
 
-              <AppText variant="body" style={{ flex: 1 }}>
-                FAQ
-              </AppText>
-            </View>
-
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-            >
-              ?
-            </AppText>
-          </Pressable>
+          <PreferenceRow
+            icon={<LifeBuoy color={theme.colors.text} size={18} />}
+            title={L.supportTitle}
+            subtitle={L.supportSubtitle}
+            right={<ChevronRight color={theme.colors.primary} size={18} />}
+            onPress={openSupportEmail}
+            last
+          />
         </AppCard>
 
         <View style={{ marginTop: 8 }}>
@@ -1080,7 +1170,8 @@ function EditProfileModal({
             <AppInput
               label={t("profile.phone")}
               value={editPhone}
-              onChangeText={setEditPhone}
+              onChangeText={(value) => setEditPhone(formatKazakhstanPhone(value))}
+              placeholder="+7 777 123 45 67"
               keyboardType="phone-pad"
               inputMode="tel"
               textContentType="telephoneNumber"
@@ -1225,6 +1316,72 @@ function EditProfileModal({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function PreferenceRow({
+  icon,
+  title,
+  subtitle,
+  right,
+  onPress,
+  last,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  const { theme } = useTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 12,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: theme.colors.borderSoft,
+        opacity: pressed ? 0.72 : 1,
+      })}
+    >
+      <View
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 14,
+          backgroundColor: "rgba(255,255,255,0.06)",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </View>
+
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <AppText variant="bodyStrong" numberOfLines={1}>
+          {title}
+        </AppText>
+
+        {subtitle ? (
+          <AppText
+            variant="small"
+            color={theme.colors.textMuted}
+            numberOfLines={2}
+            style={{ marginTop: 2 }}
+          >
+            {subtitle}
+          </AppText>
+        ) : null}
+      </View>
+
+      {right ? <View style={{ flexShrink: 0 }}>{right}</View> : null}
+    </Pressable>
   );
 }
 

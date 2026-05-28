@@ -1,12 +1,14 @@
 import createContextHook from "@nkzw/create-context-hook";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { apiGet, apiPatch, apiPost } from "@/src/services/api";
 import { FitnessLevel, GoalType, Role, User } from "@/src/types/models";
 
 const TOKEN_KEY = "coachflow:token";
 const REFRESH_TOKEN_KEY = "coachflow:refresh_token";
 const USER_KEY = "coachflow:user";
+const PENDING_REGISTER_PROFILE_KEY = "coachflow:pending_register_profile";
 
 type RegisterInput = {
   name: string;
@@ -24,9 +26,23 @@ type RegisterInput = {
   fitnessLevel?: FitnessLevel;
 };
 
+type PendingClientProfilePatch = {
+  role: Role;
+  goal?: string;
+  goalType?: GoalType;
+  age?: number;
+  height?: number;
+  startWeight?: number;
+  currentWeight?: number;
+  fitnessLevel?: FitnessLevel;
+};
+
 type AuthResult = {
   ok: boolean;
   error?: string;
+  email?: string;
+  emailVerificationRequired?: boolean;
+  message?: string;
 };
 
 function normalizeUser(apiUser: any): User {
@@ -81,6 +97,14 @@ function getNormalizedGoalForStorage(input: RegisterInput) {
   };
 }
 
+function cleanEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function cleanVerificationCode(code: string): string {
+  return code.replace(/\D/g, "").slice(0, 6);
+}
+
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -114,6 +138,42 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
     await AsyncStorage.removeItem(USER_KEY);
   }, []);
+
+  const patchPendingClientProfile = useCallback(
+    async (accessToken: string) => {
+      try {
+        const raw = await AsyncStorage.getItem(PENDING_REGISTER_PROFILE_KEY);
+
+        if (!raw) return;
+
+        const pending = JSON.parse(raw) as PendingClientProfilePatch;
+
+        if (pending.role !== "client") {
+          await AsyncStorage.removeItem(PENDING_REGISTER_PROFILE_KEY);
+          return;
+        }
+
+        await apiPatch(
+          "/users/me/client-profile",
+          {
+            goal: pending.goal,
+            goal_type: pending.goalType,
+            age: pending.age,
+            height: pending.height ?? 0,
+            start_weight: pending.startWeight ?? pending.currentWeight ?? 0,
+            current_weight: pending.currentWeight ?? pending.startWeight ?? 0,
+            fitness_level: pending.fitnessLevel ?? "beginner",
+          },
+          { token: accessToken },
+        );
+
+        await AsyncStorage.removeItem(PENDING_REGISTER_PROFILE_KEY);
+      } catch (profileError) {
+        console.log("[auth] pending client profile patch error", profileError);
+      }
+    },
+    [],
+  );
 
   const refreshSession = useCallback(
     async (savedRefreshToken: string): Promise<boolean> => {
@@ -202,7 +262,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     async (email: string, password: string): Promise<AuthResult> => {
       try {
         const res = await apiPost("/auth/login", {
-          email: email.trim().toLowerCase(),
+          email: cleanEmail(email),
           password,
         });
 
@@ -235,15 +295,74 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     async (input: RegisterInput): Promise<AuthResult> => {
       try {
         const normalizedGoal = getNormalizedGoalForStorage(input);
+        const email = cleanEmail(input.email);
 
         const res = await apiPost("/auth/register", {
           name: input.name.trim(),
-          email: input.email.trim().toLowerCase(),
+          email,
           password: input.password,
           role: input.role,
           age: input.age,
           goal: normalizedGoal.goal,
           goal_type: normalizedGoal.goalType,
+        });
+
+        if (input.role === "client") {
+          const pendingPatch: PendingClientProfilePatch = {
+            role: input.role,
+            goal: normalizedGoal.goal,
+            goalType: normalizedGoal.goalType,
+            age: input.age,
+            height: input.height,
+            startWeight: input.startWeight,
+            currentWeight: input.currentWeight,
+            fitnessLevel: input.fitnessLevel,
+          };
+
+          await AsyncStorage.setItem(
+            PENDING_REGISTER_PROFILE_KEY,
+            JSON.stringify(pendingPatch),
+          );
+        } else {
+          await AsyncStorage.removeItem(PENDING_REGISTER_PROFILE_KEY);
+        }
+
+        return {
+          ok: true,
+          email: res.email ?? email,
+          emailVerificationRequired:
+            res.emailVerificationRequired ??
+            res.email_verification_required ??
+            true,
+          message:
+            res.message ??
+            "Verification code has been sent to your email.",
+        };
+      } catch (error: any) {
+        return {
+          ok: false,
+          error: extractErrorMessage(error, "Registration failed"),
+        };
+      }
+    },
+    [],
+  );
+
+  const verifyEmail = useCallback(
+    async (email: string, code: string): Promise<AuthResult> => {
+      try {
+        const cleanedCode = cleanVerificationCode(code);
+
+        if (cleanedCode.length !== 6) {
+          return {
+            ok: false,
+            error: "Verification code must contain 6 digits",
+          };
+        }
+
+        const res = await apiPost("/auth/verify-email", {
+          email: cleanEmail(email),
+          code: cleanedCode,
         });
 
         const accessToken = res.token ?? res.access_token;
@@ -252,50 +371,62 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (!accessToken || !res.user) {
           return {
             ok: false,
-            error: "Registration failed",
+            error: "Email verification failed",
           };
         }
 
         const normalizedUser = normalizeUser(res.user);
 
         await persistAuth(normalizedUser, accessToken, refresh);
-
-        if (input.role === "client") {
-          try {
-            await apiPatch(
-              "/users/me/client-profile",
-              {
-                goal: normalizedGoal.goal,
-                goal_type: normalizedGoal.goalType,
-                age: input.age,
-                height: input.height ?? 0,
-                start_weight: input.startWeight ?? input.currentWeight ?? 0,
-                current_weight: input.currentWeight ?? input.startWeight ?? 0,
-                fitness_level: input.fitnessLevel ?? "beginner",
-              },
-              { token: accessToken },
-            );
-          } catch (profileError) {
-            console.log("[auth] register profile patch error", profileError);
-          }
-        }
+        await patchPendingClientProfile(accessToken);
 
         return { ok: true };
       } catch (error: any) {
         return {
           ok: false,
-          error: extractErrorMessage(error, "Registration failed"),
+          error: extractErrorMessage(error, "Email verification failed"),
         };
       }
     },
-    [persistAuth],
+    [persistAuth, patchPendingClientProfile],
+  );
+
+  const resendVerificationCode = useCallback(
+    async (email: string): Promise<AuthResult> => {
+      try {
+        const res = await apiPost("/auth/resend-verification-code", {
+          email: cleanEmail(email),
+        });
+
+        return {
+          ok: true,
+          email: res.email ?? cleanEmail(email),
+          emailVerificationRequired:
+            res.emailVerificationRequired ??
+            res.email_verification_required ??
+            true,
+          message:
+            res.message ??
+            "Verification code has been sent to your email.",
+        };
+      } catch (error: any) {
+        return {
+          ok: false,
+          error: extractErrorMessage(
+            error,
+            "Could not resend verification code",
+          ),
+        };
+      }
+    },
+    [],
   );
 
   const forgotPassword = useCallback(
     async (email: string): Promise<AuthResult> => {
       try {
         await apiPost("/auth/forgot-password", {
-          email: email.trim().toLowerCase(),
+          email: cleanEmail(email),
         });
 
         return { ok: true };
@@ -373,6 +504,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
       login,
       register,
+      verifyEmail,
+      resendVerificationCode,
       forgotPassword,
       resetPassword,
       logout,
@@ -385,6 +518,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       loading,
       login,
       register,
+      verifyEmail,
+      resendVerificationCode,
       forgotPassword,
       resetPassword,
       logout,

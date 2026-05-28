@@ -5,12 +5,14 @@ import {
   Award,
   Bell,
   Camera,
+  ChevronRight,
   Check,
   CreditCard,
   Edit3,
   Globe,
   HelpCircle,
   LogOut,
+  Mail,
   Moon,
   Star,
   Sun,
@@ -21,6 +23,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -85,9 +88,26 @@ const COACH_PROFILE_TEXT = {
     weeklyGoalReminders: "Weekly goal reminders",
     darkMode: "Dark mode",
     language: "Language",
+    languageHint: "Tap to choose English, Russian or Kazakh",
+    faq: "FAQ",
+    faqHint: "Tap to read answers and app instructions",
+    support: "Tech support",
+    supportHint: "Send an email to klaevers001@gmail.com",
+    open: "Open",
+    write: "Write",
+    darkModeHint: "Tap this row or the switch to change the app theme",
+    phoneHint: "Kazakhstan format: +7 777 123 45 67",
+    phoneInvalidTitle: "Invalid phone number",
+    phoneInvalidText: "Phone number must contain exactly 11 digits and start with 7. Example: +7 777 123 45 67.",
     logout: "Log out",
     phone: "Phone",
     coverImageUrl: "Cover image URL",
+    coverImage: "Cover image",
+    coverImageHint: "Choose a wide profile cover from gallery",
+    changeCover: "Choose cover from gallery",
+    coverUpdated: "Cover image was updated.",
+    coverUrlMissing: "Backend did not return cover image URL.",
+    coverUploadError: "Could not upload cover image.",
     achievementsHint: "Each achievement from a new line",
     certificatesHint: "Each certificate from a new line",
     saveChanges: "Save changes",
@@ -138,9 +158,26 @@ const COACH_PROFILE_TEXT = {
     weeklyGoalReminders: "Напоминания о недельных целях",
     darkMode: "Тёмная тема",
     language: "Язык",
+    languageHint: "Нажмите, чтобы выбрать русский, английский или казахский",
+    faq: "FAQ",
+    faqHint: "Нажмите, чтобы открыть ответы и инструкцию по приложению",
+    support: "Техподдержка",
+    supportHint: "Написать письмо на klaevers001@gmail.com",
+    open: "Открыть",
+    write: "Написать",
+    darkModeHint: "Нажмите на строку или переключатель, чтобы сменить тему",
+    phoneHint: "Формат Казахстана: +7 777 123 45 67",
+    phoneInvalidTitle: "Неверный номер телефона",
+    phoneInvalidText: "Номер должен содержать ровно 11 цифр и начинаться с 7. Пример: +7 777 123 45 67.",
     logout: "Выйти",
     phone: "Телефон",
     coverImageUrl: "Ссылка на обложку",
+    coverImage: "Обложка профиля",
+    coverImageHint: "Выберите широкую обложку из галереи",
+    changeCover: "Выбрать обложку из галереи",
+    coverUpdated: "Обложка профиля обновлена.",
+    coverUrlMissing: "Сервер не вернул ссылку на обложку.",
+    coverUploadError: "Не удалось загрузить обложку.",
     achievementsHint: "Каждое достижение с новой строки",
     certificatesHint: "Каждый сертификат с новой строки",
     saveChanges: "Сохранить изменения",
@@ -191,9 +228,26 @@ const COACH_PROFILE_TEXT = {
     weeklyGoalReminders: "Апталық мақсат ескертулері",
     darkMode: "Қараңғы режим",
     language: "Тіл",
+    languageHint: "Қазақша, орысша немесе ағылшынша таңдау үшін басыңыз",
+    faq: "FAQ",
+    faqHint: "Жауаптар мен қолданба нұсқаулығын ашу үшін басыңыз",
+    support: "Техқолдау",
+    supportHint: "klaevers001@gmail.com поштасына хат жазу",
+    open: "Ашу",
+    write: "Жазу",
+    darkModeHint: "Тақырыпты ауыстыру үшін жолды немесе қосқышты басыңыз",
+    phoneHint: "Қазақстан форматы: +7 777 123 45 67",
+    phoneInvalidTitle: "Телефон нөмірі қате",
+    phoneInvalidText: "Нөмір дәл 11 цифрдан тұрып, 7-ден басталуы керек. Мысал: +7 777 123 45 67.",
     logout: "Шығу",
     phone: "Телефон",
     coverImageUrl: "Мұқаба суретінің сілтемесі",
+    coverImage: "Профиль мұқабасы",
+    coverImageHint: "Галереядан кең мұқаба таңдаңыз",
+    changeCover: "Галереядан мұқаба таңдау",
+    coverUpdated: "Профиль мұқабасы жаңартылды.",
+    coverUrlMissing: "Сервер мұқаба сілтемесін қайтармады.",
+    coverUploadError: "Мұқабаны жүктеу мүмкін болмады.",
     achievementsHint: "Әр жетістікті жаңа жолдан жазыңыз",
     certificatesHint: "Әр сертификатты жаңа жолдан жазыңыз",
     saveChanges: "Өзгерістерді сақтау",
@@ -303,6 +357,100 @@ function sanitizeExperience(value: string) {
   return value.replace(/[^\d]/g, "");
 }
 
+function normalizePhoneDigits(value: string) {
+  return value.replace(/\D/g, "").slice(0, 11);
+}
+
+function formatKazakhstanPhone(value: string) {
+  const digits = normalizePhoneDigits(value);
+
+  if (!digits) return "";
+
+  const part1 = digits.slice(0, 1);
+  const part2 = digits.slice(1, 4);
+  const part3 = digits.slice(4, 7);
+  const part4 = digits.slice(7, 9);
+  const part5 = digits.slice(9, 11);
+
+  let formatted = `+${part1}`;
+
+  if (part2) formatted += ` ${part2}`;
+  if (part3) formatted += ` ${part3}`;
+  if (part4) formatted += ` ${part4}`;
+  if (part5) formatted += ` ${part5}`;
+
+  return formatted;
+}
+
+function getPhoneForBackend(value: string) {
+  const digits = normalizePhoneDigits(value);
+
+  return digits ? `+${digits}` : undefined;
+}
+
+function isValidOptionalKazakhstanPhone(value: string) {
+  const digits = normalizePhoneDigits(value);
+
+  if (!digits) return true;
+
+  return digits.length === 11 && digits.startsWith("7");
+}
+
+function getLocalizedSubscriptionPlanName(name: string | undefined, lang: AppLangCode) {
+  const value = String(name ?? "").trim().toLowerCase();
+
+  if (!value) return "";
+
+  const isTrial =
+    value.includes("free trial") ||
+    value.includes("trial") ||
+    value.includes("проб") ||
+    value.includes("сынақ");
+
+  if (isTrial) {
+    if (lang === "ru") return "Пробный период";
+    if (lang === "kk") return "Сынақ кезеңі";
+
+    return "Free trial";
+  }
+
+  const plans: Record<string, Record<AppLangCode, string>> = {
+    start: {
+      en: "Start",
+      ru: "Старт",
+      kk: "Бастау",
+    },
+    basic: {
+      en: "Basic",
+      ru: "Базовый",
+      kk: "Базалық",
+    },
+    pro: {
+      en: "Pro",
+      ru: "Про",
+      kk: "Про",
+    },
+    unlimited: {
+      en: "Unlimited",
+      ru: "Безлимит",
+      kk: "Шексіз",
+    },
+    monthly: {
+      en: "Monthly",
+      ru: "Месячный",
+      kk: "Айлық",
+    },
+  };
+
+  for (const key of Object.keys(plans)) {
+    if (value.includes(key)) {
+      return plans[key][lang];
+    }
+  }
+
+  return name ?? "";
+}
+
 function getDefaultNotifications(userId: string) {
   return {
     userId,
@@ -363,7 +511,7 @@ export default function CoachProfile() {
 
   const openEdit = () => {
     setEditName(user.name ?? "");
-    setEditPhone(user.phone ?? "");
+    setEditPhone(formatKazakhstanPhone(user.phone ?? ""));
     setEditSpecialty(getSpecialtyValueForEdit(profile?.specialty));
     setEditBio(profile?.bio ?? "");
     setEditExperienceYears(String(profile?.experienceYears ?? 0));
@@ -521,6 +669,133 @@ export default function CoachProfile() {
     }
   };
 
+  const pickCover = async () => {
+    if (!token || !user) {
+      Alert.alert(L.authErrorTitle, L.loginAgainText);
+      return;
+    }
+
+    const applyCoverLocally = (uploadedCoverUrl: string) => {
+      update((data) => {
+        const hasCoachProfile = data.coachProfiles.some(
+          (item) => item.userId === user.id,
+        );
+
+        return {
+          ...data,
+          coachProfiles: hasCoachProfile
+            ? data.coachProfiles.map((item) =>
+                item.userId === user.id
+                  ? { ...item, coverImageUrl: uploadedCoverUrl }
+                  : item,
+              )
+            : [
+                ...data.coachProfiles,
+                {
+                  userId: user.id,
+                  specialty: getSpecialtyForBackend(profile?.specialty ?? ""),
+                  bio: profile?.bio ?? "",
+                  experienceYears: profile?.experienceYears ?? 0,
+                  achievements: profile?.achievements ?? [],
+                  certificates: profile?.certificates ?? [],
+                  rating: profile?.rating ?? 5,
+                  profileImageUrl: profile?.profileImageUrl ?? user.avatarUrl,
+                  coverImageUrl: uploadedCoverUrl,
+                },
+              ],
+        };
+      });
+
+      setEditCoverImageUrl(uploadedCoverUrl);
+
+      Image.prefetch(toAbsoluteUrl(uploadedCoverUrl) ?? uploadedCoverUrl).catch(
+        () => {},
+      );
+    };
+
+    try {
+      if (Platform.OS !== "web") {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+          Alert.alert(L.permissionTitle, L.permissionMsg);
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [16, 7],
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets[0]?.uri) return;
+
+      const manipulated = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 1600 } }],
+        {
+          compress: 0.82,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+
+      const uploadRes = await apiUploadFile(
+        "/uploads/avatar",
+        manipulated.uri,
+        "file",
+        { token },
+      );
+
+      const uploadedCoverUrl =
+        uploadRes.avatarUrl ??
+        uploadRes.avatar_url ??
+        uploadRes.publicUrl ??
+        uploadRes.public_url;
+
+      if (!uploadedCoverUrl) {
+        Alert.alert(L.uploadErrorTitle, L.coverUrlMissing);
+        return;
+      }
+
+      applyCoverLocally(uploadedCoverUrl);
+
+      try {
+        await apiPatch(
+          "/users/me/coach-profile",
+          {
+            specialty: getSpecialtyForBackend(profile?.specialty ?? ""),
+            bio: profile?.bio ?? "",
+            experience_years: profile?.experienceYears ?? 0,
+            achievements: profile?.achievements ?? [],
+            certificates: profile?.certificates ?? [],
+            profile_image_url: profile?.profileImageUrl ?? user.avatarUrl,
+            cover_image_url: uploadedCoverUrl,
+          },
+          { token },
+        );
+      } catch (e) {
+        console.log("[coach-cover] coach profile cover patch warning", e);
+      }
+
+      try {
+        await refreshFromBackend();
+      } catch (e) {
+        console.log("[coach-cover] refresh warning", e);
+      }
+
+      applyCoverLocally(uploadedCoverUrl);
+
+      Alert.alert(L.savedTitle, L.coverUpdated);
+    } catch (e: any) {
+      console.log("[coach-cover] upload err", e);
+
+      Alert.alert(L.uploadErrorTitle, e?.message || L.coverUploadError);
+    }
+  };
+
   const saveCoachProfile = async () => {
     if (!token || !user) return;
 
@@ -534,7 +809,12 @@ export default function CoachProfile() {
     }
 
     const nextName = editName.trim();
-    const nextPhone = editPhone.trim() || undefined;
+    if (!isValidOptionalKazakhstanPhone(editPhone)) {
+      Alert.alert(L.phoneInvalidTitle, L.phoneInvalidText);
+      return;
+    }
+
+    const nextPhone = getPhoneForBackend(editPhone);
     const nextSpecialty = getSpecialtyForBackend(editSpecialty);
     const nextBio = editBio.trim();
     const nextAchievements = splitLines(editAchievements);
@@ -711,6 +991,28 @@ export default function CoachProfile() {
     }
   };
 
+  const openSupportEmail = async () => {
+    const subject = encodeURIComponent("CoachFlow support");
+    const body = encodeURIComponent(
+      `Hello, CoachFlow support.\n\nUser: ${user?.name ?? ""}\nEmail: ${user?.email ?? ""}\n\nDescribe your question here:\n`,
+    );
+
+    const url = `mailto:klaevers001@gmail.com?subject=${subject}&body=${body}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(L.support, "klaevers001@gmail.com");
+      }
+    } catch (e) {
+      console.log("[coach-profile] support email err", e);
+      Alert.alert(L.support, "klaevers001@gmail.com");
+    }
+  };
+
   return (
     <ScreenContainer scroll padded={false}>
       <GradientHeader height={250}>
@@ -837,7 +1139,7 @@ export default function CoachProfile() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 <AppText variant="bodyStrong" numberOfLines={1}>
                   {isActive
-                    ? `${L.activePlan}: ${currentPlan?.name ?? ""}`
+                    ? `${L.activePlan}: ${getLocalizedSubscriptionPlanName(currentPlan?.name, currentLang)}`
                     : L.inactivePlan}
                 </AppText>
 
@@ -952,81 +1254,64 @@ export default function CoachProfile() {
         <SectionHeader title={L.preferences} />
 
         <AppCard variant="outline">
-          <Pressable
-            onPress={toggle}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              {mode === "dark" ? (
-                <Moon color={theme.colors.text} size={18} />
+          <SettingsActionRow
+            icon={
+              mode === "dark" ? (
+                <Moon color={theme.colors.text} size={20} />
               ) : (
-                <Sun color={theme.colors.text} size={18} />
-              )}
+                <Sun color={theme.colors.text} size={20} />
+              )
+            }
+            title={L.darkMode}
+            subtitle={L.darkModeHint}
+            onPress={toggle}
+            right={
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <AppText
+                  variant="small"
+                  color={mode === "dark" ? theme.colors.primary : theme.colors.textMuted}
+                  style={{ fontWeight: "800" }}
+                >
+                  {mode === "dark" ? t("common.on") : t("common.off")}
+                </AppText>
 
-              <AppText variant="body">{L.darkMode}</AppText>
-            </View>
+                <Switch
+                  value={mode === "dark"}
+                  onValueChange={toggle}
+                  trackColor={{
+                    true: theme.colors.primary,
+                    false: theme.colors.border,
+                  }}
+                  thumbColor="#fff"
+                />
+              </View>
+            }
+          />
 
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-            >
-              {mode === "dark" ? t("common.on") : t("common.off")}
-            </AppText>
-          </Pressable>
-
-          <Pressable
+          <SettingsActionRow
+            icon={<Globe color={theme.colors.text} size={20} />}
+            title={L.language}
+            subtitle={L.languageHint}
             onPress={() => setLangOpen(true)}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Globe color={theme.colors.text} size={18} />
+            rightText={LANGUAGES.find((item) => item.code === lang)?.label}
+          />
 
-              <AppText variant="body">{L.language}</AppText>
-            </View>
-
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-            >
-              {LANGUAGES.find((item) => item.code === lang)?.label}
-            </AppText>
-          </Pressable>
-
-          <Pressable
+          <SettingsActionRow
+            icon={<HelpCircle color={theme.colors.text} size={20} />}
+            title={L.faq}
+            subtitle={L.faqHint}
             onPress={() => router.push("/faq")}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingVertical: 8,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <HelpCircle color={theme.colors.text} size={18} />
+            rightText={L.open}
+          />
 
-              <AppText variant="body">FAQ</AppText>
-            </View>
-
-            <AppText
-              variant="small"
-              color={theme.colors.primary}
-              style={{ fontWeight: "700" }}
-            >
-              ?
-            </AppText>
-          </Pressable>
+          <SettingsActionRow
+            icon={<Mail color={theme.colors.text} size={20} />}
+            title={L.support}
+            subtitle={L.supportHint}
+            onPress={openSupportEmail}
+            rightText={L.write}
+            last
+          />
         </AppCard>
 
         <View style={{ marginTop: 8 }}>
@@ -1065,7 +1350,7 @@ export default function CoachProfile() {
         editCertificates={editCertificates}
         setEditCertificates={setEditCertificates}
         editCoverImageUrl={editCoverImageUrl}
-        setEditCoverImageUrl={setEditCoverImageUrl}
+        onPickCover={pickCover}
         text={L}
       />
 
@@ -1102,7 +1387,7 @@ function EditCoachProfileModal({
   editCertificates,
   setEditCertificates,
   editCoverImageUrl,
-  setEditCoverImageUrl,
+  onPickCover,
   text,
 }: {
   visible: boolean;
@@ -1124,7 +1409,7 @@ function EditCoachProfileModal({
   editCertificates: string;
   setEditCertificates: (value: string) => void;
   editCoverImageUrl: string;
-  setEditCoverImageUrl: (value: string) => void;
+  onPickCover: () => void;
   text: typeof COACH_PROFILE_TEXT.en;
 }) {
   const { theme } = useTheme();
@@ -1197,11 +1482,13 @@ function EditCoachProfileModal({
             <AppInput
               label={text.phone}
               value={editPhone}
-              onChangeText={setEditPhone}
+              onChangeText={(value) => setEditPhone(formatKazakhstanPhone(value))}
+              placeholder={text.phoneHint}
               keyboardType="phone-pad"
               inputMode="tel"
               textContentType="telephoneNumber"
               autoComplete="tel"
+              maxLength={16}
               returnKeyType="next"
               submitBehavior="submit"
             />
@@ -1278,20 +1565,64 @@ function EditCoachProfileModal({
               }}
             />
 
-            <AppInput
-              label={text.coverImageUrl}
-              value={editCoverImageUrl}
-              onChangeText={setEditCoverImageUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              inputMode="url"
-              textContentType="URL"
-              autoComplete="url"
-              returnKeyType="done"
-              submitBehavior="blurAndSubmit"
-              onSubmitEditing={onSave}
-            />
+            <View style={{ gap: 8 }}>
+              <AppText variant="small" color={theme.colors.textMuted}>
+                {text.coverImage}
+              </AppText>
+
+              <Pressable
+                onPress={onPickCover}
+                disabled={saving}
+                style={({ pressed }) => ({
+                  minHeight: 118,
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: theme.colors.borderSoft,
+                  backgroundColor: "rgba(255, 255, 255, 0.04)",
+                  overflow: "hidden",
+                  opacity: pressed ? 0.82 : 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                })}
+              >
+                {editCoverImageUrl ? (
+                  <Image
+                    source={{ uri: toAbsoluteUrl(editCoverImageUrl) ?? editCoverImageUrl }}
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      opacity: 0.72,
+                    }}
+                    resizeMode="cover"
+                  />
+                ) : null}
+
+                <View
+                  style={{
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    borderRadius: 999,
+                    backgroundColor: "rgba(0, 0, 0, 0.46)",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Camera color="#fff" size={17} />
+
+                  <AppText variant="bodyStrong" color="#fff">
+                    {text.changeCover}
+                  </AppText>
+                </View>
+              </Pressable>
+
+              <AppText variant="caption" color={theme.colors.textMuted}>
+                {text.coverImageHint}
+              </AppText>
+            </View>
 
             <View style={{ marginTop: 12 }}>
               <AppButton
@@ -1308,6 +1639,92 @@ function EditCoachProfileModal({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+
+function SettingsActionRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  right,
+  rightText,
+  last = false,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+  right?: React.ReactNode;
+  rightText?: string;
+  last?: boolean;
+}) {
+  const { theme } = useTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: "rgba(255,255,255,0.06)" }}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 14,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: theme.colors.borderSoft,
+        opacity: pressed ? 0.78 : 1,
+      })}
+    >
+      <View
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 14,
+          backgroundColor: "rgba(255, 255, 255, 0.06)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {icon}
+      </View>
+
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <AppText variant="bodyStrong" numberOfLines={1}>
+          {title}
+        </AppText>
+
+        {subtitle ? (
+          <AppText
+            variant="caption"
+            color={theme.colors.textMuted}
+            numberOfLines={2}
+            style={{ marginTop: 3, lineHeight: 17 }}
+          >
+            {subtitle}
+          </AppText>
+        ) : null}
+      </View>
+
+      {right ? (
+        right
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {rightText ? (
+            <AppText
+              variant="small"
+              color={theme.colors.primary}
+              style={{ fontWeight: "800" }}
+              numberOfLines={1}
+            >
+              {rightText}
+            </AppText>
+          ) : null}
+
+          <ChevronRight color={theme.colors.textMuted} size={18} />
+        </View>
+      )}
+    </Pressable>
   );
 }
 
