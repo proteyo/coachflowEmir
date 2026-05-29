@@ -19,34 +19,54 @@ export default function ClientLayout() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 10 : 8);
+  const tabBarHeight = Platform.OS === "android" ? 86 : 74 + bottomInset;
+
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textMuted,
 
+        tabBarHideOnKeyboard: true,
+
         tabBarStyle: {
           backgroundColor: theme.colors.tabBar,
           borderTopColor: theme.colors.borderSoft,
           borderTopWidth: 1,
 
-          height: Platform.OS === "android" ? 78 : 64 + insets.bottom,
-          paddingTop: 6,
-          paddingBottom:
-            Platform.OS === "android"
-              ? Math.max(insets.bottom, 12)
-              : Math.max(insets.bottom, 8),
+          height: tabBarHeight,
+          paddingTop: 8,
+          paddingBottom: bottomInset,
 
-          marginBottom: Platform.OS === "android" ? 14 : 0,
+          marginBottom: 0,
+
+          elevation: 16,
+          shadowColor: "#000",
+          shadowOpacity: 0.14,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: -4 },
+        },
+
+        tabBarItemStyle: {
+          minHeight: 64,
+          paddingTop: 6,
+          paddingBottom: 6,
+          justifyContent: "center",
+          alignItems: "center",
         },
 
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "700",
+          fontSize: 10,
+          fontWeight: "800",
+          marginTop: 2,
+          marginBottom: 0,
+          includeFontPadding: false,
         },
 
         tabBarIconStyle: {
-          marginTop: 2,
+          marginTop: 0,
+          marginBottom: 0,
         },
 
         headerStyle: {
@@ -67,8 +87,8 @@ export default function ClientLayout() {
         options={{
           title: t("tabs.today"),
           headerShown: false,
-          tabBarIcon: ({ color, size }) => (
-            <Home color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <Home color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
@@ -77,8 +97,8 @@ export default function ClientLayout() {
         name="schedule"
         options={{
           title: t("tabs.schedule"),
-          tabBarIcon: ({ color, size }) => (
-            <Calendar color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <Calendar color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
@@ -87,8 +107,8 @@ export default function ClientLayout() {
         name="progress"
         options={{
           title: t("tabs.progress"),
-          tabBarIcon: ({ color, size }) => (
-            <TrendingUp color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <TrendingUp color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
@@ -97,8 +117,8 @@ export default function ClientLayout() {
         name="explore"
         options={{
           title: t("tabs.explore"),
-          tabBarIcon: ({ color, size }) => (
-            <MapPin color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <MapPin color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
@@ -107,8 +127,8 @@ export default function ClientLayout() {
         name="messages"
         options={{
           title: t("tabs.coach"),
-          tabBarIcon: ({ color, size }) => (
-            <MessageCircle color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <MessageCircle color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
@@ -117,8 +137,8 @@ export default function ClientLayout() {
         name="profile"
         options={{
           title: t("tabs.profile"),
-          tabBarIcon: ({ color, size }) => (
-            <UserIcon color={color} size={size} />
+          tabBarIcon: ({ color, focused }) => (
+            <UserIcon color={color} size={focused ? 24 : 22} />
           ),
         }}
       />
