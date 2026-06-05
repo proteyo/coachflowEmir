@@ -2552,6 +2552,7 @@ const micPanResponder = useMemo(
         <FlatList
           ref={listRef}
           data={chatItems}
+          extraData={`${chatThemeKey}_${userId}_${thread.length}`}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
