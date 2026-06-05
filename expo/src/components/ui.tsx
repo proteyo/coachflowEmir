@@ -19,7 +19,7 @@ import {
   View,
   ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/src/context/ThemeContext";
 
@@ -47,34 +47,52 @@ export function ScreenContainer({
   edges?: ("top" | "bottom" | "left" | "right")[];
 }) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const inner = (
-    <View style={{ flex: 1, paddingHorizontal: padded ? theme.spacing.lg : 0 }}>
+    <View
+      style={{
+        flex: 1,
+        paddingHorizontal: padded ? theme.spacing.lg : 0,
+      }}
+    >
       {children}
     </View>
   );
 
   return (
     <SafeAreaView
-      style={{ flex: 1, backgroundColor: theme.colors.bg }}
+      style={{
+        flex: 1,
+        backgroundColor: theme.colors.bg,
+      }}
       edges={edges ?? ["top", "left", "right"]}
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
         {scroll ? (
           <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.bg }}
             contentContainerStyle={{
               flexGrow: 1,
-              paddingBottom: 96,
+              paddingBottom: Math.max(96, insets.bottom + 72),
             }}
             showsVerticalScrollIndicator={false}
             refreshControl={refreshControl}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            contentInsetAdjustmentBehavior="automatic"
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+            scrollIndicatorInsets={{
+              top: 0,
+              bottom: Math.max(24, insets.bottom),
+              left: 0,
+              right: 0,
+            }}
           >
             {inner}
           </ScrollView>
@@ -222,6 +240,7 @@ export function AppButton({
       ) : (
         <>
           {icon}
+
           <Text
             style={{
               color: palette.fg,
@@ -436,6 +455,7 @@ export function StatCard({
     >
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text
+          numberOfLines={1}
           style={{
             fontSize: 12,
             color: sub,
@@ -530,6 +550,7 @@ export function SectionHeader({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {icon}
+
         <AppText variant="h2">{title}</AppText>
       </View>
 
@@ -576,7 +597,10 @@ export function PressableScale(props: PressableProps & { children: ReactNode }) 
         typeof props.style === "function"
           ? props.style({ pressed, hovered: false })
           : props.style,
-        { transform: [{ scale: pressed ? 0.98 : 1 }] },
+        {
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+          opacity: pressed ? 0.92 : 1,
+        },
       ]}
     />
   );
@@ -619,9 +643,11 @@ export function TabBarPill({
     <View
       style={{
         flexDirection: "row",
+        flexWrap: "wrap",
         backgroundColor: theme.colors.surfaceAlt,
         padding: 4,
-        borderRadius: theme.radius.pill,
+        borderRadius: theme.radius.lg,
+        gap: 4,
       }}
     >
       {options.map((o) => {
@@ -631,19 +657,27 @@ export function TabBarPill({
           <Pressable
             key={o.key}
             onPress={() => onChange(o.key)}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
+            style={({ pressed }) => ({
+              paddingVertical: 9,
+              paddingHorizontal: 14,
               alignItems: "center",
+              justifyContent: "center",
               borderRadius: theme.radius.pill,
               backgroundColor: isActive ? theme.colors.surface : "transparent",
-            }}
+              opacity: pressed ? 0.82 : 1,
+              flexGrow: 0,
+              flexShrink: 0,
+            })}
           >
             <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
               style={{
                 color: isActive ? theme.colors.text : theme.colors.textMuted,
                 fontWeight: "700",
                 fontSize: 13,
+                includeFontPadding: false,
+                textAlign: "center",
               }}
             >
               {o.label}

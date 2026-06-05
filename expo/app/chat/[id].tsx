@@ -8,17 +8,27 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
+  ArrowUp,
   Check,
   CheckCheck,
   ChevronLeft,
+  Copy,
+  Lock,
+  MessageCircle,
   Mic,
   Palette,
+  Paperclip,
   Pause,
+  Pin,
   Play,
+  Reply,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react-native";
 import React, {
@@ -32,8 +42,11 @@ import {
   Alert,
   AppState,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   TextInput,
@@ -46,6 +59,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useData } from "@/src/context/DataContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import {
+  apiDelete,
   apiGet,
   apiPost,
   apiUploadFile,
@@ -106,6 +120,33 @@ type ChatTexts = {
   voiceSendError: string;
   messageErrorTitle: string;
   messageSendError: string;
+  holdToRecord: string;
+  releaseToSend: string;
+  swipeUpToLock: string;
+  lockedRecording: string;
+  cancelRecording: string;
+  deleteMessage: string;
+  deleteForMe: string;
+  deleteForEveryone: string;
+  deleteMessageTitle: string;
+  deleteMessageText: string;
+  cancel: string;
+  photoMessage: string;
+  videoMessage: string;
+  mediaErrorTitle: string;
+  mediaSendError: string;
+  mediaPermissionMessage: string;
+  voiceTooShort: string;
+  attachMedia: string;
+  connecting: string;
+  connected: string;
+  reply: string;
+  copy: string;
+  speak: string;
+  edit: string;
+  pin: string;
+  forward: string;
+  select: string;
 };
 
 const CHAT_THEME_STORAGE_KEY = "coachflow:chat-theme-key";
@@ -113,29 +154,29 @@ const CHAT_THEME_STORAGE_KEY = "coachflow:chat-theme-key";
 const CHAT_THEMES: ChatThemePreset[] = [
   {
     key: "premium",
-    name: "Premium Glass",
-    shortName: "Glass",
-    background: "#07111F",
-    header: "rgba(7,17,31,0.97)",
-    surface: "rgba(255,255,255,0.08)",
-    surfaceSoft: "rgba(255,255,255,0.13)",
-    mine: "#6D5DF6",
-    mineText: "#FFFFFF",
-    partner: "rgba(255,255,255,0.10)",
+    name: "CoachFlow Premium",
+    shortName: "Premium",
+    background: "#06111F",
+    header: "rgba(6,17,31,0.98)",
+    surface: "rgba(255,255,255,0.075)",
+    surfaceSoft: "rgba(255,255,255,0.125)",
+    mine: "#18C989",
+    mineText: "#04140E",
+    partner: "rgba(255,255,255,0.105)",
     partnerText: "#F7FAFC",
-    accent: "#58E6C2",
-    accentText: "#06131F",
-    accentSoft: "rgba(88,230,194,0.16)",
-    border: "rgba(255,255,255,0.14)",
-    shadow: "rgba(109,93,246,0.35)",
-    input: "rgba(255,255,255,0.08)",
+    accent: "#23E0A3",
+    accentText: "#02130D",
+    accentSoft: "rgba(35,224,163,0.16)",
+    border: "rgba(255,255,255,0.13)",
+    shadow: "rgba(24,201,137,0.35)",
+    input: "rgba(255,255,255,0.09)",
   },
   {
     key: "midnight",
     name: "Midnight Coach",
     shortName: "Night",
     background: "#050816",
-    header: "rgba(5,8,22,0.97)",
+    header: "rgba(5,8,22,0.98)",
     surface: "rgba(18,24,45,0.95)",
     surfaceSoft: "rgba(33,43,75,0.9)",
     mine: "#2F80ED",
@@ -154,7 +195,7 @@ const CHAT_THEMES: ChatThemePreset[] = [
     name: "Energy Orange",
     shortName: "Energy",
     background: "#130B07",
-    header: "rgba(19,11,7,0.97)",
+    header: "rgba(19,11,7,0.98)",
     surface: "rgba(255,255,255,0.08)",
     surfaceSoft: "rgba(255,255,255,0.13)",
     mine: "#FF7A1A",
@@ -188,14 +229,42 @@ function getChatTexts(lang?: string): ChatTexts {
       lastSeenUnavailable: "Время активности недоступно",
       lastSeenAfterActivity: "Статус появится после активности",
       startConversation:
-        "Начните переписку. Здесь будут сообщения и голосовые записи.",
+        "Начните переписку. Здесь будут сообщения, фото, видео и голосовые записи.",
       chooseTheme: "Тема чата",
       recording: "Идёт запись",
       voiceErrorTitle: "Ошибка голосового сообщения",
-      voiceStartError: "Не удалось начать запись.",
+      voiceStartError: "Не удалось начать запись. Проверьте разрешение на микрофон.",
       voiceSendError: "Не удалось отправить голосовое сообщение.",
       messageErrorTitle: "Ошибка сообщения",
       messageSendError: "Не удалось отправить сообщение. Попробуйте ещё раз.",
+      holdToRecord: "Удерживайте микрофон для записи",
+      releaseToSend: "Отпустите, чтобы отправить",
+      swipeUpToLock: "Проведите вверх — закрепить запись",
+      lockedRecording: "Запись закреплена",
+      cancelRecording: "Удалить запись",
+      deleteMessage: "Удалить",
+      deleteForMe: "Удалить у себя",
+      deleteForEveryone: "Удалить у всех",
+      deleteMessageTitle: "Сообщение",
+      deleteMessageText: "Выберите действие",
+      cancel: "Отмена",
+      photoMessage: "Фото",
+      videoMessage: "Видео",
+      mediaErrorTitle: "Ошибка медиа",
+      mediaSendError: "Не удалось отправить фото или видео.",
+      mediaPermissionMessage:
+        "Разрешите доступ к галерее, чтобы отправлять фото и видео.",
+      voiceTooShort: "Голосовое слишком короткое",
+      attachMedia: "Фото/видео",
+      connecting: "подключение",
+      connected: "онлайн-чат",
+      reply: "Ответить",
+      copy: "Копировать",
+      speak: "Озвучить",
+      edit: "Изменить",
+      pin: "Закрепить",
+      forward: "Переслать",
+      select: "Выбрать",
     };
   }
 
@@ -212,14 +281,42 @@ function getChatTexts(lang?: string): ChatTexts {
       lastSeenUnavailable: "Белсенділік уақыты қолжетімсіз",
       lastSeenAfterActivity: "Белсенділіктен кейін статус шығады",
       startConversation:
-        "Хатты бастаңыз. Мұнда хабарламалар мен дауыс жазбалары көрсетіледі.",
+        "Хатты бастаңыз. Мұнда хабарламалар, фото, видео және дауыс жазбалары көрсетіледі.",
       chooseTheme: "Чат тақырыбы",
       recording: "Жазылып жатыр",
       voiceErrorTitle: "Дауыс хабарламасы қатесі",
-      voiceStartError: "Жазуды бастау мүмкін болмады.",
+      voiceStartError: "Жазуды бастау мүмкін болмады. Микрофон рұқсатын тексеріңіз.",
       voiceSendError: "Дауыс хабарламасын жіберу мүмкін болмады.",
       messageErrorTitle: "Хабарлама қатесі",
       messageSendError: "Хабарламаны жіберу мүмкін болмады. Қайталап көріңіз.",
+      holdToRecord: "Жазу үшін микрофонды ұстап тұрыңыз",
+      releaseToSend: "Жіберу үшін босатыңыз",
+      swipeUpToLock: "Жоғары сырғыту — жазуды бекіту",
+      lockedRecording: "Жазу бекітілді",
+      cancelRecording: "Жазбаны өшіру",
+      deleteMessage: "Өшіру",
+      deleteForMe: "Өзімнен өшіру",
+      deleteForEveryone: "Барлығынан өшіру",
+      deleteMessageTitle: "Хабарлама",
+      deleteMessageText: "Әрекетті таңдаңыз",
+      cancel: "Бас тарту",
+      photoMessage: "Фото",
+      videoMessage: "Видео",
+      mediaErrorTitle: "Медиа қатесі",
+      mediaSendError: "Фото немесе видеоны жіберу мүмкін болмады.",
+      mediaPermissionMessage:
+        "Фото және видео жіберу үшін галереяға рұқсат беріңіз.",
+      voiceTooShort: "Дауыс жазбасы тым қысқа",
+      attachMedia: "Фото/видео",
+      connecting: "қосылу",
+      connected: "онлайн-чат",
+      reply: "Жауап беру",
+      copy: "Көшіру",
+      speak: "Оқу",
+      edit: "Өзгерту",
+      pin: "Бекіту",
+      forward: "Жіберу",
+      select: "Таңдау",
     };
   }
 
@@ -235,14 +332,41 @@ function getChatTexts(lang?: string): ChatTexts {
     lastSeenUnavailable: "Last seen unavailable",
     lastSeenAfterActivity: "Last seen will appear after activity",
     startConversation:
-      "Start a clean coach-client conversation. Text and voice messages will appear here.",
+      "Start a clean coach-client conversation. Text, media and voice messages will appear here.",
     chooseTheme: "Chat theme",
     recording: "Recording",
     voiceErrorTitle: "Voice error",
-    voiceStartError: "Could not start recording.",
+    voiceStartError: "Could not start recording. Check microphone permission.",
     voiceSendError: "Could not send voice message.",
     messageErrorTitle: "Message error",
     messageSendError: "Could not send message. Please try again.",
+    holdToRecord: "Hold mic to record",
+    releaseToSend: "Release to send",
+    swipeUpToLock: "Swipe up to lock",
+    lockedRecording: "Recording locked",
+    cancelRecording: "Delete recording",
+    deleteMessage: "Delete",
+    deleteForMe: "Delete for me",
+    deleteForEveryone: "Delete for everyone",
+    deleteMessageTitle: "Message",
+    deleteMessageText: "Choose an action",
+    cancel: "Cancel",
+    photoMessage: "Photo",
+    videoMessage: "Video",
+    mediaErrorTitle: "Media error",
+    mediaSendError: "Could not send photo or video.",
+    mediaPermissionMessage: "Allow gallery access to send photos and videos.",
+    voiceTooShort: "Voice message is too short",
+    attachMedia: "Photo/video",
+    connecting: "connecting",
+    connected: "live chat",
+    reply: "Reply",
+    copy: "Copy",
+    speak: "Speak",
+    edit: "Edit",
+    pin: "Pin",
+    forward: "Forward",
+    select: "Select",
   };
 }
 
@@ -268,10 +392,12 @@ function normalizeMessage(message: any): Message {
     voiceUrl: message.voiceUrl ?? message.voice_url ?? undefined,
     voiceDurationMs:
       message.voiceDurationMs ?? message.voice_duration_ms ?? undefined,
+    mediaUrl: message.mediaUrl ?? message.media_url ?? undefined,
+    mediaType: message.mediaType ?? message.media_type ?? undefined,
     read: Boolean(message.read),
     createdAt:
       message.createdAt ?? message.created_at ?? new Date().toISOString(),
-  };
+  } as Message;
 }
 
 function fmtDur(ms: number) {
@@ -329,7 +455,14 @@ function isSameDay(a: Date, b: Date) {
   return getDayKey(a) === getDayKey(b);
 }
 
-function getDateSeparatorLabel(date: Date, texts: ChatTexts) {
+function getLocale(lang?: string) {
+  if (lang === "ru") return "ru-RU";
+  if (lang === "kk") return "kk-KZ";
+
+  return "en-US";
+}
+
+function getDateSeparatorLabel(date: Date, texts: ChatTexts, lang?: string) {
   const today = new Date();
 
   const yesterday = new Date();
@@ -345,14 +478,18 @@ function getDateSeparatorLabel(date: Date, texts: ChatTexts) {
 
   const sameYear = date.getFullYear() === today.getFullYear();
 
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(getLocale(lang), {
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
   });
 }
 
-function buildChatItems(messages: Message[], texts: ChatTexts): ChatListItem[] {
+function buildChatItems(
+  messages: Message[],
+  texts: ChatTexts,
+  lang?: string,
+): ChatListItem[] {
   const result: ChatListItem[] = [];
   let lastDayKey = "";
 
@@ -364,7 +501,7 @@ function buildChatItems(messages: Message[], texts: ChatTexts): ChatListItem[] {
       result.push({
         kind: "date",
         id: `date_${dayKey}`,
-        label: getDateSeparatorLabel(date, texts),
+        label: getDateSeparatorLabel(date, texts, lang),
       });
 
       lastDayKey = dayKey;
@@ -380,7 +517,11 @@ function buildChatItems(messages: Message[], texts: ChatTexts): ChatListItem[] {
   return result;
 }
 
-function formatLastSeen(value: string | null | undefined, texts: ChatTexts) {
+function formatLastSeen(
+  value: string | null | undefined,
+  texts: ChatTexts,
+  lang?: string,
+) {
   if (!value) {
     return texts.lastSeenAfterActivity;
   }
@@ -392,16 +533,17 @@ function formatLastSeen(value: string | null | undefined, texts: ChatTexts) {
   }
 
   const sameDay = isSameDay(date, new Date());
-  const time = date.toLocaleTimeString([], {
+  const time = date.toLocaleTimeString(getLocale(lang), {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 
   if (sameDay) {
     return `${texts.lastSeenPrefix} ${time}`;
   }
 
-  return `${texts.lastSeenPrefix} ${date.toLocaleDateString([], {
+  return `${texts.lastSeenPrefix} ${date.toLocaleDateString(getLocale(lang), {
     month: "short",
     day: "numeric",
   })} ${time}`;
@@ -416,6 +558,97 @@ function isConversationMessage(
     (message.senderId === userId && message.receiverId === partnerId) ||
     (message.senderId === partnerId && message.receiverId === userId)
   );
+}
+
+function getApiBaseUrl() {
+  const env = (globalThis as any)?.process?.env ?? {};
+
+  const raw =
+    env.EXPO_PUBLIC_API_URL ??
+    env.EXPO_PUBLIC_API_BASE_URL ??
+    env.EXPO_PUBLIC_BACKEND_URL ??
+    "";
+
+  return String(raw).replace(/\/$/, "");
+}
+
+function getWebSocketUrl(partnerId: string, token: string) {
+  const apiBase = getApiBaseUrl();
+
+  if (!apiBase) return "";
+
+  const wsBase = apiBase
+    .replace(/^https:\/\//, "wss://")
+    .replace(/^http:\/\//, "ws://");
+
+  const params = new URLSearchParams({
+    partner_id: partnerId,
+    token,
+  });
+
+  return `${wsBase}/messages/ws?${params.toString()}`;
+}
+
+function makeLocalMessage({
+  senderId,
+  receiverId,
+  content,
+  messageType,
+  voiceUrl,
+  voiceDurationMs,
+  mediaUrl,
+  mediaType,
+}: {
+  senderId: string;
+  receiverId: string;
+  content: string;
+  messageType: string;
+  voiceUrl?: string;
+  voiceDurationMs?: number;
+  mediaUrl?: string;
+  mediaType?: string;
+}): Message {
+  return {
+    id: `local_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    senderId,
+    receiverId,
+    content,
+    messageType,
+    voiceUrl,
+    voiceDurationMs,
+    mediaUrl,
+    mediaType,
+    read: false,
+    createdAt: new Date().toISOString(),
+  } as Message;
+}
+
+function mergeMessages(existing: Message[], incoming: Message[]) {
+  const map = new Map<string, Message>();
+
+  [...existing, ...incoming].forEach((message) => {
+    map.set(message.id, {
+      ...(map.get(message.id) ?? {}),
+      ...message,
+    } as Message);
+  });
+
+  return Array.from(map.values()).sort(
+    (a, b) => getMessageTime(a) - getMessageTime(b),
+  );
+}
+
+function replaceLocalMessage(
+  messages: Message[],
+  localId: string,
+  createdMessage: Message,
+) {
+  return [
+    ...messages.filter(
+      (message) => message.id !== localId && message.id !== createdMessage.id,
+    ),
+    createdMessage,
+  ].sort((a, b) => getMessageTime(a) - getMessageTime(b));
 }
 
 function applyReadReceiptsFromPartnerActivity(
@@ -489,11 +722,24 @@ export default function Chat() {
   const [recordingMs, setRecordingMs] = useState<number>(0);
   const [chatThemeKey, setChatThemeKey] = useState<ChatThemeKey>("premium");
   const [themeModalOpen, setThemeModalOpen] = useState<boolean>(false);
+  const [recordingLocked, setRecordingLocked] = useState<boolean>(false);
+  const [mediaSending, setMediaSending] = useState<boolean>(false);
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [actionMenuVisible, setActionMenuVisible] = useState<boolean>(false);
 
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<FlatList<ChatListItem>>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const presencePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const recordingRef = useRef<boolean>(false);
+  const recordingLockedRef = useRef<boolean>(false);
+  const recordingStartedAtRef = useRef<number>(0);
+  const recordingTouchActiveRef = useRef<boolean>(false);
   const sendingRef = useRef<boolean>(false);
   const voiceSendingRef = useRef<boolean>(false);
   const readMarkingRef = useRef<boolean>(false);
@@ -508,9 +754,7 @@ export default function Chat() {
   );
 
   const userId = user?.id;
-
   const screenOptions = useMemo(() => ({ headerShown: false }), []);
-
   const partner = db?.users.find((u) => u.id === id);
 
   useEffect(() => {
@@ -534,6 +778,10 @@ export default function Chat() {
   }, [voiceSending]);
 
   useEffect(() => {
+    recordingLockedRef.current = recordingLocked;
+  }, [recordingLocked]);
+
+  useEffect(() => {
     refreshFromBackendRef.current = refreshFromBackend;
   }, [refreshFromBackend]);
 
@@ -542,13 +790,14 @@ export default function Chat() {
 
     return db.messages
       .filter((m) => isConversationMessage(m, userId, id))
+      .filter((m) => !hiddenMessageIds.has(m.id))
       .slice()
       .sort((a, b) => getMessageTime(a) - getMessageTime(b));
-  }, [db, userId, id]);
+  }, [db, userId, id, hiddenMessageIds]);
 
   const chatItems = useMemo(
-    () => buildChatItems(thread, texts),
-    [thread, texts],
+    () => buildChatItems(thread, texts, lang),
+    [thread, texts, lang],
   );
 
   const lastPartnerActivity = useMemo(() => {
@@ -566,18 +815,18 @@ export default function Chat() {
     const online = Boolean(partner?.isOnline);
     const label = online
       ? texts.onlineNow
-      : formatLastSeen(lastPartnerActivity, texts);
+      : formatLastSeen(lastPartnerActivity, texts, lang);
 
     return {
       online,
       label,
     };
-  }, [partner?.isOnline, lastPartnerActivity, texts]);
+  }, [partner?.isOnline, lastPartnerActivity, texts, lang]);
 
-  const scrollToBottom = useCallback((animated = true) => {
+  const scrollToBottom = useCallback((animated = true, delay = 40) => {
     setTimeout(() => {
       listRef.current?.scrollToEnd({ animated });
-    }, 90);
+    }, delay);
   }, []);
 
   const loadConversation = useCallback(
@@ -600,12 +849,17 @@ export default function Chat() {
           );
 
         update((d) => {
+          const otherMessages = d.messages.filter(
+            (message: Message) => !isConversationMessage(message, userId, id),
+          );
+
+          const currentConversation = d.messages.filter((message: Message) =>
+            isConversationMessage(message, userId, id),
+          );
+
           const mergedMessages = [
-            ...d.messages.filter(
-              (message: Message) =>
-                !isConversationMessage(message, userId, id),
-            ),
-            ...backendMessages,
+            ...otherMessages,
+            ...mergeMessages(currentConversation, backendMessages),
           ];
 
           return {
@@ -701,15 +955,9 @@ export default function Chat() {
       if (Platform.OS === "web") return;
 
       try {
-        const status = await AudioModule.requestRecordingPermissionsAsync();
-
-        if (!status.granted) {
-          console.log("[chat] mic permission denied");
-        }
-
         await setAudioModeAsync({
           playsInSilentMode: true,
-          allowsRecording: true,
+          allowsRecording: false,
         });
       } catch (e) {
         console.log("[chat] audio init err", e);
@@ -731,8 +979,33 @@ export default function Chat() {
         clearInterval(presencePollingRef.current);
         presencePollingRef.current = null;
       }
+
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      scrollToBottom(true, Platform.OS === "ios" ? 60 : 90);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      scrollToBottom(true, 60);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollToBottom]);
 
   useEffect(() => {
     if (!id || !userId || !token) return;
@@ -747,7 +1020,7 @@ export default function Chat() {
 
     pollingRef.current = setInterval(() => {
       loadConversation(true);
-    }, 1500);
+    }, wsConnected ? 9000 : 2400);
 
     if (presencePollingRef.current) {
       clearInterval(presencePollingRef.current);
@@ -755,7 +1028,7 @@ export default function Chat() {
 
     presencePollingRef.current = setInterval(() => {
       refreshFromBackendRef.current();
-    }, 5000);
+    }, 6000);
 
     return () => {
       if (pollingRef.current) {
@@ -775,7 +1048,121 @@ export default function Chat() {
     markConversationRead,
     loadConversation,
     scrollToBottom,
+    wsConnected,
   ]);
+
+  useEffect(() => {
+    if (!id || !userId || !token) return;
+
+    const wsUrl = getWebSocketUrl(String(id), token);
+
+    if (!wsUrl) {
+      setWsConnected(false);
+      return;
+    }
+
+    let closedByEffect = false;
+
+    try {
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        if (closedByEffect) return;
+        setWsConnected(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(String(event.data));
+
+          if (payload?.type === "message_deleted") {
+            const messageId = String(payload.messageId ?? payload.message_id ?? "");
+
+            if (messageId) {
+              update((d) => ({
+                ...d,
+                messages: d.messages.filter(
+                  (message: Message) => message.id !== messageId,
+                ),
+              }));
+            }
+
+            return;
+          }
+
+          const incomingMessages = Array.isArray(payload?.messages)
+            ? payload.messages
+            : payload?.message
+              ? [payload.message]
+              : payload?.id
+                ? [payload]
+                : arr(payload);
+
+          const normalizedMessages: Message[] = incomingMessages
+            .map(normalizeMessage)
+            .filter((message: Message) =>
+              isConversationMessage(message, userId, String(id)),
+            );
+
+          if (normalizedMessages.length === 0) return;
+
+          update((d) => {
+            const otherMessages = d.messages.filter(
+              (message: Message) =>
+                !isConversationMessage(message, userId, String(id)),
+            );
+
+            const currentConversation = d.messages.filter((message: Message) =>
+              isConversationMessage(message, userId, String(id)),
+            );
+
+            return {
+              ...d,
+              messages: [
+                ...otherMessages,
+                ...mergeMessages(currentConversation, normalizedMessages),
+              ],
+            };
+          });
+
+          const hasIncomingFromPartner = normalizedMessages.some(
+            (message) => message.senderId === String(id),
+          );
+
+          if (hasIncomingFromPartner) {
+            markConversationRead();
+          }
+
+          scrollToBottom(true);
+        } catch (error) {
+          console.log("[chat] websocket message parse error", error);
+        }
+      };
+
+      socket.onerror = (error) => {
+        console.log("[chat] websocket error", error);
+      };
+
+      socket.onclose = () => {
+        if (closedByEffect) return;
+        setWsConnected(false);
+      };
+    } catch (error) {
+      console.log("[chat] websocket init error", error);
+      setWsConnected(false);
+    }
+
+    return () => {
+      closedByEffect = true;
+      setWsConnected(false);
+
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [id, userId, token, update, markConversationRead, scrollToBottom]);
 
   useEffect(() => {
     if (!id || !userId || !token) return;
@@ -798,25 +1185,25 @@ export default function Chat() {
   }, [chatItems.length, scrollToBottom]);
 
   const openPartnerProfile = () => {
-  if (!id || !user) return;
+    if (!id || !user) return;
 
-  const partnerId = String(id);
+    const partnerId = String(id);
 
-  if (user.role === "coach") {
-    router.push({
-      pathname: "/client/[id]",
-      params: { id: partnerId },
-    } as any);
-    return;
-  }
+    if (user.role === "coach") {
+      router.push({
+        pathname: "/client/[id]",
+        params: { id: partnerId },
+      } as any);
+      return;
+    }
 
-  if (user.role === "client") {
-    router.push({
-      pathname: "/coach/[id]",
-      params: { id: partnerId },
-    } as any);
-  }
-};
+    if (user.role === "client") {
+      router.push({
+        pathname: "/coach/[id]",
+        params: { id: partnerId },
+      } as any);
+    }
+  };
 
   const saveTheme = async (key: ChatThemeKey) => {
     setChatThemeKey(key);
@@ -833,9 +1220,23 @@ export default function Chat() {
 
     if (!content || !userId || !id || !token || sendingRef.current) return;
 
+    const localMessage = makeLocalMessage({
+      senderId: userId,
+      receiverId: String(id),
+      content,
+      messageType: "text",
+    });
+
     sendingRef.current = true;
     setText("");
     setSending(true);
+
+    update((d) => ({
+      ...d,
+      messages: [...d.messages, localMessage],
+    }));
+
+    scrollToBottom(true);
 
     try {
       const created = await apiPost(
@@ -853,19 +1254,28 @@ export default function Chat() {
       if (createdMessage) {
         update((d) => ({
           ...d,
-          messages: [
-            ...d.messages.filter(
-              (message: Message) => message.id !== createdMessage.id,
-            ),
+          messages: replaceLocalMessage(
+            d.messages,
+            localMessage.id,
             createdMessage,
-          ],
+          ),
         }));
       }
 
-      await loadConversation(false);
+      if (!wsConnected) {
+        await loadConversation(false);
+      }
+
       scrollToBottom(true);
     } catch (e) {
       console.log("[chat] send message err", e);
+
+      update((d) => ({
+        ...d,
+        messages: d.messages.filter(
+          (message: Message) => message.id !== localMessage.id,
+        ),
+      }));
 
       setText(content);
       Alert.alert(texts.messageErrorTitle, texts.messageSendError);
@@ -875,25 +1285,241 @@ export default function Chat() {
     }
   };
 
-  const startRecord = async () => {
-    if (Platform.OS === "web") {
-      Alert.alert(t("messages.voiceWebUnsupported"));
-      return;
-    }
+  const closeActionMenu = () => {
+    setActionMenuVisible(false);
+    setTimeout(() => {
+      setSelectedMessage(null);
+    }, 180);
+  };
 
-    if (voiceSendingRef.current) return;
+  const deleteForMe = (message: Message) => {
+    setHiddenMessageIds((prev) => {
+      const next = new Set(prev);
+      next.add(message.id);
+      return next;
+    });
+
+    update((d) => ({
+      ...d,
+      messages: d.messages.filter((item: Message) => item.id !== message.id),
+    }));
+
+    closeActionMenu();
+  };
+
+  const deleteForEveryone = async (message: Message) => {
+    if (!userId || !id || !token) return;
+
+    closeActionMenu();
+
+    update((d) => ({
+      ...d,
+      messages: d.messages.filter((item: Message) => item.id !== message.id),
+    }));
 
     try {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "delete_message",
+            messageId: message.id,
+            message_id: message.id,
+          }),
+        );
+      }
+
+      await apiDelete(`/messages/${message.id}`, { token });
+    } catch (e) {
+      console.log("[chat] delete message error", e);
+
+      try {
+        await apiPost(`/messages/${message.id}/delete`, {}, { token });
+      } catch (fallbackError) {
+        console.log("[chat] delete message fallback error", fallbackError);
+      }
+    }
+  };
+
+  const openActionMenu = (message: Message) => {
+    setSelectedMessage(message);
+    setActionMenuVisible(true);
+  };
+
+  const sendMedia = async () => {
+    if (!userId || !id || !token || mediaSending) return;
+
+    try {
+      setMediaSending(true);
+
+      const currentPermission =
+        await ImagePicker.getMediaLibraryPermissionsAsync();
+
+      const permission = currentPermission.granted
+        ? currentPermission
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(texts.mediaErrorTitle, texts.mediaPermissionMessage);
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images", "videos"] as any,
+        allowsEditing: false,
+        quality: 0.9,
+        videoMaxDuration: 120,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const mimeType = String(asset.mimeType ?? "").toLowerCase();
+      const isVideo = asset.type === "video" || mimeType.startsWith("video");
+
+      const uploadRes = await apiUploadFile(
+        isVideo ? "/uploads/video" : "/uploads/image",
+        asset.uri,
+        "file",
+        {
+          token,
+          mimeType:
+            asset.mimeType ??
+            (isVideo ? "video/mp4" : "image/jpeg"),
+          fileName:
+            asset.fileName ??
+            `chat_${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+        },
+      );
+
+      const uploadedUrl =
+        uploadRes.mediaUrl ??
+        uploadRes.media_url ??
+        uploadRes.imageUrl ??
+        uploadRes.image_url ??
+        uploadRes.videoUrl ??
+        uploadRes.video_url ??
+        uploadRes.url;
+
+      if (!uploadedUrl) {
+        throw new Error("Backend did not return media URL.");
+      }
+
+      const localMessage = makeLocalMessage({
+        senderId: userId,
+        receiverId: String(id),
+        content: isVideo ? texts.videoMessage : texts.photoMessage,
+        messageType: isVideo ? "video" : "image",
+        mediaUrl: uploadedUrl,
+        mediaType: isVideo ? "video" : "image",
+      });
+
+      update((d) => ({
+        ...d,
+        messages: [...d.messages, localMessage],
+      }));
+
+      scrollToBottom(true);
+
+      const created = await apiPost(
+        "/messages",
+        {
+          receiver_id: id,
+          content: isVideo ? texts.videoMessage : texts.photoMessage,
+          message_type: isVideo ? "video" : "image",
+          media_url: uploadedUrl,
+          media_type: isVideo ? "video" : "image",
+        },
+        { token },
+      );
+
+      const createdMessage = created?.id ? normalizeMessage(created) : null;
+
+      if (createdMessage) {
+        update((d) => ({
+          ...d,
+          messages: replaceLocalMessage(
+            d.messages,
+            localMessage.id,
+            createdMessage,
+          ),
+        }));
+      }
+
+      if (!wsConnected) {
+        await loadConversation(false);
+      }
+
+      scrollToBottom(true);
+    } catch (e: any) {
+      console.log("[chat] send media err", e);
+      Alert.alert(texts.mediaErrorTitle, e?.message || texts.mediaSendError);
+    } finally {
+      setMediaSending(false);
+    }
+  };
+
+  const ensureMicPermission = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert(t("messages.voiceWebUnsupported"));
+      return false;
+    }
+
+    const status = await AudioModule.requestRecordingPermissionsAsync();
+
+    if (!status.granted) {
+      Alert.alert(texts.voiceErrorTitle, texts.voiceStartError);
+      return false;
+    }
+
+    return true;
+  };
+
+  const startRecord = async () => {
+    if (voiceSendingRef.current || recordingRef.current) return;
+
+    try {
+      const granted = await ensureMicPermission();
+
+      if (!granted) return;
+
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: true,
+      });
+
       await recorder.prepareToRecordAsync();
       recorder.record();
 
+      recordingRef.current = true;
+      recordingLockedRef.current = false;
+      recordingStartedAtRef.current = Date.now();
+
+      setRecordingLocked(false);
       setRecordingMs(0);
 
+      if (recordTimer.current) {
+        clearInterval(recordTimer.current);
+      }
+
       recordTimer.current = setInterval(() => {
-        setRecordingMs((m) => m + 100);
+        setRecordingMs(Math.max(0, Date.now() - recordingStartedAtRef.current));
       }, 100);
     } catch (e) {
       console.log("[chat] start record err", e);
+
+      recordingRef.current = false;
+      recordingLockedRef.current = false;
+      setRecordingLocked(false);
+      setRecordingMs(0);
+
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          allowsRecording: false,
+        });
+      } catch {}
 
       Alert.alert(texts.voiceErrorTitle, texts.voiceStartError);
     }
@@ -907,16 +1533,48 @@ export default function Chat() {
 
       recordTimer.current = null;
 
-      await recorder.stop();
+      if (recordingRef.current || recState.isRecording) {
+        await recorder.stop();
+      }
 
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
+
+      recordingRef.current = false;
+      recordingLockedRef.current = false;
+      recordingTouchActiveRef.current = false;
+      recordingStartedAtRef.current = 0;
+
+      setRecordingLocked(false);
       setRecordingMs(0);
     } catch (e) {
       console.log("[chat] cancel record err", e);
+
+      recordingRef.current = false;
+      recordingLockedRef.current = false;
+      recordingTouchActiveRef.current = false;
+      setRecordingLocked(false);
+      setRecordingMs(0);
     }
   };
 
   const stopAndSend = async () => {
     if (!userId || !id || !token || voiceSendingRef.current) return;
+    if (!recordingRef.current && !recState.isRecording) return;
+
+    const finalDuration =
+      recordingMs > 0
+        ? recordingMs
+        : recordingStartedAtRef.current > 0
+          ? Date.now() - recordingStartedAtRef.current
+          : 0;
+
+    if (finalDuration < 850) {
+      await cancelRecord();
+      return;
+    }
 
     try {
       if (recordTimer.current) {
@@ -927,8 +1585,20 @@ export default function Chat() {
 
       await recorder.stop();
 
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
+
+      recordingRef.current = false;
+      recordingLockedRef.current = false;
+      recordingTouchActiveRef.current = false;
+      recordingStartedAtRef.current = 0;
+
+      setRecordingLocked(false);
+
       const uri = recorder.uri;
-      const duration = recordingMs;
+      const duration = finalDuration;
 
       setRecordingMs(0);
 
@@ -939,13 +1609,32 @@ export default function Chat() {
 
       const uploadRes = await apiUploadFile("/uploads/voice", uri, "file", {
         token,
+        mimeType: "audio/mp4",
+        fileName: `voice_${Date.now()}.m4a`,
       });
 
-      const uploadedVoiceUrl = uploadRes.voiceUrl ?? uploadRes.voice_url;
+      const uploadedVoiceUrl =
+        uploadRes.voiceUrl ?? uploadRes.voice_url ?? uploadRes.url;
 
       if (!uploadedVoiceUrl) {
         throw new Error("Backend did not return voice URL.");
       }
+
+      const localMessage = makeLocalMessage({
+        senderId: userId,
+        receiverId: String(id),
+        content: t("messages.voiceMessage"),
+        messageType: "voice",
+        voiceUrl: uploadedVoiceUrl,
+        voiceDurationMs: duration,
+      });
+
+      update((d) => ({
+        ...d,
+        messages: [...d.messages, localMessage],
+      }));
+
+      scrollToBottom(true);
 
       const created = await apiPost(
         "/messages",
@@ -964,35 +1653,91 @@ export default function Chat() {
       if (createdMessage) {
         update((d) => ({
           ...d,
-          messages: [
-            ...d.messages.filter(
-              (message: Message) => message.id !== createdMessage.id,
-            ),
+          messages: replaceLocalMessage(
+            d.messages,
+            localMessage.id,
             createdMessage,
-          ],
+          ),
         }));
       }
 
-      await loadConversation(false);
+      if (!wsConnected) {
+        await loadConversation(false);
+      }
+
       scrollToBottom(true);
     } catch (e: any) {
       console.log("[chat] stop/send voice err", e);
+
+      recordingRef.current = false;
+      recordingLockedRef.current = false;
+      recordingTouchActiveRef.current = false;
+      setRecordingLocked(false);
+      setRecordingMs(0);
 
       Alert.alert(texts.voiceErrorTitle, e?.message || texts.voiceSendError);
     } finally {
       voiceSendingRef.current = false;
       setVoiceSending(false);
+
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          allowsRecording: false,
+        });
+      } catch {}
     }
   };
 
-  const isRecording = recState.isRecording;
+  const micPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !voiceSendingRef.current,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          recordingTouchActiveRef.current = true;
+          startRecord();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy < -52 && recordingRef.current) {
+            recordingLockedRef.current = true;
+            setRecordingLocked(true);
+          }
+        },
+        onPanResponderRelease: () => {
+          recordingTouchActiveRef.current = false;
+
+          if (!recordingRef.current) return;
+
+          if (recordingLockedRef.current) {
+            return;
+          }
+
+          stopAndSend();
+        },
+        onPanResponderTerminate: () => {
+          recordingTouchActiveRef.current = false;
+
+          if (!recordingRef.current) return;
+
+          if (recordingLockedRef.current) {
+            return;
+          }
+
+          cancelRecord();
+        },
+      }),
+    [startRecord, stopAndSend, cancelRecord],
+  );
+
+  const isRecording = recState.isRecording || recordingRef.current;
   const canSendText = text.trim().length > 0 && !sending;
   const bottomPadding = Math.max(insets.bottom, 10);
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: chatTheme.background }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
     >
       <Stack.Screen options={screenOptions} />
@@ -1001,26 +1746,38 @@ export default function Chat() {
         <View
           style={{
             position: "absolute",
-            top: 0,
-            left: -95,
-            width: 250,
-            height: 250,
-            borderRadius: 125,
+            top: -70,
+            left: -110,
+            width: 260,
+            height: 260,
+            borderRadius: 130,
             backgroundColor: chatTheme.shadow,
-            opacity: 0.3,
+            opacity: 0.35,
           }}
         />
 
         <View
           style={{
             position: "absolute",
-            top: 180,
-            right: -120,
+            top: 170,
+            right: -130,
+            width: 310,
+            height: 310,
+            borderRadius: 155,
+            backgroundColor: chatTheme.accentSoft,
+            opacity: 0.95,
+          }}
+        />
+
+        <View
+          style={{
+            position: "absolute",
+            bottom: 70,
+            left: -150,
             width: 280,
             height: 280,
             borderRadius: 140,
-            backgroundColor: chatTheme.accentSoft,
-            opacity: 0.95,
+            backgroundColor: "rgba(255,255,255,0.045)",
           }}
         />
 
@@ -1122,7 +1879,7 @@ export default function Chat() {
                     }
                     numberOfLines={1}
                   >
-                    {presence.label}
+                    {wsConnected ? texts.connected : presence.label}
                   </AppText>
                 </View>
               </View>
@@ -1153,10 +1910,10 @@ export default function Chat() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: 16,
-            gap: 8,
+            paddingHorizontal: 14,
+            paddingTop: 18,
+            paddingBottom: 18,
+            gap: 9,
             flexGrow: 1,
             justifyContent: chatItems.length === 0 ? "center" : "flex-end",
           }}
@@ -1178,6 +1935,8 @@ export default function Chat() {
                 mine={mine}
                 chatTheme={chatTheme}
                 texts={texts}
+                lang={lang}
+                onOpenActions={openActionMenu}
               />
             );
           }}
@@ -1235,6 +1994,11 @@ export default function Chat() {
             <RecordingComposer
               recordingMs={recordingMs}
               voiceSending={voiceSending}
+              locked={recordingLocked}
+              onLock={() => {
+                recordingLockedRef.current = true;
+                setRecordingLocked(true);
+              }}
               onCancel={cancelRecord}
               onSend={stopAndSend}
               chatTheme={chatTheme}
@@ -1248,6 +2012,26 @@ export default function Chat() {
                 gap: 8,
               }}
             >
+              <Pressable
+                onPress={sendMedia}
+                disabled={mediaSending || voiceSending || sending}
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: 23,
+                  backgroundColor: mediaSending
+                    ? "rgba(255,255,255,0.22)"
+                    : chatTheme.surfaceSoft,
+                  borderWidth: 1,
+                  borderColor: chatTheme.border,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: mediaSending ? 0.65 : 1,
+                }}
+              >
+                <Paperclip color="#fff" size={18} />
+              </Pressable>
+
               <View
                 style={{
                   flex: 1,
@@ -1279,7 +2063,7 @@ export default function Chat() {
                   autoCorrect
                   returnKeyType="default"
                   submitBehavior="newline"
-                  onFocus={() => scrollToBottom(true)}
+                  onFocus={() => scrollToBottom(true, 90)}
                 />
               </View>
 
@@ -1308,7 +2092,7 @@ export default function Chat() {
                 </Pressable>
               ) : (
                 <Pressable
-                  onPress={startRecord}
+                  {...micPanResponder.panHandlers}
                   disabled={voiceSending}
                   style={{
                     width: 46,
@@ -1344,6 +2128,17 @@ export default function Chat() {
             saveTheme(key);
             setThemeModalOpen(false);
           }}
+        />
+
+        <MessageActionMenu
+          visible={actionMenuVisible}
+          message={selectedMessage}
+          chatTheme={chatTheme}
+          texts={texts}
+          mine={selectedMessage?.senderId === userId}
+          onClose={closeActionMenu}
+          onDeleteForMe={(message) => deleteForMe(message)}
+          onDeleteForEveryone={(message) => deleteForEveryone(message)}
         />
       </View>
     </KeyboardAvoidingView>
@@ -1446,9 +2241,222 @@ function ThemeModal({
   );
 }
 
+function MessageActionMenu({
+  visible,
+  message,
+  chatTheme,
+  texts,
+  mine,
+  onClose,
+  onDeleteForMe,
+  onDeleteForEveryone,
+}: {
+  visible: boolean;
+  message: Message | null;
+  chatTheme: ChatThemePreset;
+  texts: ChatTexts;
+  mine: boolean;
+  onClose: () => void;
+  onDeleteForMe: (message: Message) => void;
+  onDeleteForEveryone: (message: Message) => void;
+}) {
+  if (!message) {
+    return null;
+  }
+
+  const reactions = ["💙", "👍", "👀", "😂", "🔥", "❤️"];
+
+  const itemStyle = {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.38)",
+          justifyContent: "center",
+          alignItems: mine ? "flex-end" : "flex-start",
+          paddingHorizontal: 22,
+        }}
+      >
+        <Pressable
+          onPress={(event) => event.stopPropagation()}
+          style={{
+            width: 286,
+            gap: 10,
+          }}
+        >
+          <View
+            style={{
+              alignSelf: mine ? "flex-end" : "flex-start",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: 999,
+              backgroundColor: "rgba(17,24,39,0.96)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.12)",
+            }}
+          >
+            {reactions.map((reaction) => (
+              <Pressable
+                key={reaction}
+                onPress={onClose}
+                style={{
+                  width: 28,
+                  height: 28,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <AppText variant="h3">{reaction}</AppText>
+              </Pressable>
+            ))}
+          </View>
+
+          <View
+            style={{
+              borderRadius: 28,
+              backgroundColor: "rgba(17,24,39,0.98)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.12)",
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: 0.35,
+              shadowRadius: 22,
+              shadowOffset: { width: 0, height: 12 },
+              elevation: 14,
+            }}
+          >
+            <MenuRow
+              icon={<Reply color="#F9FAFB" size={22} />}
+              label={texts.reply}
+              onPress={onClose}
+              style={itemStyle}
+            />
+
+            <MenuRow
+              icon={<Copy color="#F9FAFB" size={22} />}
+              label={texts.copy}
+              onPress={onClose}
+              style={itemStyle}
+            />
+
+            <MenuRow
+              icon={<MessageCircle color="#F9FAFB" size={22} />}
+              label={texts.speak}
+              onPress={onClose}
+              style={itemStyle}
+            />
+
+            <MenuRow
+              icon={<Pin color="#F9FAFB" size={22} />}
+              label={texts.pin}
+              onPress={onClose}
+              style={itemStyle}
+            />
+
+            <View
+              style={{
+                height: 1,
+                backgroundColor: "rgba(255,255,255,0.09)",
+                marginHorizontal: 16,
+              }}
+            />
+
+            <MenuRow
+              icon={<Trash2 color="#FF5E57" size={22} />}
+              label={texts.deleteForMe}
+              color="#FF5E57"
+              onPress={() => onDeleteForMe(message)}
+              style={itemStyle}
+            />
+
+            {mine ? (
+              <MenuRow
+                icon={<Trash2 color="#FF3B30" size={22} />}
+                label={texts.deleteForEveryone}
+                color="#FF3B30"
+                onPress={() => onDeleteForEveryone(message)}
+                style={itemStyle}
+              />
+            ) : null}
+
+            <View
+              style={{
+                height: 1,
+                backgroundColor: "rgba(255,255,255,0.09)",
+                marginHorizontal: 16,
+              }}
+            />
+
+            <MenuRow
+              icon={<Check color={chatTheme.accent} size={22} />}
+              label={texts.select}
+              color="#F9FAFB"
+              onPress={onClose}
+              style={itemStyle}
+            />
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function MenuRow({
+  icon,
+  label,
+  color = "#F9FAFB",
+  onPress,
+  style,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  color?: string;
+  onPress: () => void;
+  style: any;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        style,
+        {
+          backgroundColor: pressed ? "rgba(255,255,255,0.08)" : "transparent",
+        },
+      ]}
+    >
+      <View style={{ width: 30, alignItems: "center" }}>{icon}</View>
+
+      <AppText
+        variant="body"
+        color={color}
+        style={{
+          fontSize: 18,
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </AppText>
+    </Pressable>
+  );
+}
+
 function RecordingComposer({
   recordingMs,
   voiceSending,
+  locked,
+  onLock,
   onCancel,
   onSend,
   chatTheme,
@@ -1456,71 +2464,115 @@ function RecordingComposer({
 }: {
   recordingMs: number;
   voiceSending: boolean;
+  locked: boolean;
+  onLock: () => void;
   onCancel: () => void;
   onSend: () => void;
   chatTheme: ChatThemePreset;
   texts: ChatTexts;
 }) {
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-      }}
-    >
+    <View style={{ gap: 10 }}>
       <View
         style={{
-          width: 12,
-          height: 12,
-          borderRadius: 6,
-          backgroundColor: "#FF4D4D",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 4,
         }}
-      />
+      >
+        <View
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: 6,
+            backgroundColor: "#FF4D4D",
+          }}
+        />
 
-      <View style={{ flex: 1 }}>
-        <AppText variant="bodyStrong" color="#fff">
-          {texts.recording}
-        </AppText>
+        <View style={{ flex: 1 }}>
+          <AppText variant="bodyStrong" color="#fff">
+            {locked ? texts.lockedRecording : texts.recording}
+          </AppText>
 
-        <AppText variant="caption" color="rgba(255,255,255,0.65)">
-          {fmtDur(recordingMs)}
-        </AppText>
+          <AppText variant="caption" color="rgba(255,255,255,0.65)">
+            {fmtDur(recordingMs)} · {locked ? texts.cancelRecording : texts.releaseToSend}
+          </AppText>
+        </View>
+
+        {!locked ? (
+          <Pressable
+            onPress={onLock}
+            disabled={voiceSending}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              backgroundColor: chatTheme.accentSoft,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: voiceSending ? 0.5 : 1,
+            }}
+          >
+            <ArrowUp color={chatTheme.accent} size={18} />
+          </Pressable>
+        ) : (
+          <View
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              backgroundColor: chatTheme.accentSoft,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Lock color={chatTheme.accent} size={18} />
+          </View>
+        )}
+
+        <Pressable
+          onPress={onCancel}
+          disabled={voiceSending}
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            backgroundColor: chatTheme.surfaceSoft,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: voiceSending ? 0.5 : 1,
+          }}
+        >
+          <X color="#fff" size={18} />
+        </Pressable>
+
+        <Pressable
+          onPress={onSend}
+          disabled={voiceSending}
+          style={{
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            backgroundColor: voiceSending
+              ? "rgba(255,255,255,0.22)"
+              : chatTheme.mine,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: voiceSending ? 0.65 : 1,
+          }}
+        >
+          <Send color={chatTheme.mineText} size={18} />
+        </Pressable>
       </View>
 
-      <Pressable
-        onPress={onCancel}
-        disabled={voiceSending}
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 21,
-          backgroundColor: chatTheme.surfaceSoft,
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: voiceSending ? 0.5 : 1,
-        }}
+      <AppText
+        variant="caption"
+        color="rgba(255,255,255,0.58)"
+        style={{ textAlign: "center" }}
       >
-        <X color="#fff" size={18} />
-      </Pressable>
-
-      <Pressable
-        onPress={onSend}
-        disabled={voiceSending}
-        style={{
-          width: 46,
-          height: 46,
-          borderRadius: 23,
-          backgroundColor: voiceSending
-            ? "rgba(255,255,255,0.22)"
-            : chatTheme.mine,
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: voiceSending ? 0.65 : 1,
-        }}
-      >
-        <Send color={chatTheme.mineText} size={18} />
-      </Pressable>
+        {texts.swipeUpToLock}
+      </AppText>
     </View>
   );
 }
@@ -1595,29 +2647,40 @@ function MessageBubble({
   mine,
   chatTheme,
   texts,
+  lang,
+  onOpenActions,
 }: {
   msg: Message;
   mine: boolean;
   chatTheme: ChatThemePreset;
   texts: ChatTexts;
+  lang?: string;
+  onOpenActions: (message: Message) => void;
 }) {
-  const isVoice = msg.messageType === "voice";
+  const messageType = String((msg as any).messageType ?? "").toLowerCase();
+  const isVoice = messageType === "voice";
+  const isImage = messageType === "image";
+  const isVideo = messageType === "video";
+  const mediaUrl = (msg as any).mediaUrl ?? (msg as any).media_url;
+  const absoluteMediaUrl = mediaUrl ? toAbsoluteUrl(mediaUrl) ?? mediaUrl : "";
 
   return (
-    <View
+    <Pressable
+      onLongPress={() => onOpenActions(msg)}
+      delayLongPress={360}
       style={{
         alignSelf: mine ? "flex-end" : "flex-start",
-        maxWidth: "82%",
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 20,
-        borderBottomRightRadius: mine ? 5 : 20,
-        borderBottomLeftRadius: mine ? 20 : 5,
+        maxWidth: "84%",
+        paddingVertical: isImage || isVideo ? 7 : 10,
+        paddingHorizontal: isImage || isVideo ? 7 : 14,
+        borderRadius: 22,
+        borderBottomRightRadius: mine ? 7 : 22,
+        borderBottomLeftRadius: mine ? 22 : 7,
         backgroundColor: mine ? chatTheme.mine : chatTheme.partner,
         borderWidth: mine ? 0 : 1,
         borderColor: chatTheme.border,
         shadowColor: mine ? chatTheme.mine : "#000",
-        shadowOpacity: mine ? 0.22 : 0.12,
+        shadowOpacity: mine ? 0.2 : 0.16,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 5 },
         elevation: mine ? 4 : 2,
@@ -1625,6 +2688,78 @@ function MessageBubble({
     >
       {isVoice ? (
         <VoicePlayer msg={msg} mine={mine} chatTheme={chatTheme} />
+      ) : isImage && absoluteMediaUrl ? (
+        <View style={{ gap: 8 }}>
+          <Image
+            source={{ uri: absoluteMediaUrl }}
+            style={{
+              width: 232,
+              height: 270,
+              borderRadius: 18,
+              backgroundColor: "rgba(255,255,255,0.12)",
+            }}
+            contentFit="cover"
+            transition={180}
+          />
+
+          {msg.content ? (
+            <AppText
+              variant="body"
+              color={mine ? chatTheme.mineText : chatTheme.partnerText}
+              style={{ lineHeight: 21, paddingHorizontal: 4 }}
+            >
+              {msg.content}
+            </AppText>
+          ) : null}
+        </View>
+      ) : isVideo && absoluteMediaUrl ? (
+        <Pressable
+          onPress={() => Linking.openURL(absoluteMediaUrl)}
+          style={{
+            width: 232,
+            minHeight: 132,
+            borderRadius: 18,
+            padding: 14,
+            backgroundColor: "rgba(0,0,0,0.22)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.16)",
+            gap: 8,
+          }}
+        >
+          <View
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: mine
+                ? "rgba(255,255,255,0.24)"
+                : chatTheme.surfaceSoft,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Play
+              size={18}
+              color={mine ? chatTheme.mineText : chatTheme.partnerText}
+              fill={mine ? chatTheme.mineText : chatTheme.partnerText}
+            />
+          </View>
+
+          <AppText
+            variant="bodyStrong"
+            color={mine ? chatTheme.mineText : chatTheme.partnerText}
+          >
+            {texts.videoMessage}
+          </AppText>
+
+          <AppText
+            variant="caption"
+            color={mine ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.58)"}
+            numberOfLines={2}
+          >
+            {absoluteMediaUrl}
+          </AppText>
+        </Pressable>
       ) : (
         <AppText
           variant="body"
@@ -1646,11 +2781,12 @@ function MessageBubble({
       >
         <AppText
           variant="caption"
-          color={mine ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.55)"}
+          color={mine ? "rgba(0,0,0,0.48)" : "rgba(255,255,255,0.55)"}
         >
-          {new Date(msg.createdAt).toLocaleTimeString([], {
+          {new Date(msg.createdAt).toLocaleTimeString(getLocale(lang), {
             hour: "2-digit",
             minute: "2-digit",
+            hour12: false,
           })}
         </AppText>
 
@@ -1658,7 +2794,7 @@ function MessageBubble({
           <MessageStatus msg={msg} chatTheme={chatTheme} texts={texts} />
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1689,21 +2825,31 @@ function VoicePlayer({
 
   const fg = mine ? chatTheme.mineText : chatTheme.partnerText;
 
-  const toggle = () => {
+  const toggle = async () => {
     if (!source) return;
 
     if (playing) {
       player.pause();
-    } else {
-      if (
-        (status?.currentTime ?? 0) >= (status?.duration ?? 0) - 0.1 &&
-        status?.duration
-      ) {
-        player.seekTo(0);
-      }
-
-      player.play();
+      return;
     }
+
+    try {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
+    } catch (error) {
+      console.log("[chat] playback audio mode error", error);
+    }
+
+    if (
+      (status?.currentTime ?? 0) >= (status?.duration ?? 0) - 0.1 &&
+      status?.duration
+    ) {
+      player.seekTo(0);
+    }
+
+    player.play();
   };
 
   return (
@@ -1712,16 +2858,16 @@ function VoicePlayer({
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
-        minWidth: 180,
+        minWidth: 184,
       }}
     >
       <Pressable
         onPress={toggle}
         disabled={!source}
         style={{
-          width: 32,
-          height: 32,
-          borderRadius: 16,
+          width: 34,
+          height: 34,
+          borderRadius: 17,
           backgroundColor: mine
             ? "rgba(255,255,255,0.24)"
             : chatTheme.surfaceSoft,
@@ -1746,9 +2892,9 @@ function VoicePlayer({
             height: 18,
           }}
         >
-          {Array.from({ length: 22 }).map((_, i) => {
+          {Array.from({ length: 24 }).map((_, i) => {
             const h = 4 + ((i * 7) % 14);
-            const filled = i / 22 < progress;
+            const filled = i / 24 < progress;
 
             return (
               <View
@@ -1760,7 +2906,7 @@ function VoicePlayer({
                   backgroundColor: filled
                     ? fg
                     : mine
-                      ? "rgba(255,255,255,0.45)"
+                      ? "rgba(0,0,0,0.25)"
                       : "rgba(255,255,255,0.22)",
                 }}
               />
@@ -1770,7 +2916,7 @@ function VoicePlayer({
 
         <AppText
           variant="caption"
-          color={mine ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.62)"}
+          color={mine ? "rgba(0,0,0,0.58)" : "rgba(255,255,255,0.62)"}
         >
           {fmtDur(total)}
         </AppText>

@@ -41,7 +41,7 @@ class Message(Base):
         String,
         default="text",
         nullable=False,
-    )  # text | voice
+    )  # text | voice | image | video
 
     voice_url: Mapped[str | None] = mapped_column(
         String,
@@ -53,10 +53,25 @@ class Message(Base):
         nullable=True,
     )
 
+    media_url: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    media_type: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )  # image | video
+
     read: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
+    )
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -79,16 +94,13 @@ class Message(Base):
         Index("ix_messages_sender_id", "sender_id"),
         Index("ix_messages_receiver_id", "receiver_id"),
         Index("ix_messages_created_at", "created_at"),
-
-        # Быстрый поиск всей переписки между двумя пользователями.
+        Index("ix_messages_deleted_at", "deleted_at"),
         Index(
             "ix_messages_sender_receiver_created",
             "sender_id",
             "receiver_id",
             "created_at",
         ),
-
-        # Быстрый поиск непрочитанных сообщений для статуса "прочитано".
         Index(
             "ix_messages_receiver_sender_read",
             "receiver_id",

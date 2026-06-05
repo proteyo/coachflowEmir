@@ -17,7 +17,7 @@ import {
   UserMinus,
   X,
 } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -28,7 +28,17 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { WeightChart } from "@/src/components/charts";
+import {
+  AttendanceTrendChart,
+  DistributionDonutChart,
+  ExercisePerformanceLineChart,
+  ExerciseProgressChart,
+  MuscleGroupProgressChart,
+  MuscleVolumeChart,
+  RepRangePerformanceChart,
+  SupplementAdherenceChart,
+  WeightChart,
+} from "@/src/components/charts";
 import {
   AppAvatar,
   AppButton,
@@ -47,7 +57,10 @@ import { useSubscription } from "@/src/context/SubscriptionContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import {
   EXERCISE_LIBRARY,
+  MUSCLE_GROUPS,
   getExerciseName,
+  getMuscleGroupName,
+    type MuscleGroup,
 } from "@/src/data/exerciseLibrary";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { apiDelete, apiGet, apiPost, toAbsoluteUrl } from "@/src/services/api";
@@ -60,9 +73,14 @@ type Tab =
   | "supps"
   | "progress"
   | "attendance"
-  | "history";
+  | "history"
+  | "results";
 
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
+type WeightRange = 7 | 30 | "all";
+type AttendanceStatus = "attended" | "missed" | "rest";
+type AttendanceAction = AttendanceStatus | "clear";
+type RepRangeKey = "all" | "1-5" | "6-8" | "9-10" | "11-15" | "16+";
 
 const ALL_DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -348,6 +366,270 @@ function formatHistoryDate(value?: string, lang: AppLangCode = "en") {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatProgressDate(value?: string, lang: AppLangCode = "en") {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value.includes("T") ? value.slice(0, 10) : value;
+  }
+
+  const locale = lang === "ru" ? "ru-RU" : lang === "kk" ? "kk-KZ" : "en-US";
+
+  return date.toLocaleDateString(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getRangeDays(value: WeightRange) {
+  return value === "all" ? undefined : value;
+}
+
+function getMonthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function getMonthKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+
+  return `${y}-${m}`;
+}
+
+function getDateMonthKey(value: string) {
+  const date = getSafeDate(value);
+
+  if (date.getTime() === 0) {
+    return value.slice(0, 7);
+  }
+
+  return getMonthKey(date);
+}
+
+function formatMonthTitle(date: Date, lang: AppLangCode = "en") {
+  const locale = lang === "ru" ? "ru-RU" : lang === "kk" ? "kk-KZ" : "en-US";
+
+  return date.toLocaleDateString(locale, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatAttendanceDialogDate(value: string, lang: AppLangCode = "en") {
+  const date = getSafeDate(value);
+
+  if (date.getTime() === 0) return value;
+
+  const locale = lang === "ru" ? "ru-RU" : lang === "kk" ? "kk-KZ" : "en-US";
+
+  return date.toLocaleDateString(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function buildMonthGrid(monthDate: Date) {
+  const monthStart = getMonthStart(monthDate);
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const firstDay = monthStart.getDay();
+  const mondayOffset = firstDay === 0 ? 6 : firstDay - 1;
+
+  const days: {
+    date: string;
+    dayOfMonth: number;
+    inMonth: boolean;
+  }[] = [];
+
+  for (let i = 0; i < mondayOffset; i++) {
+    const d = new Date(year, month, 1 - (mondayOffset - i));
+
+    days.push({
+      date: ymd(d),
+      dayOfMonth: d.getDate(),
+      inMonth: false,
+    });
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month, day);
+
+    days.push({
+      date: ymd(d),
+      dayOfMonth: day,
+      inMonth: true,
+    });
+  }
+
+  let nextMonthDay = 1;
+
+  while (days.length % 7 !== 0) {
+    const d = new Date(year, month + 1, nextMonthDay);
+
+    days.push({
+      date: ymd(d),
+      dayOfMonth: d.getDate(),
+      inMonth: false,
+    });
+
+    nextMonthDay += 1;
+  }
+
+  return days;
+}
+
+function getAttendanceStats(
+  attendance: Array<{ date: string; status?: string }>,
+  monthKey?: string,
+) {
+  const filtered = monthKey
+    ? attendance.filter((item) => getDateMonthKey(item.date) === monthKey)
+    : attendance;
+
+  const attended = filtered.filter((item) => item.status === "attended").length;
+  const missed = filtered.filter((item) => item.status === "missed").length;
+  const rest = filtered.filter((item) => item.status === "rest").length;
+  const counted = attended + missed;
+  const rate = counted > 0 ? Math.round((attended / counted) * 100) : 0;
+
+  return {
+    attended,
+    missed,
+    rest,
+    counted,
+    marked: filtered.length,
+    rate,
+  };
+}
+
+function getAttendanceStatusLabel(
+  status: AttendanceStatus | undefined,
+  labels: {
+    attended: string;
+    missed: string;
+    rest: string;
+    notMarked: string;
+  },
+) {
+  if (status === "attended") return labels.attended;
+  if (status === "missed") return labels.missed;
+  if (status === "rest") return labels.rest;
+
+  return labels.notMarked;
+}
+
+function calculateAttendanceStreaks(
+  attendance: Array<{ date: string; status?: string }>,
+) {
+  const todayKey = ymd(new Date());
+  const sorted = attendance
+    .filter((item) => item.date && item.date <= todayKey)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let current = 0;
+  let best = 0;
+
+  sorted.forEach((item) => {
+    if (item.status === "attended") {
+      current += 1;
+      best = Math.max(best, current);
+      return;
+    }
+
+    if (item.status === "missed") {
+      current = 0;
+    }
+
+    // rest days do not increase the streak, but they also do not break it
+  });
+
+  return {
+    currentStreak: current,
+    bestStreak: best,
+  };
+}
+
+function getRepRangeLabel(key: RepRangeKey, lang: AppLangCode) {
+  if (key === "all") {
+    if (lang === "ru") return "Все повторы";
+    if (lang === "kk") return "Барлық қайталау";
+    return "All reps";
+  }
+
+  if (key === "16+") return "16+";
+
+  return key;
+}
+
+function getRepRangeBounds(key: RepRangeKey) {
+  if (key === "1-5") return { min: 1, max: 5 };
+  if (key === "6-8") return { min: 6, max: 8 };
+  if (key === "9-10") return { min: 9, max: 10 };
+  if (key === "11-15") return { min: 11, max: 15 };
+  if (key === "16+") return { min: 16, max: Number.POSITIVE_INFINITY };
+
+  return { min: 0, max: Number.POSITIVE_INFINITY };
+}
+
+function matchesRepRange(reps: number, key: RepRangeKey) {
+  if (key === "all") return true;
+
+  const bounds = getRepRangeBounds(key);
+
+  return reps >= bounds.min && reps <= bounds.max;
+}
+
+function formatShortChartDate(value?: string, lang: AppLangCode = "en") {
+  if (!value) return "";
+
+  const date = getSafeDate(value);
+
+  if (date.getTime() === 0) return value.includes("T") ? value.slice(0, 10) : value;
+
+  const locale = lang === "ru" ? "ru-RU" : lang === "kk" ? "kk-KZ" : "en-US";
+
+  return date.toLocaleDateString(locale, {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function splitPreviousCurrent<T>(items: T[]) {
+  const mid = Math.max(1, Math.floor(items.length / 2));
+
+  return {
+    previous: items.slice(0, mid),
+    current: items.slice(mid),
+  };
+}
+
+function getMetricValueFromSets(
+  sets: Array<{ weight?: number | null; actualReps?: number; reps?: number }>,
+) {
+  const hasWeight = sets.some((set) => Number(set.weight ?? 0) > 0);
+
+  if (hasWeight) {
+    return Math.max(0, ...sets.map((set) => Number(set.weight ?? 0)));
+  }
+
+  return Math.max(
+    0,
+    ...sets.map((set) => Number(set.actualReps ?? set.reps ?? 0)),
+  );
 }
 
 function getSafeDate(value?: string) {
@@ -755,10 +1037,248 @@ export default function ClientDetail() {
   const [weightError, setWeightError] = useState<string>("");
   const [progressLoading, setProgressLoading] = useState<boolean>(false);
   const [progressError, setProgressError] = useState<string>("");
+  const [weightRange, setWeightRange] = useState<WeightRange>(7);
+  const [attendanceMonth, setAttendanceMonth] = useState<Date>(() =>
+    getMonthStart(new Date()),
+  );
+  const [selectedMuscleGroupKey, setSelectedMuscleGroupKey] = useState<string>("all");
+  const [selectedExerciseKey, setSelectedExerciseKey] = useState<string>("all");
+  const [selectedRepRange, setSelectedRepRange] = useState<RepRangeKey>("all");
+  const [exercisePickerOpen, setExercisePickerOpen] = useState<boolean>(false);
+  const attendanceSyncSeq = useRef<Record<string, number>>({});
 
   const w = Dimensions.get("window").width;
+  const calendarGap = 6;
+  const calendarGridWidth = Math.min(w - 40, 336);
+  const calendarDaySize = (calendarGridWidth - calendarGap * 6) / 7;
   const today = ymd(new Date());
   const todayDayKey = getTodayDayKey();
+
+  const uiText = useMemo(() => {
+    if (currentLang === "ru") {
+      return {
+        historyIntro: "Визуальная аналитика по объёму, группам мышц и прогрессу в упражнениях.",
+        volumeDistribution: "Распределение объёма",
+        topProgress: "Лучший прогресс",
+        strengthMap: "Карта силы",
+        exerciseDynamics: "Динамика упражнений",
+        latestResultsTitle: "Последние результаты",
+        latestResultsSubtitle: "Подходы, вес, повторы и выполнение цели по каждому упражнению.",
+        sessionSummary: "Сводка тренировки",
+        totalWork: "Объём",
+        bestSetShort: "Лучший подход",
+        completion: "Выполнение",
+        target: "цель",
+        actual: "факт",
+        sets: "подходы",
+        noWeightedData: "Пока нет данных с рабочим весом.",
+        loading: "Загрузка",
+        noWeightEntries: "Записей веса пока нет",
+        noWeightEntriesText: "Добавьте первую запись, чтобы график стал полезным.",
+        range7: "7 дней",
+        range30: "30 дней",
+        rangeAll: "Всё",
+        shownEntries: "Показано записей",
+        attendanceHistory: "История посещаемости",
+        attendanceTrend: "Динамика посещаемости",
+        attendanceTrendText: "Процент считается без дней отдыха: посетил / (посетил + пропустил).",
+        previousMonth: "Предыдущий месяц",
+        nextMonth: "Следующий месяц",
+        currentMonth: "Текущий месяц",
+        attendedLabel: "Посетил",
+        missedLabel: "Пропустил",
+        restLabel: "Отдых",
+        notMarked: "Не отмечено",
+        clearSelection: "Очистить выбор",
+        markedDays: "Отмечено дней",
+        countedDays: "Учитываемых дней",
+        restDays: "Дней отдыха",
+        noAttendanceHistory: "Истории посещаемости пока нет.",
+        monthComparison: "Сравнение по месяцам",
+        attendanceFormula: "Отдых не снижает процент посещаемости.",
+        bestMonth: "Лучший месяц",
+        weakMonth: "Слабый месяц",
+        muscleFocus: "Фокус по мышцам",
+        laggingMuscle: "Меньше всего объёма",
+        balancedScore: "Баланс нагрузки",
+        supplementAnalytics: "Соблюдение добавок",
+        supplementAnalyticsText: "Показывает, насколько клиент выполняет план приёма добавок сегодня.",
+        todaySupplements: "Добавки сегодня",
+        quickTapHint: "Нажатие по дню быстро переключает статус: посетил → пропустил → отдых → очистить. Удержание открывает выбор.",
+        trainingConsistency: "Дисциплина тренировок",
+        performanceOverview: "Обзор результатов",
+        latestWorkoutLoad: "Объём последней тренировки",
+        muscleLoadChart: "График нагрузки по мышцам",
+        exerciseProgressChart: "Прогресс упражнений клиента",
+        muscleProgressByPeriod: "Прогресс групп по периодам",
+        loadDistribution: "Круговая диаграмма нагрузки",
+        exerciseDeepAnalysis: "Анализ выбранного упражнения",
+        chooseExercise: "Выберите упражнение",
+        chooseMuscleGroup: "Выберите группу мышц",
+        exerciseDropdown: "Список упражнений",
+        noExerciseResult: "По выбранному упражнению пока нет результатов.",
+        chooseRepRange: "Фильтр повторений",
+        allExercises: "Все упражнения",
+        weightMetric: "Вес",
+        repsMetric: "Повторы",
+        previousCurrent: "Раньше / сейчас",
+        repRangeAnalysis: "Диапазоны повторений",
+        currentStreakLocal: "Серия считается по календарю",
+        exerciseProgressInfo: "Показывает изменение результата по упражнениям, которые тренер назначал клиенту. Если прогресса пока нет, строка отмечается как без изменений.",
+        chooseGroupFirst: "Сначала выберите группу мышц",
+        backToGroups: "Назад к группам",
+      };
+    }
+
+    if (currentLang === "kk") {
+      return {
+        historyIntro: "Көлем, бұлшықет топтары және жаттығу прогресі бойынша көрнекі аналитика.",
+        volumeDistribution: "Көлем үлесі",
+        topProgress: "Үздік прогресс",
+        strengthMap: "Күш картасы",
+        exerciseDynamics: "Жаттығу динамикасы",
+        latestResultsTitle: "Соңғы нәтижелер",
+        latestResultsSubtitle: "Әр жаттығу бойынша сеттер, салмақ, қайталау және мақсаттың орындалуы.",
+        sessionSummary: "Жаттығу қорытындысы",
+        totalWork: "Көлем",
+        bestSetShort: "Үздік сет",
+        completion: "Орындалуы",
+        target: "мақсат",
+        actual: "нақты",
+        sets: "сеттер",
+        noWeightedData: "Жұмыс салмағы бойынша деректер әлі жоқ.",
+        loading: "Жүктелуде",
+        noWeightEntries: "Салмақ жазбалары әлі жоқ",
+        noWeightEntriesText: "График пайдалы болуы үшін алғашқы жазбаны қосыңыз.",
+        range7: "7 күн",
+        range30: "30 күн",
+        rangeAll: "Барлығы",
+        shownEntries: "Көрсетілген жазба",
+        attendanceHistory: "Қатысу тарихы",
+        attendanceTrend: "Қатысу динамикасы",
+        attendanceTrendText: "Пайыз демалыс күндерін есептемейді: келді / (келді + қалды).",
+        previousMonth: "Алдыңғы ай",
+        nextMonth: "Келесі ай",
+        currentMonth: "Ағымдағы ай",
+        attendedLabel: "Келді",
+        missedLabel: "Қалды",
+        restLabel: "Демалыс",
+        notMarked: "Белгіленбеген",
+        clearSelection: "Таңдауды тазарту",
+        markedDays: "Белгіленген күндер",
+        countedDays: "Есептелетін күндер",
+        restDays: "Демалыс күндері",
+        noAttendanceHistory: "Қатысу тарихы әлі жоқ.",
+        monthComparison: "Айлар бойынша салыстыру",
+        attendanceFormula: "Демалыс қатысу пайызын төмендетпейді.",
+        bestMonth: "Үздік ай",
+        weakMonth: "Әлсіз ай",
+        muscleFocus: "Бұлшықет фокусы",
+        laggingMuscle: "Ең аз көлем",
+        balancedScore: "Жүктеме балансы",
+        supplementAnalytics: "Қоспаларды сақтау",
+        supplementAnalyticsText: "Клиент бүгін қоспалар жоспарын қаншалықты орындағанын көрсетеді.",
+        todaySupplements: "Бүгінгі қоспалар",
+        quickTapHint: "Күнді басу статусты жылдам ауыстырады: келді → қалды → демалыс → тазарту. Ұстап тұру таңдауды ашады.",
+        trainingConsistency: "Жаттығу тәртібі",
+        performanceOverview: "Нәтижелер шолуы",
+        latestWorkoutLoad: "Соңғы жаттығу көлемі",
+        muscleLoadChart: "Бұлшықет жүктемесі графигі",
+        exerciseProgressChart: "Клиент жаттығуларының прогресі",
+        muscleProgressByPeriod: "Кезеңдер бойынша бұлшықет прогресі",
+        loadDistribution: "Жүктеменің дөңгелек диаграммасы",
+        exerciseDeepAnalysis: "Таңдалған жаттығуды талдау",
+        chooseExercise: "Жаттығуды таңдаңыз",
+        chooseMuscleGroup: "Бұлшықет тобын таңдаңыз",
+        exerciseDropdown: "Жаттығулар тізімі",
+        noExerciseResult: "Таңдалған жаттығу бойынша нәтиже әлі жоқ.",
+        chooseRepRange: "Қайталау сүзгісі",
+        allExercises: "Барлық жаттығулар",
+        weightMetric: "Салмақ",
+        repsMetric: "Қайталау",
+        previousCurrent: "Бұрын / қазір",
+        repRangeAnalysis: "Қайталау диапазондары",
+        currentStreakLocal: "Серия күнтізбе бойынша есептеледі",
+        exerciseProgressInfo: "Жаттықтырушы берген жаттығулар бойынша нәтиже өзгерісін көрсетеді. Прогресс әлі жоқ болса, өзгеріс жоқ деп белгіленеді.",
+        chooseGroupFirst: "Алдымен бұлшықет тобын таңдаңыз",
+        backToGroups: "Топтарға қайту",
+      };
+    }
+
+    return {
+      historyIntro: "Visual analytics for volume, muscle groups and exercise progress.",
+      volumeDistribution: "Volume distribution",
+      topProgress: "Top progress",
+      strengthMap: "Strength map",
+      exerciseDynamics: "Exercise dynamics",
+      latestResultsTitle: "Latest results",
+      latestResultsSubtitle: "Sets, weight, reps and target completion for every exercise.",
+      sessionSummary: "Workout summary",
+      totalWork: "Volume",
+      bestSetShort: "Best set",
+      completion: "Completion",
+      target: "target",
+      actual: "actual",
+      sets: "sets",
+      noWeightedData: "No weighted performance data yet.",
+      loading: "Loading",
+      noWeightEntries: "No weight entries yet",
+      noWeightEntriesText: "Add the first weight entry to make the chart useful.",
+      range7: "7 days",
+      range30: "30 days",
+      rangeAll: "All",
+      shownEntries: "Shown entries",
+      attendanceHistory: "Attendance history",
+      attendanceTrend: "Attendance trend",
+      attendanceTrendText: "Rate excludes rest days: attended / (attended + missed).",
+      previousMonth: "Previous month",
+      nextMonth: "Next month",
+      currentMonth: "Current month",
+      attendedLabel: "Attended",
+      missedLabel: "Missed",
+      restLabel: "Rest",
+      notMarked: "Not marked",
+      clearSelection: "Clear selection",
+      markedDays: "Marked days",
+      countedDays: "Counted days",
+      restDays: "Rest days",
+      noAttendanceHistory: "No attendance history yet.",
+      monthComparison: "Monthly comparison",
+      attendanceFormula: "Rest days do not lower attendance rate.",
+      bestMonth: "Best month",
+      weakMonth: "Weak month",
+      muscleFocus: "Muscle focus",
+      laggingMuscle: "Lowest volume",
+      balancedScore: "Load balance",
+      supplementAnalytics: "Supplement adherence",
+      supplementAnalyticsText: "Shows how well the client follows today’s supplement plan.",
+      todaySupplements: "Today’s supplements",
+      quickTapHint: "Tap a day to cycle status: attended → missed → rest → clear. Hold to open the menu.",
+      trainingConsistency: "Training consistency",
+      performanceOverview: "Performance overview",
+      latestWorkoutLoad: "Latest workout load",
+      muscleLoadChart: "Muscle load chart",
+      exerciseProgressChart: "Client exercise progress",
+      muscleProgressByPeriod: "Muscle progress by period",
+      loadDistribution: "Load distribution donut",
+      exerciseDeepAnalysis: "Selected exercise analysis",
+      chooseExercise: "Choose exercise",
+      chooseMuscleGroup: "Choose muscle group",
+      exerciseDropdown: "Exercise list",
+      noExerciseResult: "No results for the selected exercise yet.",
+      chooseRepRange: "Rep range filter",
+      allExercises: "All exercises",
+      weightMetric: "Weight",
+      repsMetric: "Reps",
+      previousCurrent: "Previous / current",
+      repRangeAnalysis: "Rep range analysis",
+      currentStreakLocal: "Streak is calculated from calendar",
+      exerciseProgressInfo: "Shows result changes for exercises assigned by the coach. If there is no progress yet, the row is marked as no change.",
+      chooseGroupFirst: "Choose a muscle group first",
+      backToGroups: "Back to groups",
+    };
+  }, [currentLang]);
+
 
   const data = useMemo(() => {
     if (!db || !id) return null;
@@ -801,6 +1321,34 @@ export default function ClientDetail() {
       weekly,
     };
   }, [db, id]);
+
+  const filteredProgress = useMemo(() => {
+    const progress = sortProgressByDate(data?.progress ?? []);
+
+    if (progress.length === 0 || weightRange === "all") {
+      return progress;
+    }
+
+    const latest = progress[progress.length - 1];
+    const latestTime = getSafeDate(latest.date).getTime();
+
+    if (!latestTime) {
+      return progress;
+    }
+
+    const startTime = latestTime - weightRange * 24 * 60 * 60 * 1000;
+
+    return progress.filter((item) => getSafeDate(item.date).getTime() >= startTime);
+  }, [data?.progress, weightRange]);
+
+  const progressRangeOptions: { key: WeightRange; label: string }[] = useMemo(
+    () => [
+      { key: 7, label: uiText.range7 },
+      { key: 30, label: uiText.range30 },
+      { key: "all", label: uiText.rangeAll },
+    ],
+    [uiText.range7, uiText.range30, uiText.rangeAll],
+  );
 
   const loadClientProgress = useCallback(async () => {
     if (!id || !token || user?.role !== "coach") return;
@@ -847,38 +1395,130 @@ export default function ClientDetail() {
     loadClientProgress();
   }, [loadClientProgress]);
 
+  const attendanceMonthKey = useMemo(
+    () => getMonthKey(attendanceMonth),
+    [attendanceMonth],
+  );
+
+  const attendanceMonthTitle = useMemo(
+    () => formatMonthTitle(attendanceMonth, currentLang),
+    [attendanceMonth, currentLang],
+  );
+
   const gridDays: {
     date: string;
-    status?: "attended" | "missed" | "rest";
+    dayOfMonth: number;
+    inMonth: boolean;
+    status?: AttendanceStatus;
   }[] = useMemo(() => {
-    const out: {
-      date: string;
-      status?: "attended" | "missed" | "rest";
-    }[] = [];
-
-    const todayDate = new Date();
     const attendance = data?.attendance ?? [];
 
-    for (let i = 27; i >= 0; i--) {
-      const d = new Date(todayDate);
+    return buildMonthGrid(attendanceMonth).map((day) => {
+      const a = attendance.find((item) => item.date === day.date);
 
-      d.setDate(todayDate.getDate() - i);
+      return {
+        ...day,
+        status: a?.status as AttendanceStatus | undefined,
+      };
+    });
+  }, [attendanceMonth, data?.attendance]);
 
-      const date = ymd(d);
-      const a = attendance.find((x) => x.date === date);
+  const currentMonthAttendanceStats = useMemo(
+    () => getAttendanceStats(data?.attendance ?? [], attendanceMonthKey),
+    [data?.attendance, attendanceMonthKey],
+  );
 
-      out.push({ date, status: a?.status });
-    }
+  const monthAttendanceRate = currentMonthAttendanceStats.rate;
 
-    return out;
-  }, [data?.attendance]);
+  const attendanceMonthlyStats = useMemo(() => {
+    const attendance = data?.attendance ?? [];
+    const keys = new Set<string>();
 
-  const monthAttendanceRate = useMemo(() => {
-    const marked = gridDays.filter((day) => !!day.status);
-    const attended = marked.filter((day) => day.status === "attended").length;
+    attendance.forEach((item) => {
+      if (item.date) keys.add(getDateMonthKey(item.date));
+    });
 
-    return Math.round((attended / Math.max(1, marked.length)) * 100);
-  }, [gridDays]);
+    keys.add(attendanceMonthKey);
+
+    return Array.from(keys)
+      .filter(Boolean)
+      .sort((a, b) => b.localeCompare(a))
+      .map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        const monthDate = new Date(year, month - 1, 1);
+        const stats = getAttendanceStats(attendance, key);
+
+        return {
+          key,
+          date: monthDate,
+          label: formatMonthTitle(monthDate, currentLang),
+          ...stats,
+        };
+      });
+  }, [data?.attendance, attendanceMonthKey, currentLang]);
+
+  const bestAttendanceMonth = useMemo(
+    () =>
+      attendanceMonthlyStats
+        .filter((item) => item.counted > 0)
+        .slice()
+        .sort((a, b) => b.rate - a.rate)[0],
+    [attendanceMonthlyStats],
+  );
+
+  const weakestAttendanceMonth = useMemo(
+    () =>
+      attendanceMonthlyStats
+        .filter((item) => item.counted > 0)
+        .slice()
+        .sort((a, b) => a.rate - b.rate)[0],
+    [attendanceMonthlyStats],
+  );
+
+  const attendanceStreakStats = useMemo(
+    () => calculateAttendanceStreaks(data?.attendance ?? []),
+    [data?.attendance],
+  );
+
+  const attendanceTrendChartData = useMemo(
+    () =>
+      attendanceMonthlyStats
+        .slice()
+        .reverse()
+        .map((item) => ({
+          label: item.label.split(" ")[0],
+          rate: item.rate / 100,
+          value: item.rate,
+        })),
+    [attendanceMonthlyStats],
+  );
+
+  const supplementAdherenceData = useMemo(() => {
+    const supps = data?.supps ?? [];
+
+    return supps.map((supplement: any) => {
+      const times = Array.isArray(supplement.specificTimes)
+        ? supplement.specificTimes
+        : [];
+      const expected = Math.max(1, times.length);
+      const taken = times.filter((time: string) => {
+        const log = supplementLogsToday.find(
+          (item) =>
+            item.supplementItemId === supplement.id &&
+            item.date === today &&
+            item.time === time,
+        );
+
+        return log?.taken === true;
+      }).length;
+
+      return {
+        label: String(supplement.name ?? "Supplement"),
+        rate: taken / expected,
+        value: taken / expected,
+      };
+    });
+  }, [data?.supps, supplementLogsToday, today]);
 
   const muscleSummaries = useMemo(
     () => buildMuscleSummaries(exerciseHistory),
@@ -901,6 +1541,421 @@ export default function ClientDetail() {
   );
 
   const strongestExercise = exerciseProgress[0];
+
+  const weakestMuscleSummary = useMemo(() => {
+    const active = muscleSummaries.filter((item) => item.totalVolume > 0);
+
+    if (active.length === 0) return undefined;
+
+    return active.slice().sort((a, b) => a.totalVolume - b.totalVolume)[0];
+  }, [muscleSummaries]);
+
+  const muscleBalanceScore = useMemo(() => {
+    const active = muscleSummaries.filter((item) => item.totalVolume > 0);
+
+    if (active.length <= 1) return active.length === 1 ? 50 : 0;
+
+    const max = Math.max(...active.map((item) => item.totalVolume));
+    const min = Math.min(...active.map((item) => item.totalVolume));
+
+    return Math.round((min / Math.max(1, max)) * 100);
+  }, [muscleSummaries]);
+
+  const lastWorkoutVolume = useMemo(() => {
+    const latest = exerciseHistory
+      .slice()
+      .sort(
+        (a, b) =>
+          getSafeDate(b.createdAt).getTime() -
+          getSafeDate(a.createdAt).getTime(),
+      )[0];
+
+    if (!latest) return 0;
+
+    const latestDay = ymd(getSafeDate(latest.createdAt));
+
+    return exerciseHistory
+      .filter((item) => ymd(getSafeDate(item.createdAt)) === latestDay)
+      .flatMap((item) => item.sets)
+      .reduce((sum, set) => sum + getSetVolume(set), 0);
+  }, [exerciseHistory]);
+
+  const latestExerciseHistory = useMemo(
+    () =>
+      exerciseHistory
+        .slice()
+        .sort(
+          (a, b) =>
+            getSafeDate(b.createdAt).getTime() -
+            getSafeDate(a.createdAt).getTime(),
+        )
+        .slice(0, 12),
+    [exerciseHistory],
+  );
+
+  const maxExerciseVolume = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...exerciseProgress.map((item) => Math.round(item.totalVolume)),
+      ),
+    [exerciseProgress],
+  );
+
+  const muscleVolumeChartData = useMemo(
+    () =>
+      muscleSummaries.map((item) => ({
+        label: getMuscleGroupLabel(item.muscleGroup, t),
+        value: Math.round(item.totalVolume),
+      })),
+    [muscleSummaries, t],
+  );
+
+  const exerciseProgressChartData = useMemo(
+    () =>
+      exerciseProgress.map((item) => {
+        const repsUnit = currentLang === "ru" ? "повт." : currentLang === "kk" ? "қайт." : "reps";
+        const hasWeight = item.bestWeight > 0;
+        const unit = hasWeight ? t("common.kg") : repsUnit;
+        const progressValue = hasWeight ? item.progress : item.bestReps;
+        const currentBest = hasWeight ? item.bestWeight : item.bestReps;
+        const progressLabel =
+          progressValue > 0
+            ? `${currentLang === "ru" ? "прогресс" : currentLang === "kk" ? "прогресс" : "progress"}: +${Number(progressValue.toFixed(1))} ${unit}`
+            : `${currentLang === "ru" ? "лучший результат" : currentLang === "kk" ? "үздік нәтиже" : "best"}: ${Number(currentBest.toFixed(1))} ${unit}`;
+
+        return {
+          label: getTranslatedExerciseName(item.exerciseName, currentLang),
+          value: Number(progressValue.toFixed(1)),
+          meta: `${item.setCount} ${uiText.sets} · ${progressLabel}`,
+        };
+      }),
+    [exerciseProgress, currentLang, uiText.sets, t],
+  );
+
+  const repRangeOptions = useMemo(
+    () =>
+      (["all", "1-5", "6-8", "9-10", "11-15", "16+"] as RepRangeKey[]).map(
+        (key) => ({
+          key,
+          label: getRepRangeLabel(key, currentLang),
+        }),
+      ),
+    [currentLang],
+  );
+
+  const exerciseHistorySetCountByKey = useMemo(() => {
+    const map = new Map<string, number>();
+
+    exerciseHistory.forEach((item) => {
+      const key = normalizeExerciseNameForMatch(item.exerciseName);
+      map.set(key, (map.get(key) ?? 0) + item.sets.length);
+    });
+
+    return map;
+  }, [exerciseHistory]);
+
+  const muscleGroupSelectorOptions = useMemo(
+    () => [
+      {
+        key: "all",
+        label:
+          currentLang === "ru"
+            ? "Все группы"
+            : currentLang === "kk"
+              ? "Барлық топтар"
+              : "All groups",
+      },
+      ...MUSCLE_GROUPS.map((group) => ({
+        key: group,
+        label: getMuscleGroupName(group, currentLang),
+      })),
+    ],
+    [currentLang],
+  );
+
+  const exerciseSelectorOptions = useMemo(() => {
+    const libraryMap = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        muscleGroup: string;
+        rawMuscleGroup: string;
+        setCount: number;
+        source: "library" | "history";
+      }
+    >();
+
+    EXERCISE_LIBRARY.forEach((exercise) => {
+      const rawMuscleGroup = normalizeMuscleGroup(exercise.muscleGroup);
+
+      if (selectedMuscleGroupKey !== "all" && rawMuscleGroup !== selectedMuscleGroupKey) {
+        return;
+      }
+
+      const key = normalizeExerciseNameForMatch(exercise.name);
+
+      if (!libraryMap.has(key)) {
+        libraryMap.set(key, {
+          key,
+          label: getExerciseName(exercise, currentLang),
+          muscleGroup: getMuscleGroupName(exercise.muscleGroup, currentLang),
+          rawMuscleGroup,
+          setCount: exerciseHistorySetCountByKey.get(key) ?? 0,
+          source: "library",
+        });
+      }
+    });
+
+    exerciseHistory.forEach((item) => {
+      const key = normalizeExerciseNameForMatch(item.exerciseName);
+      const rawMuscleGroup = normalizeMuscleGroup(item.muscleGroup);
+
+      if (selectedMuscleGroupKey !== "all" && rawMuscleGroup !== selectedMuscleGroupKey) {
+        return;
+      }
+
+      if (!libraryMap.has(key)) {
+        libraryMap.set(key, {
+          key,
+          label: getTranslatedExerciseName(item.exerciseName, currentLang),
+          muscleGroup: getMuscleGroupLabel(rawMuscleGroup, t),
+          rawMuscleGroup,
+          setCount: exerciseHistorySetCountByKey.get(key) ?? item.sets.length,
+          source: "history",
+        });
+      }
+    });
+
+    return Array.from(libraryMap.values()).sort((a, b) => {
+      if (b.setCount !== a.setCount) return b.setCount - a.setCount;
+      if (a.rawMuscleGroup !== b.rawMuscleGroup) return a.rawMuscleGroup.localeCompare(b.rawMuscleGroup);
+      return a.label.localeCompare(b.label);
+    });
+  }, [
+    selectedMuscleGroupKey,
+    currentLang,
+    exerciseHistory,
+    exerciseHistorySetCountByKey,
+    t,
+  ]);
+
+  const groupedExerciseSelectorOptions = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        items: typeof exerciseSelectorOptions;
+      }
+    >();
+
+    exerciseSelectorOptions.forEach((item) => {
+      const group = grouped.get(item.rawMuscleGroup) ?? {
+        key: item.rawMuscleGroup,
+        label: item.muscleGroup,
+        items: [],
+      };
+
+      group.items.push(item);
+      grouped.set(item.rawMuscleGroup, group);
+    });
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const aSets = a.items.reduce((sum, item) => sum + item.setCount, 0);
+      const bSets = b.items.reduce((sum, item) => sum + item.setCount, 0);
+
+      if (bSets !== aSets) return bSets - aSets;
+      return a.label.localeCompare(b.label);
+    });
+  }, [exerciseSelectorOptions]);
+
+  const resolvedSelectedExerciseKey = useMemo(() => {
+    if (selectedExerciseKey === "all") return "all";
+
+    if (exerciseSelectorOptions.some((item) => item.key === selectedExerciseKey)) {
+      return selectedExerciseKey;
+    }
+
+    return "all";
+  }, [exerciseSelectorOptions, selectedExerciseKey]);
+
+  const selectedExerciseOption = useMemo(() => {
+    if (resolvedSelectedExerciseKey === "all") return undefined;
+
+    return exerciseSelectorOptions.find(
+      (item) => item.key === resolvedSelectedExerciseKey,
+    );
+  }, [exerciseSelectorOptions, resolvedSelectedExerciseKey]);
+
+  const selectedExerciseSets = useMemo(() => {
+    const rows = exerciseHistory
+      .flatMap((item) =>
+        item.sets.map((set) => {
+          const exerciseKey = normalizeExerciseNameForMatch(item.exerciseName);
+          const reps = Number(set.actualReps ?? 0);
+          const weight = Number(set.weight ?? 0);
+          const date = set.createdAt ?? item.createdAt;
+
+          return {
+            id: set.id,
+            exerciseKey,
+            exerciseName: getTranslatedExerciseName(item.exerciseName, currentLang),
+            muscleGroup: getMuscleGroupLabel(item.muscleGroup, t),
+            date,
+            time: getSafeDate(date).getTime(),
+            reps,
+            weight,
+            volume: weight > 0 && reps > 0 ? weight * reps : reps,
+          };
+        }),
+      )
+      .filter((set) => set.reps > 0)
+      .filter((set) =>
+        resolvedSelectedExerciseKey === "all"
+          ? true
+          : set.exerciseKey === resolvedSelectedExerciseKey,
+      )
+      .filter((set) => matchesRepRange(set.reps, selectedRepRange))
+      .sort((a, b) => a.time - b.time);
+
+    return rows;
+  }, [
+    exerciseHistory,
+    resolvedSelectedExerciseKey,
+    selectedRepRange,
+    currentLang,
+    t,
+  ]);
+
+  const selectedExerciseHasWeight = useMemo(
+    () => selectedExerciseSets.some((set) => set.weight > 0),
+    [selectedExerciseSets],
+  );
+
+  const selectedExerciseMetricUnit = selectedExerciseHasWeight
+    ? t("common.kg")
+    : currentLang === "ru"
+      ? "повт."
+      : currentLang === "kk"
+        ? "қайт."
+        : "reps";
+
+  const selectedExerciseMetricLabel = selectedExerciseHasWeight
+    ? uiText.weightMetric
+    : uiText.repsMetric;
+
+  const selectedExercisePerformanceData = useMemo(
+    () =>
+      selectedExerciseSets.map((set) => ({
+        label: formatShortChartDate(set.date, currentLang),
+        date: set.date,
+        value: selectedExerciseHasWeight ? set.weight : set.reps,
+        reps: set.reps,
+        weight: set.weight,
+        volume: set.volume,
+      })),
+    [selectedExerciseSets, selectedExerciseHasWeight, currentLang],
+  );
+
+  const repRangePerformanceData = useMemo(() => {
+    const allSets = exerciseHistory
+      .flatMap((item) =>
+        item.sets.map((set) => {
+          const exerciseKey = normalizeExerciseNameForMatch(item.exerciseName);
+          const reps = Number(set.actualReps ?? 0);
+          const weight = Number(set.weight ?? 0);
+          const date = set.createdAt ?? item.createdAt;
+
+          return {
+            exerciseKey,
+            reps,
+            weight,
+            date,
+            time: getSafeDate(date).getTime(),
+          };
+        }),
+      )
+      .filter((set) => set.reps > 0)
+      .filter((set) =>
+        resolvedSelectedExerciseKey === "all"
+          ? true
+          : set.exerciseKey === resolvedSelectedExerciseKey,
+      )
+      .sort((a, b) => a.time - b.time);
+
+    return (["1-5", "6-8", "9-10", "11-15", "16+"] as RepRangeKey[]).map((range) => {
+      const rangeSets = allSets.filter((set) => matchesRepRange(set.reps, range));
+      const split = splitPreviousCurrent(rangeSets);
+      const previous = getMetricValueFromSets(split.previous);
+      const current = getMetricValueFromSets(split.current.length > 0 ? split.current : split.previous);
+      const hasWeight = rangeSets.some((set) => set.weight > 0);
+
+      return {
+        label: getRepRangeLabel(range, currentLang),
+        previous,
+        current,
+        unit: hasWeight ? t("common.kg") : selectedExerciseMetricUnit,
+        meta: `${rangeSets.length} ${uiText.sets}`,
+      };
+    });
+  }, [
+    exerciseHistory,
+    resolvedSelectedExerciseKey,
+    currentLang,
+    selectedExerciseMetricUnit,
+    t,
+    uiText.sets,
+  ]);
+
+  const muscleGroupProgressChartData = useMemo(() => {
+    const sorted = exerciseHistory
+      .slice()
+      .sort(
+        (a, b) =>
+          getSafeDate(a.createdAt).getTime() -
+          getSafeDate(b.createdAt).getTime(),
+      );
+    const split = splitPreviousCurrent(sorted);
+
+    const collect = (items: ExerciseHistoryItem[]) => {
+      const map = new Map<string, { label: string; volume: number }>();
+
+      items.forEach((item) => {
+        const key = normalizeMuscleGroup(item.muscleGroup);
+        const current = map.get(key) ?? {
+          label: getMuscleGroupLabel(key, t),
+          volume: 0,
+        };
+
+        current.volume += item.sets.reduce((sum, set) => sum + getSetVolume(set), 0);
+        map.set(key, current);
+      });
+
+      return map;
+    };
+
+    const previousMap = collect(split.previous);
+    const currentMap = collect(split.current.length > 0 ? split.current : split.previous);
+    const keys = new Set([...previousMap.keys(), ...currentMap.keys()]);
+
+    return Array.from(keys).map((key) => ({
+      label: currentMap.get(key)?.label ?? previousMap.get(key)?.label ?? key,
+      previous: Math.round(previousMap.get(key)?.volume ?? 0),
+      value: Math.round(currentMap.get(key)?.volume ?? 0),
+    }));
+  }, [exerciseHistory, t]);
+
+  const muscleDistributionData = useMemo(
+    () =>
+      muscleSummaries.map((item) => ({
+        label: getMuscleGroupLabel(item.muscleGroup, t),
+        value: Math.round(item.totalVolume),
+      })),
+    [muscleSummaries, t],
+  );
+
 
   const loadAssessment = useCallback(async () => {
     if (!id || !token || user?.role !== "coach") return;
@@ -950,20 +2005,46 @@ export default function ClientDetail() {
       const res = await apiGet(`/attendance?client_id=${id}`, { token });
       const backendAttendance = Array.isArray(res) ? res : [];
 
-      update((d) => ({
-        ...d,
-        attendance: [
+      update((d) => {
+        const normalizedAttendance = backendAttendance.map((a: any) => ({
+          id: String(a.id),
+          clientId: String(a.clientId ?? a.client_id ?? id),
+          coachId: String(a.coachId ?? a.coach_id ?? user.id),
+          date: a.date,
+          status: a.status,
+          notes: a.notes ?? undefined,
+        }));
+        const nextAttendance = [
           ...d.attendance.filter((a) => a.clientId !== id),
-          ...backendAttendance.map((a: any) => ({
-            id: String(a.id),
-            clientId: String(a.clientId ?? a.client_id ?? id),
-            coachId: String(a.coachId ?? a.coach_id ?? user.id),
-            date: a.date,
-            status: a.status,
-            notes: a.notes ?? undefined,
-          })),
-        ],
-      }));
+          ...normalizedAttendance,
+        ];
+        const calculated = calculateAttendanceStreaks(normalizedAttendance);
+        const hasStreak = d.streaks.some((streak) => streak.clientId === id);
+        const nextStreaks = hasStreak
+          ? d.streaks.map((streak) =>
+              streak.clientId === id
+                ? {
+                    ...streak,
+                    currentStreak: calculated.currentStreak,
+                    bestStreak: Math.max(streak.bestStreak ?? 0, calculated.bestStreak),
+                  }
+                : streak,
+            )
+          : [
+              ...d.streaks,
+              {
+                clientId: id,
+                currentStreak: calculated.currentStreak,
+                bestStreak: calculated.bestStreak,
+              },
+            ];
+
+        return {
+          ...d,
+          attendance: nextAttendance,
+          streaks: nextStreaks,
+        };
+      });
     } catch (e) {
       console.log("[client-detail] load attendance error", e);
     }
@@ -1127,100 +2208,260 @@ router.replace("/(coach)/clients");
     );
   };
 
-  const setAttendance = async (
-    date: string,
-    status: "attended" | "missed" | "rest",
-  ) => {
-    if (!user || !id || !token) {
-      Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
-      return;
-    }
-
-    try {
-      const saved = await apiPost(
-        "/attendance",
-        {
-          client_id: id,
-          date,
-          status,
-        },
-        { token },
-      );
+  const applyAttendanceLocal = useCallback(
+    (
+      date: string,
+      status: AttendanceStatus,
+      saved?: any,
+    ) => {
+      if (!id || !user?.id) return;
 
       update((d) => {
-        const exists = d.attendance.find(
+        const existing = d.attendance.find(
           (a) => a.clientId === id && a.date === date,
         );
 
-        if (exists) {
+        const nextAttendanceEntry = {
+          id: String(saved?.id ?? existing?.id ?? `att_local_${id}_${date}`),
+          clientId: String(saved?.clientId ?? saved?.client_id ?? id),
+          coachId: String(saved?.coachId ?? saved?.coach_id ?? user.id),
+          date: String(saved?.date ?? date),
+          status: String(saved?.status ?? status) as AttendanceStatus,
+          notes: saved?.notes ?? existing?.notes ?? undefined,
+        };
+
+        const nextAttendance = existing
+          ? d.attendance.map((a) =>
+              a.clientId === id && a.date === date ? nextAttendanceEntry : a,
+            )
+          : [...d.attendance, nextAttendanceEntry];
+
+        const calculated = calculateAttendanceStreaks(
+          nextAttendance.filter((a) => a.clientId === id),
+        );
+        const hasStreak = d.streaks.some((streak) => streak.clientId === id);
+        const nextStreaks = hasStreak
+          ? d.streaks.map((streak) =>
+              streak.clientId === id
+                ? {
+                    ...streak,
+                    currentStreak: calculated.currentStreak,
+                    bestStreak: Math.max(streak.bestStreak ?? 0, calculated.bestStreak),
+                  }
+                : streak,
+            )
+          : [
+              ...d.streaks,
+              {
+                clientId: id,
+                currentStreak: calculated.currentStreak,
+                bestStreak: calculated.bestStreak,
+              },
+            ];
+
+        return {
+          ...d,
+          attendance: nextAttendance,
+          streaks: nextStreaks,
+        };
+      });
+    },
+    [id, update, user?.id],
+  );
+
+  const rollbackAttendanceLocal = useCallback(
+    (date: string, previous?: any) => {
+      if (!id) return;
+
+      update((d) => {
+        if (!previous) {
           return {
             ...d,
-            attendance: d.attendance.map((a) =>
-              a.id === exists.id
-                ? {
-                    ...a,
-                    id: saved.id ?? a.id,
-                    clientId: saved.clientId ?? id,
-                    coachId: saved.coachId ?? user.id,
-                    date: saved.date ?? date,
-                    status: saved.status ?? status,
-                    notes: saved.notes ?? a.notes,
-                  }
-                : a,
+            attendance: d.attendance.filter(
+              (a) => !(a.clientId === id && a.date === date),
             ),
           };
         }
 
         return {
           ...d,
-          attendance: [
-            ...d.attendance,
-            {
-              id: saved.id ?? `att_${Date.now()}_${date}`,
-              clientId: saved.clientId ?? id,
-              coachId: saved.coachId ?? user.id,
-              date: saved.date ?? date,
-              status: saved.status ?? status,
-              notes: saved.notes ?? undefined,
-            },
-          ],
+          attendance: d.attendance.map((a) =>
+            a.clientId === id && a.date === date ? previous : a,
+          ),
         };
       });
+    },
+    [id, update],
+  );
 
-      await loadClientAttendance();
-    } catch (e: any) {
-      console.log("[client-detail] attendance save error", e);
+  const clearAttendanceLocal = useCallback(
+    (date: string) => {
+      if (!id) return;
 
-      Alert.alert(
-        t("clientDetail.attendanceErrorTitle"),
-        e?.message || t("clientDetail.attendanceErrorMessage"),
-      );
+      update((d) => {
+        const nextAttendance = d.attendance.filter(
+          (a) => !(a.clientId === id && a.date === date),
+        );
+        const calculated = calculateAttendanceStreaks(
+          nextAttendance.filter((a) => a.clientId === id),
+        );
+
+        return {
+          ...d,
+          attendance: nextAttendance,
+          streaks: d.streaks.map((streak) =>
+            streak.clientId === id
+              ? {
+                  ...streak,
+                  currentStreak: calculated.currentStreak,
+                  bestStreak: Math.max(streak.bestStreak ?? 0, calculated.bestStreak),
+                }
+              : streak,
+          ),
+        };
+      });
+    },
+    [id, update],
+  );
+
+  const setAttendance = (date: string, action: AttendanceAction) => {
+    if (!user || !id || !token) {
+      Alert.alert(t("profile.authErrorTitle"), t("profile.loginAgainText"));
+      return;
     }
+
+    const previousAttendance = data.attendance.find(
+      (a) => a.clientId === id && a.date === date,
+    );
+
+    const nextSeq = (attendanceSyncSeq.current[date] ?? 0) + 1;
+    attendanceSyncSeq.current[date] = nextSeq;
+
+    if (action === "clear") {
+      clearAttendanceLocal(date);
+
+      void (async () => {
+        try {
+          await apiDelete(`/attendance?client_id=${id}&date=${date}`, {
+            token,
+          });
+        } catch (e) {
+          console.log("[client-detail] clear attendance delete error", e);
+
+          try {
+            await apiPost(
+              "/attendance",
+              {
+                client_id: id,
+                date,
+                status: "clear",
+              },
+              { token },
+            );
+          } catch (fallbackError) {
+            console.log(
+              "[client-detail] clear attendance fallback error",
+              fallbackError,
+            );
+
+            if (attendanceSyncSeq.current[date] === nextSeq) {
+              rollbackAttendanceLocal(date, previousAttendance);
+            }
+          }
+        }
+      })();
+
+      return;
+    }
+
+    applyAttendanceLocal(date, action);
+
+    void (async () => {
+      try {
+        const saved = await apiPost(
+          "/attendance",
+          {
+            client_id: id,
+            date,
+            status: action,
+          },
+          { token },
+        );
+
+        if (attendanceSyncSeq.current[date] === nextSeq) {
+          applyAttendanceLocal(date, action, saved);
+        }
+      } catch (e: any) {
+        console.log("[client-detail] attendance save error", e);
+
+        if (attendanceSyncSeq.current[date] === nextSeq) {
+          rollbackAttendanceLocal(date, previousAttendance);
+
+          Alert.alert(
+            t("clientDetail.attendanceErrorTitle"),
+            e?.message || t("clientDetail.attendanceErrorMessage"),
+          );
+        }
+      }
+    })();
   };
 
-  const promptAttendance = (date: string, current?: string) => {
+  const promptAttendance = (date: string, current?: AttendanceStatus) => {
+    const statusText = getAttendanceStatusLabel(current, {
+      attended: uiText.attendedLabel,
+      missed: uiText.missedLabel,
+      rest: uiText.restLabel,
+      notMarked: uiText.notMarked,
+    });
+
+    const actions: {
+      text: string;
+      onPress?: () => void;
+      style?: "default" | "cancel" | "destructive";
+    }[] = [
+      {
+        text: uiText.attendedLabel,
+        onPress: () => setAttendance(date, "attended"),
+      },
+      {
+        text: uiText.missedLabel,
+        onPress: () => setAttendance(date, "missed"),
+      },
+      {
+        text: uiText.restLabel,
+        onPress: () => setAttendance(date, "rest"),
+      },
+    ];
+
+    if (current) {
+      actions.push({
+        text: uiText.clearSelection,
+        style: "destructive",
+        onPress: () => setAttendance(date, "clear"),
+      });
+    }
+
+    actions.push({ text: t("common.cancel"), style: "cancel" });
+
     Alert.alert(
-      date,
-      current
-        ? t("clientDetail.currentStatus").replace("{status}", current)
-        : t("attendance.tapToMark"),
-      [
-        {
-          text: t("attendance.attended"),
-          onPress: () => setAttendance(date, "attended"),
-        },
-        {
-          text: t("attendance.missed"),
-          onPress: () => setAttendance(date, "missed"),
-        },
-        {
-          text: t("attendance.rest"),
-          onPress: () => setAttendance(date, "rest"),
-        },
-        { text: t("common.cancel"), style: "cancel" },
-      ],
+      formatAttendanceDialogDate(date, currentLang),
+      `${t("clientDetail.currentStatus").replace("{status}", statusText)}\n${uiText.attendanceFormula}`,
+      actions,
       { cancelable: true },
     );
+  };
+
+  const cycleAttendance = (date: string, current?: AttendanceStatus) => {
+    const nextAction: AttendanceAction =
+      current === undefined
+        ? "attended"
+        : current === "attended"
+          ? "missed"
+          : current === "missed"
+            ? "rest"
+            : "clear";
+
+    setAttendance(date, nextAction);
   };
 
   const addProgress = () => {
@@ -1467,7 +2708,7 @@ router.replace("/(coach)/clients");
                 alignItems: "center",
               }}
             >
-              <StreakPill count={data.streak?.currentStreak ?? 0} />
+              <StreakPill count={attendanceStreakStats.currentStreak} />
 
               <AppText variant="caption" color={theme.colors.textMuted}>
                 {getFitnessLevelLabel(data.profile.fitnessLevel, t)}
@@ -1509,6 +2750,7 @@ router.replace("/(coach)/clients");
               { key: "progress", label: t("clients.progress") },
               { key: "attendance", label: t("clients.attendance") },
               { key: "history", label: t("clientDetail.history") },
+              { key: "results", label: t("clientDetail.results") },
             ]}
             active={tab}
             onChange={(k) => setTab(k as Tab)}
@@ -2013,42 +3255,102 @@ router.replace("/(coach)/clients");
           {tab === "progress" && (
             <>
               <AppCard variant="elevated">
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    marginBottom: 8,
-                  }}
-                >
-                  <AppText variant="h3">{t("clients.weightTrend")}</AppText>
+                <View style={{ gap: 14 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="h3">{t("clients.weightTrend")}</AppText>
 
-                  {progressLoading ? (
-                    <AppText variant="caption" color={theme.colors.textMuted}>
-                      Loading
+                      <AppText
+                        variant="caption"
+                        color={theme.colors.textMuted}
+                        style={{ marginTop: 3 }}
+                      >
+                        {uiText.shownEntries}: {filteredProgress.length}
+                      </AppText>
+                    </View>
+
+                    {progressLoading ? (
+                      <AppText variant="caption" color={theme.colors.textMuted}>
+                        {uiText.loading}
+                      </AppText>
+                    ) : null}
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      backgroundColor: theme.colors.surfaceAlt,
+                      padding: 4,
+                      borderRadius: theme.radius.pill,
+                      gap: 4,
+                    }}
+                  >
+                    {progressRangeOptions.map((option) => {
+                      const isSelected = weightRange === option.key;
+
+                      return (
+                        <Pressable
+                          key={String(option.key)}
+                          onPress={() => setWeightRange(option.key)}
+                          style={({ pressed }) => ({
+                            flex: 1,
+                            minHeight: 36,
+                            borderRadius: theme.radius.pill,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: isSelected
+                              ? theme.colors.surface
+                              : "transparent",
+                            opacity: pressed ? 0.82 : 1,
+                          })}
+                        >
+                          <AppText
+                            variant="caption"
+                            color={
+                              isSelected
+                                ? theme.colors.text
+                                : theme.colors.textMuted
+                            }
+                            style={{ fontWeight: "800" }}
+                          >
+                            {option.label}
+                          </AppText>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {progressError ? (
+                    <AppText
+                      variant="small"
+                      color={theme.colors.danger}
+                    >
+                      {progressError}
                     </AppText>
                   ) : null}
+
+                  {data.progress.length === 0 ? (
+                    <AppEmptyState
+                      title={uiText.noWeightEntries}
+                      message={uiText.noWeightEntriesText}
+                    />
+                  ) : (
+                    <WeightChart
+                      values={data.progress}
+                      width={w - 80}
+                      height={230}
+                      rangeDays={getRangeDays(weightRange)}
+                      maxPoints={weightRange === "all" ? 14 : 10}
+                    />
+                  )}
                 </View>
-
-                {progressError ? (
-                  <AppText
-                    variant="small"
-                    color={theme.colors.danger}
-                    style={{ marginBottom: 8 }}
-                  >
-                    {progressError}
-                  </AppText>
-                ) : null}
-
-                {data.progress.length === 0 ? (
-                  <AppEmptyState
-                    title="No weight entries yet"
-                    message="Add the first weight entry to build the client progress chart."
-                  />
-                ) : (
-                  <WeightChart values={data.progress} width={w - 80} />
-                )}
               </AppCard>
 
               <AppButton
@@ -2059,7 +3361,8 @@ router.replace("/(coach)/clients");
               />
 
               <View style={{ gap: 8 }}>
-                {sortProgressByDate(data.progress)
+                {filteredProgress
+                  .slice()
                   .reverse()
                   .map((item) => (
                     <AppCard key={item.id} variant="outline">
@@ -2068,16 +3371,19 @@ router.replace("/(coach)/clients");
                           flexDirection: "row",
                           justifyContent: "space-between",
                           alignItems: "center",
+                          gap: 12,
                         }}
                       >
                         <AppText variant="bodyStrong">
                           {item.weight} {t("common.kg")}
                         </AppText>
 
-                        <AppText variant="small" color={theme.colors.textMuted}>
-                          {item.date.includes("T")
-                            ? item.date.slice(0, 10)
-                            : item.date}
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          numberOfLines={1}
+                        >
+                          {formatProgressDate(item.date, currentLang)}
                         </AppText>
                       </View>
                     </AppCard>
@@ -2087,14 +3393,12 @@ router.replace("/(coach)/clients");
           )}
 
           {tab === "attendance" && (
-            <>
+            <View style={{ gap: 12 }}>
               <View style={{ flexDirection: "row", gap: 12 }}>
                 <StatCard
                   label={t("attendance.currentStreak")}
-                  value={data.streak?.currentStreak ?? 0}
-                  hint={`${t("attendance.bestStreak")} ${
-                    data.streak?.bestStreak ?? 0
-                  }`}
+                  value={attendanceStreakStats.currentStreak}
+                  hint={`${t("attendance.bestStreak")} ${attendanceStreakStats.bestStreak} · ${uiText.currentStreakLocal}`}
                   tone="fire"
                   icon={<Flame size={16} color="#fff" fill="#fff" />}
                 />
@@ -2102,64 +3406,310 @@ router.replace("/(coach)/clients");
                 <StatCard
                   label={t("attendance.monthRate")}
                   value={`${monthAttendanceRate}%`}
-                  hint={t("clients.attendance")}
+                  hint={uiText.attendanceFormula}
                 />
               </View>
 
-              <AppText
-                variant="caption"
-                color={theme.colors.textMuted}
-                style={{ marginTop: 4 }}
-              >
-                {t("attendance.tapToMark")}
-              </AppText>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                {gridDays.map((day) => {
-                  const isToday = day.date === ymd(new Date());
-
-                  const bg =
-                    day.status === "attended"
-                      ? theme.colors.primary
-                      : day.status === "rest"
-                        ? theme.colors.surfaceAlt
-                        : day.status === "missed"
-                          ? theme.colors.danger
-                          : theme.colors.surface;
-
-                  return (
+              <AppCard variant="elevated">
+                <View style={{ gap: 14 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
                     <Pressable
-                      key={day.date}
-                      onPress={() => promptAttendance(day.date, day.status)}
+                      onPress={() => setAttendanceMonth((value) => addMonths(value, -1))}
+                      hitSlop={8}
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
+                        width: 42,
+                        height: 42,
+                        borderRadius: 21,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: bg,
-                        borderWidth: isToday ? 2 : 1,
-                        borderColor: isToday ? theme.colors.fire : theme.colors.border,
+                        backgroundColor: theme.colors.surfaceAlt,
                       }}
                     >
-                      {day.status === "attended" ? (
-                        <Flame color="#fff" size={14} fill="#fff" />
-                      ) : day.status === "rest" ? (
-                        <Circle color={theme.colors.text} size={12} />
-                      ) : day.status === "missed" ? (
-                        <AppText variant="caption" color="#fff">
-                          ✕
-                        </AppText>
-                      ) : (
-                        <AppText variant="caption" color={theme.colors.textFaint}>
-                          {day.date.slice(8, 10)}
-                        </AppText>
-                      )}
+                      <AppText variant="h3">‹</AppText>
                     </Pressable>
-                  );
-                })}
+
+                    <View style={{ alignItems: "center", flex: 1 }}>
+                      <AppText
+                        variant="h3"
+                        style={{ textTransform: "capitalize", textAlign: "center" }}
+                      >
+                        {attendanceMonthTitle}
+                      </AppText>
+
+                      <AppText
+                        variant="caption"
+                        color={theme.colors.textMuted}
+                        style={{ marginTop: 2, textAlign: "center" }}
+                      >
+                        {uiText.attendanceTrendText}
+                      </AppText>
+                    </View>
+
+                    <Pressable
+                      onPress={() => setAttendanceMonth((value) => addMonths(value, 1))}
+                      hitSlop={8}
+                      style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: 21,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: theme.colors.surfaceAlt,
+                      }}
+                    >
+                      <AppText variant="h3">›</AppText>
+                    </Pressable>
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <MiniMetric
+                      label={uiText.attendedLabel}
+                      value={String(currentMonthAttendanceStats.attended)}
+                      positive
+                    />
+
+                    <MiniMetric
+                      label={uiText.missedLabel}
+                      value={String(currentMonthAttendanceStats.missed)}
+                      positive={false}
+                    />
+
+                    <MiniMetric
+                      label={uiText.restLabel}
+                      value={String(currentMonthAttendanceStats.rest)}
+                    />
+                  </View>
+
+                  <ProgressLine
+                    value={monthAttendanceRate / 100}
+                    tone={
+                      monthAttendanceRate >= 80
+                        ? "success"
+                        : monthAttendanceRate >= 55
+                          ? "primary"
+                          : "danger"
+                    }
+                  />
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <AppText variant="caption" color={theme.colors.textMuted}>
+                      {uiText.countedDays}: {currentMonthAttendanceStats.counted}
+                    </AppText>
+
+                    <AppText variant="caption" color={theme.colors.textMuted}>
+                      {uiText.markedDays}: {currentMonthAttendanceStats.marked}
+                    </AppText>
+                  </View>
+                </View>
+              </AppCard>
+
+              <AppText variant="caption" color={theme.colors.textMuted}>
+                {uiText.quickTapHint}
+              </AppText>
+
+              <View style={{ alignItems: "center" }}>
+                <View
+                  style={{
+                    width: calendarGridWidth,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  {ALL_DAYS.map((day) => (
+                    <View
+                      key={day}
+                      style={{
+                        width: calendarDaySize,
+                        alignItems: "center",
+                      }}
+                    >
+                      <AppText
+                        variant="caption"
+                        color={theme.colors.textMuted}
+                        style={{ fontWeight: "800" }}
+                      >
+                        {getDayLabel(day, t)}
+                      </AppText>
+                    </View>
+                  ))}
+                </View>
               </View>
-            </>
+
+              <View style={{ alignItems: "center" }}>
+                <View
+                  style={{
+                    width: calendarGridWidth,
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: calendarGap,
+                  }}
+                >
+                  {gridDays.map((day) => {
+                    const isToday = day.date === ymd(new Date());
+
+                    const bg =
+                      day.status === "attended"
+                        ? theme.colors.primary
+                        : day.status === "rest"
+                          ? theme.colors.surfaceAlt
+                          : day.status === "missed"
+                            ? theme.colors.danger
+                            : theme.colors.surface;
+
+                    const fg =
+                      day.status === "attended" || day.status === "missed"
+                        ? "#fff"
+                        : day.inMonth
+                          ? theme.colors.text
+                          : theme.colors.textFaint;
+
+                    return (
+                      <Pressable
+                        key={day.date}
+                        onPress={() => cycleAttendance(day.date, day.status)}
+                        onLongPress={() => promptAttendance(day.date, day.status)}
+                        disabled={!day.inMonth}
+                        delayLongPress={260}
+                        style={({ pressed }) => ({
+                          width: calendarDaySize,
+                          height: calendarDaySize,
+                          borderRadius: 10,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: bg,
+                          borderWidth: isToday ? 2 : 1,
+                          borderColor: isToday ? theme.colors.fire : theme.colors.border,
+                          opacity: !day.inMonth ? 0.28 : pressed ? 0.78 : 1,
+                        })}
+                      >
+                        {day.status === "attended" ? (
+                          <Flame color="#fff" size={14} fill="#fff" />
+                        ) : day.status === "rest" ? (
+                          <Circle color={theme.colors.text} size={12} />
+                        ) : day.status === "missed" ? (
+                          <AppText variant="caption" color="#fff">
+                            ✕
+                          </AppText>
+                        ) : (
+                          <AppText variant="caption" color={fg}>
+                            {String(day.dayOfMonth).padStart(2, "0")}
+                          </AppText>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <AppCard variant="outline">
+                <View style={{ gap: 12 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="h3">{uiText.attendanceTrend}</AppText>
+
+                      <AppText
+                        variant="small"
+                        color={theme.colors.textMuted}
+                        style={{ marginTop: 3 }}
+                      >
+                        {uiText.monthComparison}
+                      </AppText>
+                    </View>
+
+                    <AppText variant="h3">{monthAttendanceRate}%</AppText>
+                  </View>
+
+                  {attendanceMonthlyStats.length === 0 ? (
+                    <AppText variant="small" color={theme.colors.textMuted}>
+                      {uiText.noAttendanceHistory}
+                    </AppText>
+                  ) : (
+                    <>
+                      <AttendanceTrendChart
+                        data={attendanceTrendChartData}
+                        width={w - 80}
+                        height={210}
+                      />
+
+                      <View style={{ gap: 10 }}>
+                      {attendanceMonthlyStats.slice(0, 6).map((item) => (
+                        <AttendanceMonthRow
+                          key={item.key}
+                          label={item.label}
+                          rate={item.rate}
+                          attended={item.attended}
+                          missed={item.missed}
+                          rest={item.rest}
+                        />
+                      ))}
+                      </View>
+                    </>
+                  )}
+                </View>
+              </AppCard>
+
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <AppCard variant="outline" style={{ flex: 1 }}>
+                  <AppText variant="caption" color={theme.colors.textMuted}>
+                    {uiText.bestMonth}
+                  </AppText>
+
+                  <AppText variant="bodyStrong" style={{ marginTop: 4 }}>
+                    {bestAttendanceMonth
+                      ? `${bestAttendanceMonth.rate}%`
+                      : "—"}
+                  </AppText>
+
+                  <AppText
+                    variant="caption"
+                    color={theme.colors.textMuted}
+                    numberOfLines={1}
+                  >
+                    {bestAttendanceMonth?.label ?? uiText.noAttendanceHistory}
+                  </AppText>
+                </AppCard>
+
+                <AppCard variant="outline" style={{ flex: 1 }}>
+                  <AppText variant="caption" color={theme.colors.textMuted}>
+                    {uiText.weakMonth}
+                  </AppText>
+
+                  <AppText variant="bodyStrong" style={{ marginTop: 4 }}>
+                    {weakestAttendanceMonth
+                      ? `${weakestAttendanceMonth.rate}%`
+                      : "—"}
+                  </AppText>
+
+                  <AppText
+                    variant="caption"
+                    color={theme.colors.textMuted}
+                    numberOfLines={1}
+                  >
+                    {weakestAttendanceMonth?.label ?? uiText.noAttendanceHistory}
+                  </AppText>
+                </AppCard>
+              </View>
+            </View>
           )}
 
           {tab === "history" && (
@@ -2177,8 +3727,8 @@ router.replace("/(coach)/clients");
                 />
               ) : (
                 <>
-                  <AppCard variant="outline">
-                    <View style={{ gap: 10 }}>
+                  <AppCard variant="elevated">
+                    <View style={{ gap: 12 }}>
                       <View
                         style={{
                           flexDirection: "row",
@@ -2188,14 +3738,20 @@ router.replace("/(coach)/clients");
                       >
                         <TrendingUp color={theme.colors.primary} size={20} />
 
-                        <AppText variant="h3">
-                          {t("clientDetail.muscleProgressAnalytics")}
-                        </AppText>
-                      </View>
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="h3">
+                            {t("clientDetail.muscleProgressAnalytics")}
+                          </AppText>
 
-                      <AppText variant="small" color={theme.colors.textMuted}>
-                        {t("clientDetail.muscleProgressAnalyticsText")}
-                      </AppText>
+                          <AppText
+                            variant="small"
+                            color={theme.colors.textMuted}
+                            style={{ marginTop: 3 }}
+                          >
+                            {uiText.historyIntro}
+                          </AppText>
+                        </View>
+                      </View>
 
                       <View style={{ flexDirection: "row", gap: 12 }}>
                         <StatCard
@@ -2204,6 +3760,7 @@ router.replace("/(coach)/clients");
                             "common.kg",
                           )}`}
                           hint={t("clientDetail.weightTimesReps")}
+                          tone="primary"
                         />
 
                         <StatCard
@@ -2219,36 +3776,70 @@ router.replace("/(coach)/clients");
                       {strongestExercise ? (
                         <View
                           style={{
-                            padding: 12,
-                            borderRadius: theme.radius.md,
-                            backgroundColor: theme.colors.surfaceAlt,
-                            gap: 4,
+                            padding: 14,
+                            borderRadius: theme.radius.lg,
+                            backgroundColor:
+                              strongestExercise.progress >= 0
+                                ? "rgba(22,199,132,0.12)"
+                                : "rgba(255,73,73,0.12)",
+                            borderWidth: 1,
+                            borderColor:
+                              strongestExercise.progress >= 0
+                                ? "rgba(22,199,132,0.24)"
+                                : "rgba(255,73,73,0.24)",
+                            gap: 8,
                           }}
                         >
-                          <AppText variant="bodyStrong">
-                            {t("clientDetail.strongestProgress")}
-                          </AppText>
-
-                          <AppText variant="small" color={theme.colors.textMuted}>
-                            {getTranslatedExerciseName(
-                              strongestExercise.exerciseName,
-                              currentLang,
-                            )}{" "}
-                            · {getMuscleGroupLabel(strongestExercise.muscleGroup, t)}
-                          </AppText>
-
-                          <AppText
-                            variant="small"
-                            color={
-                              strongestExercise.progress >= 0
-                                ? theme.colors.success
-                                : theme.colors.danger
-                            }
-                            style={{ fontWeight: "800" }}
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              gap: 12,
+                            }}
                           >
-                            {strongestExercise.progress >= 0 ? "+" : ""}
-                            {strongestExercise.progress.toFixed(1)}
-                            {t("common.kg")} · {t("clientDetail.best")}{" "}
+                            <View style={{ flex: 1 }}>
+                              <AppText variant="caption" color={theme.colors.textMuted}>
+                                {uiText.topProgress}
+                              </AppText>
+
+                              <AppText variant="bodyStrong" style={{ marginTop: 2 }}>
+                                {getTranslatedExerciseName(
+                                  strongestExercise.exerciseName,
+                                  currentLang,
+                                )}
+                              </AppText>
+
+                              <AppText variant="caption" color={theme.colors.textMuted}>
+                                {getMuscleGroupLabel(strongestExercise.muscleGroup, t)}
+                              </AppText>
+                            </View>
+
+                            <AppText
+                              variant="h3"
+                              color={
+                                strongestExercise.progress >= 0
+                                  ? theme.colors.success
+                                  : theme.colors.danger
+                              }
+                            >
+                              {strongestExercise.progress >= 0 ? "+" : ""}
+                              {strongestExercise.progress.toFixed(1)}
+                              {t("common.kg")}
+                            </AppText>
+                          </View>
+
+                          <ProgressLine
+                            value={Math.min(
+                              1,
+                              Math.abs(strongestExercise.progress) /
+                                Math.max(1, strongestExercise.bestWeight),
+                            )}
+                            tone={strongestExercise.progress >= 0 ? "success" : "danger"}
+                          />
+
+                          <AppText variant="caption" color={theme.colors.textMuted}>
+                            {t("clientDetail.best")}:{" "}
                             {strongestExercise.bestWeight || "—"}
                             {t("common.kg")} ×{" "}
                             {strongestExercise.bestReps || "—"}
@@ -2258,93 +3849,505 @@ router.replace("/(coach)/clients");
                     </View>
                   </AppCard>
 
-                  <AppText variant="h3">
-                    {t("clientDetail.muscleGroups")}
-                  </AppText>
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.loadDistribution}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.volumeDistribution}
+                        </AppText>
+                      </View>
 
-                  <View style={{ gap: 10 }}>
-                    {muscleSummaries.map((item) => (
-                      <AppCard key={item.muscleGroup} variant="outline">
-                        <View style={{ gap: 8 }}>
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <View>
-                              <AppText variant="bodyStrong">
-                                {getMuscleGroupLabel(item.muscleGroup, t)}
-                              </AppText>
+                      <DistributionDonutChart
+                        data={muscleDistributionData}
+                        width={w - 80}
+                        centerLabel={uiText.totalWork}
+                        centerValue={`${Math.round(totalHistoryVolume)}${t("common.kg")}`}
+                      />
+                    </View>
+                  </AppCard>
 
-                              <AppText variant="small" color={theme.colors.textMuted}>
-                                {item.exerciseCount}{" "}
-                                {t("workouts.exercises").toLowerCase()} ·{" "}
-                                {item.setCount} {t("workouts.sets").toLowerCase()}
-                              </AppText>
-                            </View>
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.muscleProgressByPeriod}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.previousCurrent}
+                        </AppText>
+                      </View>
 
-                            <View style={{ alignItems: "flex-end" }}>
-                              <AppText variant="bodyStrong">
-                                {Math.round(item.totalVolume)}
-                                {t("common.kg")}
-                              </AppText>
+                      <MuscleGroupProgressChart
+                        data={muscleGroupProgressChartData}
+                        width={w - 80}
+                      />
+                    </View>
+                  </AppCard>
 
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.exerciseDeepAnalysis}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.chooseExercise}
+                        </AppText>
+                      </View>
+
+                      <AppText variant="caption" color={theme.colors.textMuted} style={{ fontWeight: "800" }}>
+                        {uiText.chooseMuscleGroup}
+                      </AppText>
+
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 8, paddingRight: 8 }}
+                      >
+                        {muscleGroupSelectorOptions.map((option) => {
+                          const active = selectedMuscleGroupKey === option.key;
+
+                          return (
+                            <Pressable
+                              key={`muscle_chip_${option.key}`}
+                              onPress={() => {
+                                setSelectedMuscleGroupKey(option.key);
+                                setSelectedExerciseKey("all");
+                              }}
+                              style={{
+                                paddingVertical: 9,
+                                paddingHorizontal: 12,
+                                borderRadius: theme.radius.pill,
+                                backgroundColor: active
+                                  ? theme.colors.primary
+                                  : theme.colors.surfaceAlt,
+                              }}
+                            >
                               <AppText
                                 variant="caption"
-                                color={theme.colors.textMuted}
+                                color={active ? theme.colors.primaryContrast : theme.colors.text}
+                                style={{ fontWeight: "800" }}
                               >
-                                {t("clientDetail.volume")}
+                                {option.label}
                               </AppText>
-                            </View>
-                          </View>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
 
-                          <View
-                            style={{
-                              height: 8,
-                              borderRadius: 999,
-                              backgroundColor: theme.colors.surfaceAlt,
-                              overflow: "hidden",
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: `${Math.min(
-                                  100,
-                                  (item.totalVolume /
-                                    Math.max(
-                                      1,
-                                      muscleSummaries[0]?.totalVolume ?? 1,
-                                    )) *
-                                    100,
-                                )}%`,
-                                height: 8,
-                                borderRadius: 999,
-                                backgroundColor: theme.colors.primary,
-                              }}
-                            />
-                          </View>
-
-                          <AppText variant="caption" color={theme.colors.textMuted}>
-                            {t("clientDetail.bestWeight")}: {" "}
-                            {item.bestWeight || "—"}
-                            {t("common.kg")} · {t("clientDetail.last")}: {" "}
-                            {formatHistoryDate(item.lastDate, currentLang)}
+                      <Pressable
+                        onPress={() => setExercisePickerOpen(true)}
+                        style={{
+                          minHeight: 48,
+                          borderRadius: theme.radius.lg,
+                          paddingHorizontal: 14,
+                          paddingVertical: 12,
+                          backgroundColor: theme.colors.surfaceAlt,
+                          borderWidth: 1,
+                          borderColor: theme.colors.borderSoft,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="caption" color={theme.colors.textMuted} style={{ fontWeight: "800" }}>
+                            {uiText.exerciseDropdown}
+                          </AppText>
+                          <AppText variant="bodyStrong" numberOfLines={1}>
+                            {selectedExerciseOption?.label ?? uiText.allExercises}
                           </AppText>
                         </View>
-                      </AppCard>
-                    ))}
-                  </View>
+                        <AppText variant="bodyStrong" color={theme.colors.primary}>⌄</AppText>
+                      </Pressable>
 
-                  <AppText variant="h3">
-                    {t("clientDetail.bestExercises")}
-                  </AppText>
+                      <Modal
+                        visible={exercisePickerOpen}
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setExercisePickerOpen(false)}
+                      >
+                        <Pressable
+                          onPress={() => setExercisePickerOpen(false)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: "rgba(0,0,0,0.5)",
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <Pressable
+                            onPress={(event) => event.stopPropagation()}
+                            style={{
+                              maxHeight: "78%",
+                              backgroundColor: theme.colors.bg,
+                              borderTopLeftRadius: 24,
+                              borderTopRightRadius: 24,
+                              padding: 18,
+                              gap: 12,
+                              borderWidth: 1,
+                              borderColor: theme.colors.borderSoft,
+                            }}
+                          >
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                              <View style={{ flex: 1 }}>
+                                <AppText variant="h3">
+                                  {selectedMuscleGroupKey === "all" ? uiText.chooseGroupFirst : uiText.chooseExercise}
+                                </AppText>
+                                <AppText variant="small" color={theme.colors.textMuted} style={{ marginTop: 3 }}>
+{selectedMuscleGroupKey === "all"
+  ? uiText.chooseMuscleGroup
+  : getMuscleGroupName(selectedMuscleGroupKey as MuscleGroup, currentLang)}                                </AppText>
+                              </View>
+
+                              {selectedMuscleGroupKey !== "all" ? (
+                                <Pressable
+                                  onPress={() => {
+                                    setSelectedMuscleGroupKey("all");
+                                    setSelectedExerciseKey("all");
+                                  }}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 12,
+                                    borderRadius: theme.radius.pill,
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                  }}
+                                >
+                                  <AppText variant="caption" style={{ fontWeight: "900" }}>
+                                    {uiText.backToGroups}
+                                  </AppText>
+                                </Pressable>
+                              ) : null}
+                            </View>
+
+                            {selectedMuscleGroupKey === "all" ? (
+                              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 16 }}>
+                                <Pressable
+                                  onPress={() => {
+                                    setSelectedExerciseKey("all");
+                                    setExercisePickerOpen(false);
+                                  }}
+                                  style={{
+                                    padding: 16,
+                                    borderRadius: theme.radius.lg,
+                                    backgroundColor: selectedExerciseKey === "all" ? theme.colors.primary : theme.colors.surface,
+                                    borderWidth: 1,
+                                    borderColor: selectedExerciseKey === "all" ? theme.colors.primary : theme.colors.borderSoft,
+                                  }}
+                                >
+                                  <AppText
+                                    variant="bodyStrong"
+                                    color={selectedExerciseKey === "all" ? theme.colors.primaryContrast : theme.colors.text}
+                                  >
+                                    {uiText.allExercises}
+                                  </AppText>
+                                </Pressable>
+
+                                {muscleGroupSelectorOptions
+                                  .filter((group) => group.key !== "all")
+                                  .map((group, groupIndex) => {
+                                    const groupItems = groupedExerciseSelectorOptions.find((item) => item.key === group.key)?.items ?? [];
+                                    const groupSetCount = groupItems.reduce((sum, item) => sum + item.setCount, 0);
+
+                                    return (
+                                      <Pressable
+                                        key={`picker_group_${group.key}_${groupIndex}`}
+                                        onPress={() => {
+                                          setSelectedMuscleGroupKey(group.key);
+                                          setSelectedExerciseKey("all");
+                                        }}
+                                        style={{
+                                          padding: 16,
+                                          borderRadius: theme.radius.lg,
+                                          backgroundColor: theme.colors.surface,
+                                          borderWidth: 1,
+                                          borderColor: theme.colors.borderSoft,
+                                        }}
+                                      >
+                                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                          <View style={{ flex: 1 }}>
+                                            <AppText variant="bodyStrong" numberOfLines={1}>
+                                              {group.label}
+                                            </AppText>
+                                            <AppText variant="caption" color={theme.colors.textMuted} numberOfLines={1}>
+                                              {groupItems.length} {uiText.exerciseDropdown.toLowerCase()}
+                                            </AppText>
+                                          </View>
+                                          {groupSetCount > 0 ? (
+                                            <AppText variant="caption" color={theme.colors.primary} style={{ fontWeight: "900" }}>
+                                              {groupSetCount} {uiText.sets}
+                                            </AppText>
+                                          ) : null}
+                                        </View>
+                                      </Pressable>
+                                    );
+                                  })}
+                              </ScrollView>
+                            ) : (
+                              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>
+                                {exerciseSelectorOptions.map((option, optionIndex) => {
+                                  const active = resolvedSelectedExerciseKey === option.key && selectedExerciseKey !== "all";
+
+                                  return (
+                                    <Pressable
+                                      key={`picker_exercise_${option.rawMuscleGroup}_${option.key}_${optionIndex}`}
+                                      onPress={() => {
+                                        setSelectedExerciseKey(option.key);
+                                        setExercisePickerOpen(false);
+                                      }}
+                                      style={{
+                                        padding: 14,
+                                        borderRadius: theme.radius.lg,
+                                        backgroundColor: active ? theme.colors.primary : theme.colors.surface,
+                                        borderWidth: 1,
+                                        borderColor: active ? theme.colors.primary : theme.colors.borderSoft,
+                                      }}
+                                    >
+                                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+                                        <View style={{ flex: 1 }}>
+                                          <AppText
+                                            variant="bodyStrong"
+                                            color={active ? theme.colors.primaryContrast : theme.colors.text}
+                                            numberOfLines={1}
+                                          >
+                                            {option.label}
+                                          </AppText>
+                                          <AppText
+                                            variant="caption"
+                                            color={active ? theme.colors.primaryContrast : theme.colors.textMuted}
+                                            numberOfLines={1}
+                                          >
+                                            {option.muscleGroup}
+                                          </AppText>
+                                        </View>
+                                        {option.setCount > 0 ? (
+                                          <AppText
+                                            variant="caption"
+                                            color={active ? theme.colors.primaryContrast : theme.colors.primary}
+                                            style={{ fontWeight: "900" }}
+                                          >
+                                            {option.setCount} {uiText.sets}
+                                          </AppText>
+                                        ) : null}
+                                      </View>
+                                    </Pressable>
+                                  );
+                                })}
+                              </ScrollView>
+                            )}
+                          </Pressable>
+                        </Pressable>
+                      </Modal>
+
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {repRangeOptions.map((option) => {
+                          const active = selectedRepRange === option.key;
+
+                          return (
+                            <Pressable
+                              key={option.key}
+                              onPress={() => setSelectedRepRange(option.key)}
+                              style={{
+                                paddingVertical: 7,
+                                paddingHorizontal: 10,
+                                borderRadius: theme.radius.pill,
+                                backgroundColor: active
+                                  ? "rgba(22,199,132,0.16)"
+                                  : theme.colors.surfaceAlt,
+                                borderWidth: 1,
+                                borderColor: active
+                                  ? theme.colors.primary
+                                  : theme.colors.borderSoft,
+                              }}
+                            >
+                              <AppText
+                                variant="caption"
+                                color={active ? theme.colors.primary : theme.colors.textMuted}
+                                style={{ fontWeight: "800" }}
+                              >
+                                {option.label}
+                              </AppText>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <ExercisePerformanceLineChart
+                        data={selectedExercisePerformanceData}
+                        width={w - 80}
+                        unit={selectedExerciseMetricUnit}
+                        metricLabel={selectedExerciseMetricLabel}
+                      />
+
+                      <RepRangePerformanceChart
+                        data={repRangePerformanceData}
+                        width={w - 80}
+                        unit={selectedExerciseMetricUnit}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="h3">{uiText.muscleFocus}</AppText>
+
+                          <AppText
+                            variant="small"
+                            color={theme.colors.textMuted}
+                            style={{ marginTop: 3 }}
+                          >
+                            {uiText.balancedScore}: {muscleBalanceScore}%
+                          </AppText>
+                        </View>
+
+                        <View
+                          style={{
+                            width: 58,
+                            height: 58,
+                            borderRadius: 29,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                          }}
+                        >
+                          <AppText variant="bodyStrong">{muscleBalanceScore}%</AppText>
+                        </View>
+                      </View>
+
+                      <ProgressLine
+                        value={muscleBalanceScore / 100}
+                        tone={
+                          muscleBalanceScore >= 70
+                            ? "success"
+                            : muscleBalanceScore >= 40
+                              ? "primary"
+                              : "danger"
+                        }
+                      />
+
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <MiniMetric
+                          label={uiText.totalWork}
+                          value={`${Math.round(totalHistoryVolume)}${t("common.kg")}`}
+                        />
+
+                        <MiniMetric
+                          label={uiText.laggingMuscle}
+                          value={
+                            weakestMuscleSummary
+                              ? getMuscleGroupLabel(weakestMuscleSummary.muscleGroup, t)
+                              : "—"
+                          }
+                        />
+
+                        <MiniMetric
+                          label={uiText.latestResultsTitle}
+                          value={`${Math.round(lastWorkoutVolume)}${t("common.kg")}`}
+                        />
+                      </View>
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <AppText variant="h3">{uiText.muscleLoadChart}</AppText>
+                      <MuscleVolumeChart
+                        data={muscleVolumeChartData}
+                        width={w - 80}
+                        height={230}
+                        unit={t("common.kg")}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.exerciseProgressChart}</AppText>
+                        <AppText variant="small" color={theme.colors.textMuted} style={{ marginTop: 3 }}>
+                          {uiText.exerciseProgressInfo}
+                        </AppText>
+                      </View>
+                      <ExerciseProgressChart
+                        data={exerciseProgressChartData}
+                        width={w - 80}
+                        height={220}
+                        unit={t("common.kg")}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="h3">{uiText.volumeDistribution}</AppText>
+
+                          <AppText variant="small" color={theme.colors.textMuted}>
+                            {t("clientDetail.muscleGroups")}
+                          </AppText>
+                        </View>
+
+                        <AppText variant="caption" color={theme.colors.textMuted}>
+                          {muscleSummaries.length}
+                        </AppText>
+                      </View>
+
+                      <View style={{ gap: 10 }}>
+                        {muscleSummaries.map((item, index) => (
+                          <VolumeRow
+                            key={item.muscleGroup}
+                            label={getMuscleGroupLabel(item.muscleGroup, t)}
+                            value={Math.round(item.totalVolume)}
+                            hint={`${item.exerciseCount} ${t(
+                              "workouts.exercises",
+                            ).toLowerCase()} · ${item.setCount} ${t(
+                              "workouts.sets",
+                            ).toLowerCase()}`}
+                            percent={
+                              item.totalVolume /
+                              Math.max(1, muscleSummaries[0]?.totalVolume ?? 1)
+                            }
+                            rank={index + 1}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  </AppCard>
+
+                  <AppText variant="h3">{uiText.exerciseDynamics}</AppText>
 
                   <View style={{ gap: 10 }}>
-                    {exerciseProgress.slice(0, 8).map((item) => (
+                    {exerciseProgress.slice(0, 8).map((item, index) => (
                       <AppCard key={item.exerciseName} variant="outline">
-                        <View style={{ gap: 8 }}>
+                        <View style={{ gap: 10 }}>
                           <View
                             style={{
                               flexDirection: "row",
@@ -2353,17 +4356,45 @@ router.replace("/(coach)/clients");
                             }}
                           >
                             <View style={{ flex: 1 }}>
-                              <AppText variant="bodyStrong">
-                                {getTranslatedExerciseName(
-                                  item.exerciseName,
-                                  currentLang,
-                                )}
-                              </AppText>
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <View
+                                  style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: 13,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                  }}
+                                >
+                                  <AppText variant="caption" style={{ fontWeight: "900" }}>
+                                    {index + 1}
+                                  </AppText>
+                                </View>
 
-                              <AppText variant="small" color={theme.colors.textMuted}>
-                                {getMuscleGroupLabel(item.muscleGroup, t)} ·{" "}
-                                {item.setCount} {t("workouts.sets").toLowerCase()}
-                              </AppText>
+                                <View style={{ flex: 1 }}>
+                                  <AppText variant="bodyStrong">
+                                    {getTranslatedExerciseName(
+                                      item.exerciseName,
+                                      currentLang,
+                                    )}
+                                  </AppText>
+
+                                  <AppText
+                                    variant="small"
+                                    color={theme.colors.textMuted}
+                                  >
+                                    {getMuscleGroupLabel(item.muscleGroup, t)} ·{" "}
+                                    {item.setCount} {uiText.sets}
+                                  </AppText>
+                                </View>
+                              </View>
                             </View>
 
                             <View style={{ alignItems: "flex-end" }}>
@@ -2372,14 +4403,19 @@ router.replace("/(coach)/clients");
                                 {t("common.kg")}
                               </AppText>
 
-                              <AppText
-                                variant="caption"
-                                color={theme.colors.textMuted}
-                              >
+                              <AppText variant="caption" color={theme.colors.textMuted}>
                                 {t("clientDetail.best")}
                               </AppText>
                             </View>
                           </View>
+
+                          <ProgressLine
+                            value={Math.min(
+                              1,
+                              Math.round(item.totalVolume) / maxExerciseVolume,
+                            )}
+                            tone={item.progress >= 0 ? "success" : "danger"}
+                          />
 
                           <View
                             style={{
@@ -2418,43 +4454,213 @@ router.replace("/(coach)/clients");
                           <AppText variant="caption" color={theme.colors.textMuted}>
                             {t("clientDetail.bestSet")}: {item.bestWeight || "—"}
                             {t("common.kg")} × {item.bestReps || "—"} ·{" "}
-                            {t("clientDetail.volume")}: {" "}
+                            {t("clientDetail.volume")}:{" "}
                             {Math.round(item.totalVolume)}
-                            {t("common.kg")} · {t("clientDetail.last")}: {" "}
+                            {t("common.kg")} · {t("clientDetail.last")}:{" "}
                             {formatHistoryDate(item.lastDate, currentLang)}
                           </AppText>
                         </View>
                       </AppCard>
                     ))}
                   </View>
+                </>
+              )}
+            </View>
+          )}
 
-                  <AppText variant="h3">
-                    {t("clientDetail.latestResults")}
+          {tab === "results" && (
+            <View style={{ gap: 12 }}>
+              {historyLoading ? (
+                <AppCard variant="outline">
+                  <AppText variant="small" color={theme.colors.textMuted}>
+                    {t("clientDetail.loadingExerciseHistory")}
                   </AppText>
+                </AppCard>
+              ) : exerciseHistory.length === 0 ? (
+                <AppEmptyState
+                  title={t("clientDetail.noExerciseHistory")}
+                  message={t("clientDetail.noExerciseHistoryMessage")}
+                />
+              ) : (
+                <>
+                  <AppCard variant="elevated">
+                    <View style={{ gap: 8 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="h3">{uiText.latestResultsTitle}</AppText>
+
+                          <AppText
+                            variant="small"
+                            color={theme.colors.textMuted}
+                            style={{ marginTop: 3 }}
+                          >
+                            {uiText.latestResultsSubtitle}
+                          </AppText>
+                        </View>
+
+                        <View
+                          style={{
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderRadius: theme.radius.pill,
+                            backgroundColor: theme.colors.surfaceAlt,
+                          }}
+                        >
+                          <AppText variant="caption" style={{ fontWeight: "900" }}>
+                            {latestExerciseHistory.length}
+                          </AppText>
+                        </View>
+                      </View>
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.supplementAnalytics}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.supplementAnalyticsText}
+                        </AppText>
+                      </View>
+
+                      <SupplementAdherenceChart
+                        data={supplementAdherenceData}
+                        width={w - 80}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <AppText variant="h3">{uiText.performanceOverview}</AppText>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <MiniMetric
+                          label={uiText.latestWorkoutLoad}
+                          value={`${Math.round(lastWorkoutVolume)}${t("common.kg")}`}
+                          positive
+                        />
+                        <MiniMetric
+                          label={uiText.balancedScore}
+                          value={`${muscleBalanceScore}%`}
+                          positive={muscleBalanceScore >= 55}
+                        />
+                      </View>
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.muscleLoadChart}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.volumeDistribution}
+                        </AppText>
+                      </View>
+
+                      <MuscleVolumeChart
+                        data={muscleVolumeChartData}
+                        width={w - 80}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.exerciseProgressChart}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.topProgress}
+                        </AppText>
+                      </View>
+
+                      <ExerciseProgressChart
+                        data={exerciseProgressChartData}
+                        width={w - 80}
+                        unit={t("common.kg")}
+                      />
+                    </View>
+                  </AppCard>
+
+                  <AppCard variant="outline">
+                    <View style={{ gap: 12 }}>
+                      <View>
+                        <AppText variant="h3">{uiText.repRangeAnalysis}</AppText>
+                        <AppText
+                          variant="small"
+                          color={theme.colors.textMuted}
+                          style={{ marginTop: 3 }}
+                        >
+                          {uiText.chooseRepRange}
+                        </AppText>
+                      </View>
+
+                      <RepRangePerformanceChart
+                        data={repRangePerformanceData}
+                        width={w - 80}
+                        unit={selectedExerciseMetricUnit}
+                      />
+                    </View>
+                  </AppCard>
 
                   <View style={{ gap: 10 }}>
-                    {exerciseHistory.map((item) => {
+                    {latestExerciseHistory.map((item) => {
                       const sortedSets = item.sets
                         .slice()
                         .sort((a, b) => a.setNumber - b.setNumber);
 
-                      const resultText = sortedSets
-                        .map((set) => {
-                          const weight =
-                            set.weight !== undefined && set.weight !== null
-                              ? `${set.weight}${t("common.kg")}`
-                              : t("clientDetail.noWeight");
+                      const totalVolume = sortedSets.reduce(
+                        (sum, set) => sum + getSetVolume(set),
+                        0,
+                      );
 
-                          return `${weight} × ${set.actualReps}`;
-                        })
-                        .join(" / ");
+                      const bestSet = sortedSets
+                        .slice()
+                        .sort((a, b) => {
+                          const volumeDiff = getSetVolume(b) - getSetVolume(a);
+
+                          if (volumeDiff !== 0) return volumeDiff;
+
+                          return Number(b.actualReps ?? 0) - Number(a.actualReps ?? 0);
+                        })[0];
+
+                      const totalTargetReps = sortedSets.reduce(
+                        (sum, set) => sum + Number(set.targetReps ?? 0),
+                        0,
+                      );
+                      const totalActualReps = sortedSets.reduce(
+                        (sum, set) => sum + Number(set.actualReps ?? 0),
+                        0,
+                      );
+                      const completionRate =
+                        totalTargetReps > 0
+                          ? Math.min(1, totalActualReps / totalTargetReps)
+                          : 0;
 
                       return (
                         <AppCard
-                          key={`${item.exerciseName}_${item.workoutId}`}
+                          key={`${item.exerciseName}_${item.workoutId}_${item.createdAt}`}
                           variant="outline"
                         >
-                          <View style={{ gap: 8 }}>
+                          <View style={{ gap: 12 }}>
                             <View
                               style={{
                                 flexDirection: "row",
@@ -2474,56 +4680,97 @@ router.replace("/(coach)/clients");
                                 <AppText
                                   variant="small"
                                   color={theme.colors.textMuted}
+                                  style={{ marginTop: 2 }}
                                 >
-                                  {getMuscleGroupLabel(item.muscleGroup, t)}
+                                  {getMuscleGroupLabel(item.muscleGroup, t)} ·{" "}
+                                  {formatHistoryDate(item.createdAt, currentLang)}
                                 </AppText>
                               </View>
 
-                              <AppText
-                                variant="caption"
-                                color={theme.colors.textMuted}
-                              >
-                                {formatHistoryDate(item.createdAt, currentLang)}
-                              </AppText>
+                              <View style={{ alignItems: "flex-end" }}>
+                                <AppText variant="bodyStrong">
+                                  {Math.round(totalVolume)}
+                                  {t("common.kg")}
+                                </AppText>
+
+                                <AppText variant="caption" color={theme.colors.textMuted}>
+                                  {uiText.totalWork}
+                                </AppText>
+                              </View>
                             </View>
 
                             <View
                               style={{
-                                padding: 10,
-                                borderRadius: theme.radius.md,
-                                backgroundColor: theme.colors.surfaceAlt,
+                                flexDirection: "row",
+                                justifyContent: "space-between",
+                                gap: 8,
                               }}
                             >
-                              <AppText variant="small" style={{ fontWeight: "700" }}>
-                                {t("clientDetail.last")}: {" "}
-                                {resultText || t("clientDetail.noSetDetails")}
-                              </AppText>
+                              <MiniMetric
+                                label={uiText.bestSetShort}
+                                value={
+                                  bestSet
+                                    ? `${bestSet.weight ?? "—"}${t(
+                                        "common.kg",
+                                      )} × ${bestSet.actualReps}`
+                                    : "—"
+                                }
+                              />
+
+                              <MiniMetric
+                                label={uiText.completion}
+                                value={`${Math.round(completionRate * 100)}%`}
+                                positive={completionRate >= 1}
+                              />
+
+                              <MiniMetric
+                                label={uiText.sets}
+                                value={String(sortedSets.length)}
+                              />
                             </View>
 
-                            <View style={{ gap: 4 }}>
-                              {sortedSets.map((set) => (
-                                <View
-                                  key={set.id}
-                                  style={{
-                                    flexDirection: "row",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  <AppText
-                                    variant="caption"
-                                    color={theme.colors.textMuted}
-                                  >
-                                    {t("workouts.sets")} {set.setNumber}
-                                  </AppText>
+                            <View style={{ gap: 8 }}>
+                              {sortedSets.map((set) => {
+                                const repsPercent =
+                                  Number(set.targetReps ?? 0) > 0
+                                    ? Math.min(
+                                        1,
+                                        Number(set.actualReps ?? 0) /
+                                          Number(set.targetReps ?? 1),
+                                      )
+                                    : 0;
 
-                                  <AppText variant="caption">
-                                    {set.weight ?? "—"} {t("common.kg")} ·{" "}
-                                    {set.actualReps}/{set.targetReps}{" "}
-                                    {t("workouts.reps").toLowerCase()}
-                                  </AppText>
-                                </View>
-                              ))}
+                                return (
+                                  <View key={set.id} style={{ gap: 5 }}>
+                                    <View
+                                      style={{
+                                        flexDirection: "row",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      <AppText
+                                        variant="caption"
+                                        color={theme.colors.textMuted}
+                                      >
+                                        {t("workouts.sets")} {set.setNumber}
+                                      </AppText>
+
+                                      <AppText variant="caption" style={{ fontWeight: "800" }}>
+                                        {set.weight ?? "—"} {t("common.kg")} ·{" "}
+                                        {set.actualReps}/{set.targetReps}{" "}
+                                        {t("workouts.reps").toLowerCase()}
+                                      </AppText>
+                                    </View>
+
+                                    <ProgressLine
+                                      value={repsPercent}
+                                      tone={repsPercent >= 1 ? "success" : "primary"}
+                                    />
+                                  </View>
+                                );
+                              })}
                             </View>
                           </View>
                         </AppCard>
@@ -2571,6 +4818,166 @@ router.replace("/(coach)/clients");
         onSave={saveAssessment}
       />
     </ScreenContainer>
+  );
+}
+
+function AttendanceMonthRow({
+  label,
+  rate,
+  attended,
+  missed,
+  rest,
+}: {
+  label: string;
+  rate: number;
+  attended: number;
+  missed: number;
+  rest: number;
+}) {
+  const { theme } = useTheme();
+
+  const tone = rate >= 80 ? "success" : rate >= 55 ? "primary" : "danger";
+
+  return (
+    <View style={{ gap: 7 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <AppText
+            variant="small"
+            style={{ fontWeight: "800", textTransform: "capitalize" }}
+            numberOfLines={1}
+          >
+            {label}
+          </AppText>
+
+          <AppText variant="caption" color={theme.colors.textMuted}>
+            ✓ {attended} · ✕ {missed} · ○ {rest}
+          </AppText>
+        </View>
+
+        <AppText
+          variant="bodyStrong"
+          color={
+            tone === "success"
+              ? theme.colors.success
+              : tone === "danger"
+                ? theme.colors.danger
+                : theme.colors.text
+          }
+        >
+          {rate}%
+        </AppText>
+      </View>
+
+      <ProgressLine value={rate / 100} tone={tone} />
+    </View>
+  );
+}
+
+function ProgressLine({
+  value,
+  tone = "primary",
+}: {
+  value: number;
+  tone?: "primary" | "success" | "danger";
+}) {
+  const { theme } = useTheme();
+
+  const normalized = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+  const color =
+    tone === "success"
+      ? theme.colors.success
+      : tone === "danger"
+        ? theme.colors.danger
+        : theme.colors.primary;
+
+  return (
+    <View
+      style={{
+        height: 9,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceAlt,
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          width: `${Math.max(4, normalized * 100)}%`,
+          height: 9,
+          borderRadius: 999,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+function VolumeRow({
+  label,
+  value,
+  hint,
+  percent,
+  rank,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  percent: number;
+  rank: number;
+}) {
+  const { theme } = useTheme();
+
+  return (
+    <View style={{ gap: 7 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+          <View
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: theme.colors.surfaceAlt,
+            }}
+          >
+            <AppText variant="caption" style={{ fontWeight: "900" }}>
+              {rank}
+            </AppText>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <AppText variant="small" style={{ fontWeight: "800" }}>
+              {label}
+            </AppText>
+
+            <AppText variant="caption" color={theme.colors.textMuted}>
+              {hint}
+            </AppText>
+          </View>
+        </View>
+
+        <AppText variant="small" style={{ fontWeight: "900" }}>
+          {value}
+        </AppText>
+      </View>
+
+      <ProgressLine value={percent} />
+    </View>
   );
 }
 

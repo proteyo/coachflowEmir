@@ -9,12 +9,19 @@ type ApiOptions = {
   token?: string | null;
 };
 
+type UploadOptions = ApiOptions & {
+  mimeType?: string | null;
+  fileName?: string | null;
+};
+
 type SendMessagePayload = {
   receiver_id: string;
   content: string;
-  message_type?: "text" | "voice";
+  message_type?: "text" | "voice" | "image" | "video";
   voice_url?: string | null;
   voice_duration_ms?: number | null;
+  media_url?: string | null;
+  media_type?: "image" | "video" | null;
 };
 
 function buildUrl(path: string) {
@@ -40,7 +47,12 @@ function getErrorMessage(data: any, status: number) {
       .map((item) => {
         if (typeof item === "string") return item;
         if (item?.msg) return item.msg;
-        return JSON.stringify(item);
+
+        try {
+          return JSON.stringify(item);
+        } catch {
+          return String(item);
+        }
       })
       .join("\n");
   }
@@ -54,9 +66,15 @@ function getErrorMessage(data: any, status: number) {
 
 async function handleResponse(res: Response) {
   let data: any = null;
+  const contentType = res.headers.get("content-type") ?? "";
 
   try {
-    data = await res.json();
+    if (contentType.includes("application/json")) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      data = text ? { detail: text } : null;
+    }
   } catch {
     data = null;
   }
@@ -88,7 +106,36 @@ export function toAbsoluteUrl(url?: string | null) {
   return url;
 }
 
-function getFileName(uri: string, fallbackExt: string = "jpg") {
+function getExtensionFromMimeType(mimeType: string) {
+  const normalized = mimeType.toLowerCase();
+
+  if (normalized.includes("png")) return "png";
+  if (normalized.includes("webp")) return "webp";
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
+
+  if (normalized.includes("mp4") && normalized.startsWith("video")) return "mp4";
+  if (normalized.includes("quicktime")) return "mov";
+  if (normalized.includes("webm") && normalized.startsWith("video")) return "webm";
+
+  if (normalized.includes("m4a")) return "m4a";
+  if (normalized.includes("mp4") && normalized.startsWith("audio")) return "m4a";
+  if (normalized.includes("mpeg") || normalized.includes("mp3")) return "mp3";
+  if (normalized.includes("wav")) return "wav";
+  if (normalized.includes("aac")) return "aac";
+  if (normalized.includes("webm") && normalized.startsWith("audio")) return "webm";
+
+  return "bin";
+}
+
+function getFileName(
+  uri: string,
+  fallbackExt: string = "jpg",
+  explicitName?: string | null,
+) {
+  if (explicitName && explicitName.trim()) {
+    return explicitName.trim();
+  }
+
   const cleanUri = uri.split("?")[0];
   const parts = cleanUri.split("/");
   const last = parts[parts.length - 1];
@@ -100,26 +147,88 @@ function getFileName(uri: string, fallbackExt: string = "jpg") {
   return `upload_${Date.now()}.${fallbackExt}`;
 }
 
-function getMimeType(uri: string) {
+function getMimeType(
+  uri: string,
+  path?: string,
+  explicitMimeType?: string | null,
+) {
+  if (explicitMimeType && explicitMimeType.trim()) {
+    return explicitMimeType.trim();
+  }
+
   const lower = uri.toLowerCase();
+  const cleanPath = String(path ?? "").toLowerCase();
 
   if (lower.endsWith(".png")) return "image/png";
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".heic") || lower.endsWith(".heif")) return "image/jpeg";
 
-  if (lower.endsWith(".m4a")) return "audio/x-m4a";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".webm") && cleanPath.includes("video")) return "video/webm";
+
+  if (lower.endsWith(".m4a")) return "audio/mp4";
   if (lower.endsWith(".mp3")) return "audio/mpeg";
   if (lower.endsWith(".wav")) return "audio/wav";
   if (lower.endsWith(".aac")) return "audio/aac";
   if (lower.endsWith(".webm")) return "audio/webm";
 
-  return "image/jpeg";
+  if (cleanPath.includes("/uploads/video") || cleanPath.includes("/video")) {
+    return "video/mp4";
+  }
+
+  if (cleanPath.includes("/uploads/voice") || cleanPath.includes("/voice")) {
+    return "audio/mp4";
+  }
+
+  if (cleanPath.includes("/uploads/image") || cleanPath.includes("/image")) {
+    return "image/jpeg";
+  }
+
+  return "application/octet-stream";
+}
+
+function normalizeUploadResponse(data: any) {
+  if (!data || typeof data !== "object") {
+    return data;
+  }
+
+  const mediaUrl =
+    data.mediaUrl ??
+    data.media_url ??
+    data.imageUrl ??
+    data.image_url ??
+    data.videoUrl ??
+    data.video_url ??
+    data.voiceUrl ??
+    data.voice_url ??
+    data.publicUrl ??
+    data.public_url ??
+    data.url ??
+    null;
+
+  return {
+    ...data,
+    url: data.url ?? mediaUrl,
+    mediaUrl: data.mediaUrl ?? data.media_url ?? mediaUrl,
+    media_url: data.media_url ?? data.mediaUrl ?? mediaUrl,
+    voiceUrl: data.voiceUrl ?? data.voice_url ?? mediaUrl,
+    voice_url: data.voice_url ?? data.voiceUrl ?? mediaUrl,
+    imageUrl: data.imageUrl ?? data.image_url ?? mediaUrl,
+    image_url: data.image_url ?? data.imageUrl ?? mediaUrl,
+    videoUrl: data.videoUrl ?? data.video_url ?? mediaUrl,
+    video_url: data.video_url ?? data.videoUrl ?? mediaUrl,
+    publicUrl: data.publicUrl ?? data.public_url ?? mediaUrl,
+    public_url: data.public_url ?? data.publicUrl ?? mediaUrl,
+  };
 }
 
 export async function apiGet(path: string, options?: ApiOptions) {
   const res = await fetch(buildUrl(path), {
     method: "GET",
     headers: {
+      Accept: "application/json",
       ...getAuthHeaders(options),
     },
   });
@@ -135,6 +244,7 @@ export async function apiPost(
   const res = await fetch(buildUrl(path), {
     method: "POST",
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
       ...getAuthHeaders(options),
     },
@@ -152,6 +262,7 @@ export async function apiPatch(
   const res = await fetch(buildUrl(path), {
     method: "PATCH",
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
       ...getAuthHeaders(options),
     },
@@ -165,6 +276,7 @@ export async function apiDelete(path: string, options?: ApiOptions) {
   const res = await fetch(buildUrl(path), {
     method: "DELETE",
     headers: {
+      Accept: "application/json",
       ...getAuthHeaders(options),
     },
   });
@@ -176,19 +288,28 @@ export async function apiUploadFile(
   path: string,
   fileUri: string,
   fieldName: string = "file",
-  options?: ApiOptions,
+  options?: UploadOptions,
 ) {
+  if (!fileUri) {
+    throw new Error("File URI is required");
+  }
+
   const formData = new FormData();
 
-  const mimeType = getMimeType(fileUri);
-  const isAudio = mimeType.startsWith("audio/");
-  const fileName = getFileName(fileUri, isAudio ? "m4a" : "jpg");
+  const mimeType = getMimeType(fileUri, path, options?.mimeType);
+  const fallbackExt = getExtensionFromMimeType(mimeType);
+  const fileName = getFileName(fileUri, fallbackExt, options?.fileName);
 
   if (Platform.OS === "web") {
     const fileResponse = await fetch(fileUri);
     const blob = await fileResponse.blob();
 
-    formData.append(fieldName, blob, fileName);
+    const file =
+      typeof File !== "undefined"
+        ? new File([blob], fileName, { type: mimeType })
+        : blob;
+
+    formData.append(fieldName, file as any, fileName);
   } else {
     formData.append(fieldName, {
       uri: fileUri,
@@ -200,12 +321,15 @@ export async function apiUploadFile(
   const res = await fetch(buildUrl(path), {
     method: "POST",
     headers: {
+      Accept: "application/json",
       ...getAuthHeaders(options),
     },
     body: formData,
   });
 
-  return handleResponse(res);
+  const data = await handleResponse(res);
+
+  return normalizeUploadResponse(data);
 }
 
 /**
@@ -255,6 +379,28 @@ export async function apiMarkMessageRead(
   return apiPost(`/messages/${messageId}/read`, {}, options);
 }
 
+export async function apiDeleteMessage(
+  messageId: string,
+  options?: ApiOptions,
+) {
+  return apiDelete(`/messages/${messageId}`, options);
+}
+
+export async function apiDeleteMessageFallback(
+  messageId: string,
+  options?: ApiOptions,
+) {
+  return apiPost(`/messages/${messageId}/delete`, {}, options);
+}
+
 export async function apiGetUnreadCount(options?: ApiOptions) {
   return apiGet(`/messages/unread-count?_=${Date.now()}`, options);
+}
+
+export function getConfiguredApiBaseUrl() {
+  return API_BASE_URL;
+}
+
+export function getConfiguredApiOrigin() {
+  return API_ORIGIN;
 }

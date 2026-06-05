@@ -21,23 +21,21 @@ class ProgressEntryOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
-
 # ── Messages ──────────────────────────────────────────────────────────────────
 
 class MessageIn(BaseModel):
     receiver_id: str
-    content: str
+    content: str = ""
     message_type: str = "text"
     voice_url: Optional[str] = None
     voice_duration_ms: Optional[int] = None
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
 
     @field_validator("content")
     @classmethod
     def content_valid(cls, value: str) -> str:
-        cleaned = value.strip()
-
-        if not cleaned and not value:
-            raise ValueError("content is required")
+        cleaned = (value or "").strip()
 
         if len(cleaned) > 5000:
             raise ValueError("content is too long")
@@ -47,10 +45,23 @@ class MessageIn(BaseModel):
     @field_validator("message_type")
     @classmethod
     def message_type_valid(cls, value: str) -> str:
-        allowed = {"text", "voice"}
+        allowed = {"text", "voice", "image", "video"}
 
         if value not in allowed:
-            raise ValueError("message_type must be text or voice")
+            raise ValueError("message_type must be text, voice, image, or video")
+
+        return value
+
+    @field_validator("media_type")
+    @classmethod
+    def media_type_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        allowed = {"image", "video"}
+
+        if value not in allowed:
+            raise ValueError("media_type must be image or video")
 
         return value
 
@@ -63,11 +74,13 @@ class MessageOut(BaseModel):
     messageType: str
     voiceUrl: Optional[str] = None
     voiceDurationMs: Optional[int] = None
+    mediaUrl: Optional[str] = None
+    mediaType: Optional[str] = None
     read: bool
+    deletedAt: Optional[str] = None
     createdAt: str
 
     model_config = {"from_attributes": True}
-
 
 # ── Weekly Goals ──────────────────────────────────────────────────────────────
 

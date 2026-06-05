@@ -375,7 +375,10 @@ def message_out(message: Message) -> MessageOut:
         messageType=message.message_type,
         voiceUrl=message.voice_url,
         voiceDurationMs=message.voice_duration_ms,
+        mediaUrl=getattr(message, "media_url", None),
+        mediaType=getattr(message, "media_type", None),
         read=bool(message.read),
+        deletedAt=to_iso(getattr(message, "deleted_at", None)),
         createdAt=to_iso_required(message.created_at),
     )
 

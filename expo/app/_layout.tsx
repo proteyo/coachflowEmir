@@ -34,6 +34,16 @@ function Nav() {
         ? "FAQ / Көмек"
         : "FAQ / Help";
 
+  const coachProfileTitle =
+    lang === "ru"
+      ? "Профиль тренера"
+      : lang === "kk"
+        ? "Жаттықтырушы профилі"
+        : "Coach profile";
+
+  const clientsBackTitle =
+    lang === "ru" ? "Клиенты" : lang === "kk" ? "Клиенттер" : "Clients";
+
   return (
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
@@ -79,18 +89,14 @@ function Nav() {
           name="client/[id]"
           options={{
             title: t("clients.profile"),
+            headerBackTitle: clientsBackTitle,
           }}
         />
 
         <Stack.Screen
           name="coach/[id]"
           options={{
-            title:
-              lang === "ru"
-                ? "Профиль тренера"
-                : lang === "kk"
-                  ? "Жаттықтырушы профилі"
-                  : "Coach profile",
+            title: coachProfileTitle,
           }}
         />
 

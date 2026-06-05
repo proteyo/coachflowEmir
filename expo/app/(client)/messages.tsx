@@ -171,6 +171,13 @@ function getLangSafe(lang: string): AppLangCode {
   return "en";
 }
 
+function getLocale(lang: AppLangCode) {
+  if (lang === "ru") return "ru-RU";
+  if (lang === "kk") return "kk-KZ";
+
+  return "en-US";
+}
+
 function normalizeText(value?: string | null) {
   return String(value ?? "")
     .trim()
@@ -251,6 +258,7 @@ function isSameDay(a: Date, b: Date) {
 function formatLastSeen(
   value: string | null | undefined,
   labels: ClientMessagesLabels,
+  lang: AppLangCode,
 ) {
   if (!value) {
     return labels.lastSeenAfterActivity;
@@ -262,19 +270,24 @@ function formatLastSeen(
     return labels.lastSeenUnavailable;
   }
 
-  const time = date.toLocaleTimeString([], {
+  const locale = getLocale(lang);
+
+  const time = date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 
   if (isSameDay(date, new Date())) {
     return `${labels.lastSeenPrefix} ${time}`;
   }
 
-  return `${labels.lastSeenPrefix} ${date.toLocaleDateString([], {
-    month: "short",
+  const dayMonth = date.toLocaleDateString(locale, {
     day: "numeric",
-  })} ${time}`;
+    month: "short",
+  });
+
+  return `${labels.lastSeenPrefix} ${dayMonth} ${time}`;
 }
 
 export default function ClientMessages() {
@@ -541,7 +554,7 @@ export default function ClientMessages() {
   const coachOnline = Boolean(data.coach.isOnline);
   const coachPresenceText = coachOnline
     ? L.onlineNow
-    : formatLastSeen(data.coach.lastSeenAt, L);
+    : formatLastSeen(data.coach.lastSeenAt, L, currentLang);
 
   return (
     <ScreenContainer scroll>

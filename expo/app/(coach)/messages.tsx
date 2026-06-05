@@ -116,7 +116,18 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
-function formatLastSeen(value: string | null | undefined, labels: TextLabels) {
+function getLocale(lang: AppLangCode) {
+  if (lang === "ru") return "ru-RU";
+  if (lang === "kk") return "kk-KZ";
+
+  return "en-US";
+}
+
+function formatLastSeen(
+  value: string | null | undefined,
+  labels: TextLabels,
+  lang: AppLangCode,
+) {
   if (!value) {
     return labels.lastSeenAfterActivity;
   }
@@ -127,7 +138,9 @@ function formatLastSeen(value: string | null | undefined, labels: TextLabels) {
     return labels.lastSeenUnavailable;
   }
 
-  const time = date.toLocaleTimeString([], {
+  const locale = getLocale(lang);
+
+  const time = date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -136,7 +149,7 @@ function formatLastSeen(value: string | null | undefined, labels: TextLabels) {
     return `${labels.lastSeenPrefix} ${time}`;
   }
 
-  return `${labels.lastSeenPrefix} ${date.toLocaleDateString([], {
+  return `${labels.lastSeenPrefix} ${date.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
   })} ${time}`;
@@ -272,7 +285,7 @@ export default function CoachMessages() {
           const online = Boolean(client.isOnline);
           const presenceText = online
             ? L.onlineNow
-            : formatLastSeen(client.lastSeenAt, L);
+            : formatLastSeen(client.lastSeenAt, L, currentLang);
 
           return (
             <AppCard variant="outline">

@@ -819,6 +819,7 @@ coachSpecialty: {
 
   clientDetail: {
     history: "History",
+    results: "Results",
     thisClient: "this client",
 
     removeClientTitle: "Remove client",
@@ -1815,6 +1816,7 @@ coachSpecialty: {
 
   clientDetail: {
     history: "История",
+    results: "Результаты",
     thisClient: "этого клиента",
 
     removeClientTitle: "Удалить клиента",
@@ -2810,6 +2812,7 @@ coachSpecialty: {
 
   clientDetail: {
     history: "Тарих",
+    results: "Нәтижелер",
     thisClient: "осы клиентті",
 
     removeClientTitle: "Клиентті өшіру",
