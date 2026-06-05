@@ -944,10 +944,20 @@ export default function Chat() {
   const recordingLockedRef = useRef<boolean>(false);
   const recordingStartedAtRef = useRef<number>(0);
   const recordingTouchActiveRef = useRef<boolean>(false);
-  const sendingRef = useRef<boolean>(false);
-  const voiceSendingRef = useRef<boolean>(false);
-  const readMarkingRef = useRef<boolean>(false);
-  const refreshFromBackendRef = useRef(refreshFromBackend);
+const sendingRef = useRef<boolean>(false);
+const voiceSendingRef = useRef<boolean>(false);
+const readMarkingRef = useRef<boolean>(false);
+const refreshFromBackendRef = useRef(refreshFromBackend);
+
+const sendHardLockRef = useRef<boolean>(false);
+const lastSendAtRef = useRef<number>(0);
+
+const reactionBusyRef = useRef<Set<string>>(new Set());
+
+const recordStartLockRef = useRef<boolean>(false);
+const pendingStopAfterStartRef = useRef<boolean>(false);
+const pendingCancelAfterStartRef = useRef<boolean>(false);
+const voiceHardLockRef = useRef<boolean>(false);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder);
@@ -1445,221 +1455,245 @@ export default function Chat() {
   };
 
   const sendTextOrMedia = async () => {
-    const content = text.trim();
+  const content = text.trim();
+  const now = Date.now();
 
-    if (!userId || !id || !token || sendingRef.current) return;
-    if (!content && !mediaDraft) return;
+  if (!userId || !id || !token) return;
+  if (!content && !mediaDraft) return;
 
-    if (editTarget) {
-      if (!content) return;
+  if (sendHardLockRef.current || sendingRef.current) {
+    return;
+  }
 
-      const previousText = editTarget.content;
-      const targetId = editTarget.id;
+  if (now - lastSendAtRef.current < 900) {
+    return;
+  }
 
-      sendingRef.current = true;
-      setSending(true);
+  sendHardLockRef.current = true;
+  lastSendAtRef.current = now;
 
-      setText("");
-      setEditTarget(null);
+  if (editTarget) {
+    if (!content) {
+      sendHardLockRef.current = false;
+      return;
+    }
 
+    const previousText = editTarget.content;
+    const targetId = editTarget.id;
+    const currentEditTarget = editTarget;
+
+    sendingRef.current = true;
+    setSending(true);
+
+    setText("");
+    setEditTarget(null);
+
+    update((d) => ({
+      ...d,
+      messages: d.messages.map((message: Message) =>
+        message.id === targetId
+          ? {
+              ...message,
+              content,
+              editedAt: new Date().toISOString(),
+            }
+          : message,
+      ),
+    }));
+
+    try {
+      const updated = await apiEditMessage(targetId, { content }, { token });
+      const normalized = normalizeMessage(updated);
+
+      applyIncomingMessages([normalized]);
+    } catch (e: any) {
       update((d) => ({
         ...d,
         messages: d.messages.map((message: Message) =>
           message.id === targetId
             ? {
                 ...message,
-                content,
-                editedAt: new Date().toISOString(),
+                content: previousText,
+                editedAt: (currentEditTarget as any).editedAt,
               }
             : message,
         ),
       }));
 
-      try {
-        const updated = await apiEditMessage(targetId, { content }, { token });
-        const normalized = normalizeMessage(updated);
-
-        applyIncomingMessages([normalized]);
-      } catch (e: any) {
-        update((d) => ({
-          ...d,
-          messages: d.messages.map((message: Message) =>
-            message.id === targetId
-              ? {
-                  ...message,
-                  content: previousText,
-                  editedAt: (editTarget as any).editedAt,
-                }
-              : message,
-          ),
-        }));
-
-        setText(content);
-        setEditTarget(editTarget);
-        Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
-      } finally {
-        sendingRef.current = false;
-        setSending(false);
-      }
-
-      return;
-    }
-
-    sendingRef.current = true;
-    setSending(true);
-
-    const draft = mediaDraft;
-    const reply = replyTarget;
-    const clientTempId = createClientTempId();
-
-    clearComposer();
-
-    let localMessage: Message | null = null;
-
-    try {
-      let uploadedUrl: string | undefined;
-      let thumbnailUrl: string | undefined;
-      let messageType: "text" | "image" | "video" = "text";
-      let mediaType: "image" | "video" | undefined;
-      let messageContent = content;
-
-      if (draft) {
-        setMediaSending(true);
-
-        messageType = draft.type;
-        mediaType = draft.type;
-        messageContent =
-          content || (draft.type === "video" ? texts.videoMessage : texts.photoMessage);
-
-        localMessage = makeLocalMessage({
-          senderId: userId,
-          receiverId: String(id),
-          content: messageContent,
-          messageType,
-          mediaUrl: draft.uri,
-          mediaType,
-          mediaThumbnailUrl: draft.thumbnailUri || undefined,
-          replyToId: reply?.id,
-          replyPreview: reply ? buildReplyPreview(reply) : undefined,
-          clientTempId,
-        });
-
-        update((d) => ({
-          ...d,
-          messages: [...d.messages, localMessage as Message],
-        }));
-
-        scrollToBottom(true, 20);
-
-        if (draft.type === "video" && draft.thumbnailUri) {
-          const thumbnailUpload = await apiUploadVideoThumbnail(draft.thumbnailUri, {
-            token,
-            mimeType: "image/jpeg",
-            fileName: `video_thumb_${Date.now()}.jpg`,
-          });
-
-          thumbnailUrl =
-            thumbnailUpload.mediaThumbnailUrl ??
-            thumbnailUpload.media_thumbnail_url ??
-            thumbnailUpload.thumbnailUrl ??
-            thumbnailUpload.thumbnail_url ??
-            thumbnailUpload.url;
-        }
-
-        const uploadRes =
-          draft.type === "video"
-            ? await apiUploadChatVideo(draft.uri, {
-                token,
-                mimeType: draft.mimeType ?? "video/mp4",
-                fileName: draft.fileName ?? `chat_${Date.now()}.mp4`,
-              })
-            : await apiUploadChatImage(draft.uri, {
-                token,
-                mimeType: draft.mimeType ?? "image/jpeg",
-                fileName: draft.fileName ?? `chat_${Date.now()}.jpg`,
-              });
-
-        uploadedUrl =
-          uploadRes.mediaUrl ??
-          uploadRes.media_url ??
-          uploadRes.imageUrl ??
-          uploadRes.image_url ??
-          uploadRes.videoUrl ??
-          uploadRes.video_url ??
-          uploadRes.url;
-
-        if (!uploadedUrl) {
-          throw new Error("Backend did not return media URL.");
-        }
-      } else {
-        localMessage = makeLocalMessage({
-          senderId: userId,
-          receiverId: String(id),
-          content: messageContent,
-          messageType,
-          replyToId: reply?.id,
-          replyPreview: reply ? buildReplyPreview(reply) : undefined,
-          clientTempId,
-        });
-
-        update((d) => ({
-          ...d,
-          messages: [...d.messages, localMessage as Message],
-        }));
-
-        scrollToBottom(true, 20);
-      }
-
-      const created = await apiSendMessage(
-        {
-          receiver_id: id,
-          client_temp_id: clientTempId,
-          content: messageContent,
-          message_type: messageType,
-          reply_to_id: reply?.id ?? null,
-          ...(uploadedUrl
-            ? {
-                media_url: uploadedUrl,
-                media_type: mediaType,
-                media_thumbnail_url: thumbnailUrl ?? null,
-              }
-            : {}),
-        },
-        { token },
-      );
-
-      const createdMessage = created?.id ? normalizeMessage(created) : null;
-
-      if (createdMessage && localMessage) {
-        update((d) => ({
-          ...d,
-          messages: replaceLocalMessage(
-            d.messages,
-            localMessage?.id ?? "",
-            createdMessage,
-          ),
-        }));
-      }
-
-      scrollToBottom(true, 20);
-    } catch (e: any) {
-      console.log("[chat] send text/media err", e);
-
-      if (localMessage) {
-        removeLocalMessage(localMessage.id);
-      }
-
       setText(content);
-      setMediaDraft(draft);
-      setReplyTarget(reply);
-
+      setEditTarget(currentEditTarget);
       Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
     } finally {
       sendingRef.current = false;
       setSending(false);
-      setMediaSending(false);
+
+      setTimeout(() => {
+        sendHardLockRef.current = false;
+      }, 450);
     }
-  };
+
+    return;
+  }
+
+  sendingRef.current = true;
+  setSending(true);
+
+  const draft = mediaDraft;
+  const reply = replyTarget;
+  const clientTempId = createClientTempId();
+
+  clearComposer();
+
+  let localMessage: Message | null = null;
+
+  try {
+    let uploadedUrl: string | undefined;
+    let thumbnailUrl: string | undefined;
+    let messageType: "text" | "image" | "video" = "text";
+    let mediaType: "image" | "video" | undefined;
+    let messageContent = content;
+
+    if (draft) {
+      setMediaSending(true);
+
+      messageType = draft.type;
+      mediaType = draft.type;
+      messageContent =
+        content || (draft.type === "video" ? texts.videoMessage : texts.photoMessage);
+
+      localMessage = makeLocalMessage({
+        senderId: userId,
+        receiverId: String(id),
+        content: messageContent,
+        messageType,
+        mediaUrl: draft.uri,
+        mediaType,
+        mediaThumbnailUrl: draft.thumbnailUri || undefined,
+        replyToId: reply?.id,
+        replyPreview: reply ? buildReplyPreview(reply) : undefined,
+        clientTempId,
+      });
+
+      update((d) => ({
+        ...d,
+        messages: mergeMessages(d.messages, [localMessage as Message]),
+      }));
+
+      scrollToBottom(true, 20);
+
+      if (draft.type === "video" && draft.thumbnailUri) {
+        const thumbnailUpload = await apiUploadVideoThumbnail(draft.thumbnailUri, {
+          token,
+          mimeType: "image/jpeg",
+          fileName: `video_thumb_${Date.now()}.jpg`,
+        });
+
+        thumbnailUrl =
+          thumbnailUpload.mediaThumbnailUrl ??
+          thumbnailUpload.media_thumbnail_url ??
+          thumbnailUpload.thumbnailUrl ??
+          thumbnailUpload.thumbnail_url ??
+          thumbnailUpload.url;
+      }
+
+      const uploadRes =
+        draft.type === "video"
+          ? await apiUploadChatVideo(draft.uri, {
+              token,
+              mimeType: draft.mimeType ?? "video/mp4",
+              fileName: draft.fileName ?? `chat_${Date.now()}.mp4`,
+            })
+          : await apiUploadChatImage(draft.uri, {
+              token,
+              mimeType: draft.mimeType ?? "image/jpeg",
+              fileName: draft.fileName ?? `chat_${Date.now()}.jpg`,
+            });
+
+      uploadedUrl =
+        uploadRes.mediaUrl ??
+        uploadRes.media_url ??
+        uploadRes.imageUrl ??
+        uploadRes.image_url ??
+        uploadRes.videoUrl ??
+        uploadRes.video_url ??
+        uploadRes.url;
+
+      if (!uploadedUrl) {
+        throw new Error("Backend did not return media URL.");
+      }
+    } else {
+      localMessage = makeLocalMessage({
+        senderId: userId,
+        receiverId: String(id),
+        content: messageContent,
+        messageType,
+        replyToId: reply?.id,
+        replyPreview: reply ? buildReplyPreview(reply) : undefined,
+        clientTempId,
+      });
+
+      update((d) => ({
+        ...d,
+        messages: mergeMessages(d.messages, [localMessage as Message]),
+      }));
+
+      scrollToBottom(true, 20);
+    }
+
+    const created = await apiSendMessage(
+      {
+        receiver_id: id,
+        client_temp_id: clientTempId,
+        content: messageContent,
+        message_type: messageType,
+        reply_to_id: reply?.id ?? null,
+        ...(uploadedUrl
+          ? {
+              media_url: uploadedUrl,
+              media_type: mediaType,
+              media_thumbnail_url: thumbnailUrl ?? null,
+            }
+          : {}),
+      },
+      { token },
+    );
+
+    const createdMessage = created?.id ? normalizeMessage(created) : null;
+
+    if (createdMessage && localMessage) {
+      update((d) => ({
+        ...d,
+        messages: replaceLocalMessage(
+          d.messages,
+          localMessage?.id ?? "",
+          createdMessage,
+        ),
+      }));
+    }
+
+    scrollToBottom(true, 20);
+  } catch (e: any) {
+    console.log("[chat] send text/media err", e);
+
+    if (localMessage) {
+      removeLocalMessage(localMessage.id);
+    }
+
+    setText(content);
+    setMediaDraft(draft);
+    setReplyTarget(reply);
+
+    Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
+  } finally {
+    sendingRef.current = false;
+    setSending(false);
+    setMediaSending(false);
+
+    setTimeout(() => {
+      sendHardLockRef.current = false;
+    }, 450);
+  }
+};
 
   const closeActionMenu = () => {
     setActionMenuVisible(false);
@@ -1726,52 +1760,63 @@ export default function Chat() {
   };
 
   const reactToMessage = async (message: Message, emoji: string) => {
-    if (!token || !userId) return;
+  if (!token || !userId) return;
 
-    closeActionMenu();
+  const reactionKey = `${message.id}:${emoji}`;
 
-    const previous = (message as any).reactions ?? {};
+  if (reactionBusyRef.current.has(reactionKey)) {
+    return;
+  }
+
+  reactionBusyRef.current.add(reactionKey);
+
+  const previous = (message as any).reactions ?? {};
+
+  update((d) => ({
+    ...d,
+    messages: d.messages.map((item: Message) => {
+      if (item.id !== message.id) return item;
+
+      const reactions = { ...(((item as any).reactions ?? {}) as any) };
+      const users = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
+
+      if (users.includes(userId)) {
+        reactions[emoji] = users.filter((id: string) => id !== userId);
+      } else {
+        reactions[emoji] = [...users, userId];
+      }
+
+      if (Array.isArray(reactions[emoji]) && reactions[emoji].length === 0) {
+        delete reactions[emoji];
+      }
+
+      return {
+        ...item,
+        reactions,
+      };
+    }),
+  }));
+
+  closeActionMenu();
+
+  try {
+    const updated = await apiReactToMessage(message.id, { emoji }, { token });
+    applyIncomingMessages([normalizeMessage(updated)]);
+  } catch (e) {
+    console.log("[chat] reaction error", e);
 
     update((d) => ({
       ...d,
-      messages: d.messages.map((item: Message) => {
-        if (item.id !== message.id) return item;
-
-        const reactions = { ...(((item as any).reactions ?? {}) as any) };
-        const users = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
-
-        if (users.includes(userId)) {
-          reactions[emoji] = users.filter((id: string) => id !== userId);
-        } else {
-          reactions[emoji] = [...users, userId];
-        }
-
-        if (Array.isArray(reactions[emoji]) && reactions[emoji].length === 0) {
-          delete reactions[emoji];
-        }
-
-        return {
-          ...item,
-          reactions,
-        };
-      }),
+      messages: d.messages.map((item: Message) =>
+        item.id === message.id ? { ...item, reactions: previous } : item,
+      ),
     }));
-
-    try {
-      const updated = await apiReactToMessage(message.id, { emoji }, { token });
-      applyIncomingMessages([normalizeMessage(updated)]);
-    } catch (e) {
-      console.log("[chat] reaction error", e);
-
-      update((d) => ({
-        ...d,
-        messages: d.messages.map((item: Message) =>
-          item.id === message.id ? { ...item, reactions: previous } : item,
-        ),
-      }));
-    }
-  };
-
+  } finally {
+    setTimeout(() => {
+      reactionBusyRef.current.delete(reactionKey);
+    }, 300);
+  }
+};
   const deleteForMe = async (message: Message) => {
     if (!token) return;
 
@@ -1903,11 +1948,12 @@ export default function Chat() {
   };
 
   const ensureMicPermission = async () => {
-    if (Platform.OS === "web") {
-      Alert.alert(t("messages.voiceWebUnsupported"));
-      return false;
-    }
+  if (Platform.OS === "web") {
+    Alert.alert(t("messages.voiceWebUnsupported"));
+    return false;
+  }
 
+  try {
     const status = await AudioModule.requestRecordingPermissionsAsync();
 
     if (!status.granted) {
@@ -1916,268 +1962,366 @@ export default function Chat() {
     }
 
     return true;
-  };
+  } catch (error) {
+    console.log("[chat] mic permission error", error);
+    Alert.alert(texts.voiceErrorTitle, texts.voiceStartError);
+    return false;
+  }
+};
 
-  const startRecord = async () => {
-    if (voiceSendingRef.current || recordingRef.current || text.trim() || mediaDraft || editTarget) {
+const startRecord = async () => {
+  if (
+    voiceSendingRef.current ||
+    voiceHardLockRef.current ||
+    recordingRef.current ||
+    recordStartLockRef.current ||
+    text.trim() ||
+    mediaDraft ||
+    editTarget
+  ) {
+    return;
+  }
+
+  recordStartLockRef.current = true;
+  pendingStopAfterStartRef.current = false;
+  pendingCancelAfterStartRef.current = false;
+
+  try {
+    const granted = await ensureMicPermission();
+
+    if (!granted) {
       return;
     }
 
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: true,
+    });
+
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+
+    recordingRef.current = true;
+    recordingLockedRef.current = false;
+    recordingStartedAtRef.current = Date.now();
+
+    setRecordingLocked(false);
+    setRecordingMs(0);
+
+    if (recordTimer.current) {
+      clearInterval(recordTimer.current);
+    }
+
+    recordTimer.current = setInterval(() => {
+      const startedAt = recordingStartedAtRef.current;
+      setRecordingMs(startedAt > 0 ? Math.max(0, Date.now() - startedAt) : 0);
+    }, 100);
+
+    if (pendingCancelAfterStartRef.current) {
+      pendingCancelAfterStartRef.current = false;
+      setTimeout(() => {
+        cancelRecord();
+      }, 80);
+      return;
+    }
+
+    if (pendingStopAfterStartRef.current && !recordingLockedRef.current) {
+      pendingStopAfterStartRef.current = false;
+      setTimeout(() => {
+        stopAndSend();
+      }, 120);
+    }
+  } catch (e) {
+    console.log("[chat] start record err", e);
+
+    recordingRef.current = false;
+    recordingLockedRef.current = false;
+    recordingTouchActiveRef.current = false;
+    recordingStartedAtRef.current = 0;
+
+    setRecordingLocked(false);
+    setRecordingMs(0);
+
     try {
-      const granted = await ensureMicPermission();
-
-      if (!granted) return;
-
       await setAudioModeAsync({
         playsInSilentMode: true,
-        allowsRecording: true,
+        allowsRecording: false,
       });
+    } catch {}
 
-      await recorder.prepareToRecordAsync();
-      recorder.record();
+    Alert.alert(texts.voiceErrorTitle, texts.voiceStartError);
+  } finally {
+    recordStartLockRef.current = false;
+  }
+};
 
-      recordingRef.current = true;
-      recordingLockedRef.current = false;
-      recordingStartedAtRef.current = Date.now();
+const cancelRecord = async () => {
+  if (recordStartLockRef.current) {
+    pendingCancelAfterStartRef.current = true;
+    return;
+  }
 
-      setRecordingLocked(false);
-      setRecordingMs(0);
+  try {
+    if (recordTimer.current) {
+      clearInterval(recordTimer.current);
+    }
 
-      if (recordTimer.current) {
-        clearInterval(recordTimer.current);
-      }
+    recordTimer.current = null;
 
-      recordTimer.current = setInterval(() => {
-        setRecordingMs(Math.max(0, Date.now() - recordingStartedAtRef.current));
-      }, 100);
-    } catch (e) {
-      console.log("[chat] start record err", e);
-
-      recordingRef.current = false;
-      recordingLockedRef.current = false;
-      setRecordingLocked(false);
-      setRecordingMs(0);
-
+    if (recordingRef.current || recState.isRecording) {
       try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          allowsRecording: false,
-        });
-      } catch {}
-
-      Alert.alert(texts.voiceErrorTitle, texts.voiceStartError);
-    }
-  };
-
-  const cancelRecord = async () => {
-    try {
-      if (recordTimer.current) {
-        clearInterval(recordTimer.current);
-      }
-
-      recordTimer.current = null;
-
-      if (recordingRef.current || recState.isRecording) {
         await recorder.stop();
+      } catch (stopError) {
+        console.log("[chat] recorder stop on cancel ignored", stopError);
       }
-
-      await setAudioModeAsync({
-        playsInSilentMode: true,
-        allowsRecording: false,
-      });
-
-      recordingRef.current = false;
-      recordingLockedRef.current = false;
-      recordingTouchActiveRef.current = false;
-      recordingStartedAtRef.current = 0;
-
-      setRecordingLocked(false);
-      setRecordingMs(0);
-    } catch (e) {
-      console.log("[chat] cancel record err", e);
-
-      recordingRef.current = false;
-      recordingLockedRef.current = false;
-      recordingTouchActiveRef.current = false;
-      setRecordingLocked(false);
-      setRecordingMs(0);
-    }
-  };
-
-  const stopAndSend = async () => {
-    if (!userId || !id || !token || voiceSendingRef.current) return;
-    if (!recordingRef.current && !recState.isRecording) return;
-
-    const finalDuration =
-      recordingMs > 0
-        ? recordingMs
-        : recordingStartedAtRef.current > 0
-          ? Date.now() - recordingStartedAtRef.current
-          : 0;
-
-    if (finalDuration < MIN_VOICE_DURATION_MS) {
-      await cancelRecord();
-      return;
     }
 
-    const clientTempId = createClientTempId();
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+    });
 
-    try {
-      if (recordTimer.current) {
-        clearInterval(recordTimer.current);
-      }
+    recordingRef.current = false;
+    recordingLockedRef.current = false;
+    recordingTouchActiveRef.current = false;
+    recordingStartedAtRef.current = 0;
+    pendingStopAfterStartRef.current = false;
+    pendingCancelAfterStartRef.current = false;
 
-      recordTimer.current = null;
+    setRecordingLocked(false);
+    setRecordingMs(0);
+  } catch (e) {
+    console.log("[chat] cancel record err", e);
 
-      await recorder.stop();
+    recordingRef.current = false;
+    recordingLockedRef.current = false;
+    recordingTouchActiveRef.current = false;
+    recordingStartedAtRef.current = 0;
+    pendingStopAfterStartRef.current = false;
+    pendingCancelAfterStartRef.current = false;
 
-      await setAudioModeAsync({
-        playsInSilentMode: true,
-        allowsRecording: false,
-      });
+    setRecordingLocked(false);
+    setRecordingMs(0);
+  }
+};
 
-      recordingRef.current = false;
-      recordingLockedRef.current = false;
-      recordingTouchActiveRef.current = false;
-      recordingStartedAtRef.current = 0;
+const stopAndSend = async () => {
+  if (!userId || !id || !token) return;
 
-      setRecordingLocked(false);
+  if (voiceHardLockRef.current || voiceSendingRef.current) {
+    return;
+  }
 
-      const uri = recorder.uri;
-      const duration = finalDuration;
+  if (recordStartLockRef.current) {
+    pendingStopAfterStartRef.current = true;
+    return;
+  }
 
-      setRecordingMs(0);
+  if (!recordingRef.current && !recState.isRecording) {
+    return;
+  }
 
-      if (!uri) return;
+  const finalDuration =
+    recordingMs > 0
+      ? recordingMs
+      : recordingStartedAtRef.current > 0
+        ? Date.now() - recordingStartedAtRef.current
+        : 0;
 
-      voiceSendingRef.current = true;
-      setVoiceSending(true);
+  if (finalDuration < MIN_VOICE_DURATION_MS) {
+    await cancelRecord();
+    return;
+  }
 
-      const localMessage = makeLocalMessage({
-        senderId: userId,
-        receiverId: String(id),
+  voiceHardLockRef.current = true;
+  voiceSendingRef.current = true;
+  setVoiceSending(true);
+
+  const clientTempId = createClientTempId();
+  const voiceReply = replyTarget;
+
+  try {
+    if (recordTimer.current) {
+      clearInterval(recordTimer.current);
+    }
+
+    recordTimer.current = null;
+
+    await recorder.stop();
+
+    const uri = recorder.uri;
+    const duration = finalDuration;
+
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+    });
+
+    recordingRef.current = false;
+    recordingLockedRef.current = false;
+    recordingTouchActiveRef.current = false;
+    recordingStartedAtRef.current = 0;
+    pendingStopAfterStartRef.current = false;
+    pendingCancelAfterStartRef.current = false;
+
+    setRecordingLocked(false);
+    setRecordingMs(0);
+
+    if (!uri) {
+      throw new Error("Voice file was not created.");
+    }
+
+    const localMessage = makeLocalMessage({
+      senderId: userId,
+      receiverId: String(id),
+      content: t("messages.voiceMessage"),
+      messageType: "voice",
+      voiceUrl: uri,
+      voiceDurationMs: duration,
+      replyToId: voiceReply?.id,
+      replyPreview: voiceReply ? buildReplyPreview(voiceReply) : undefined,
+      clientTempId,
+    });
+
+    setReplyTarget(null);
+
+    update((d) => ({
+      ...d,
+      messages: mergeMessages(d.messages, [localMessage]),
+    }));
+
+    scrollToBottom(true, 20);
+
+    const uploadRes = await apiUploadVoice(uri, {
+      token,
+      mimeType: "audio/mp4",
+      fileName: `voice_${Date.now()}.m4a`,
+    });
+
+    const uploadedVoiceUrl =
+      uploadRes.voiceUrl ?? uploadRes.voice_url ?? uploadRes.url;
+
+    if (!uploadedVoiceUrl) {
+      throw new Error("Backend did not return voice URL.");
+    }
+
+    const created = await apiSendMessage(
+      {
+        receiver_id: id,
+        client_temp_id: clientTempId,
         content: t("messages.voiceMessage"),
-        messageType: "voice",
-        voiceUrl: uri,
-        voiceDurationMs: duration,
-        replyToId: replyTarget?.id,
-        replyPreview: replyTarget ? buildReplyPreview(replyTarget) : undefined,
-        clientTempId,
-      });
+        message_type: "voice",
+        reply_to_id: voiceReply?.id ?? null,
+        voice_url: uploadedVoiceUrl,
+        voice_duration_ms: duration,
+      },
+      { token },
+    );
 
-      setReplyTarget(null);
+    const createdMessage = created?.id ? normalizeMessage(created) : null;
 
+    if (createdMessage) {
       update((d) => ({
         ...d,
-        messages: [...d.messages, localMessage],
+        messages: replaceLocalMessage(
+          d.messages,
+          localMessage.id,
+          createdMessage,
+        ),
       }));
-
-      scrollToBottom(true, 20);
-
-      const uploadRes = await apiUploadVoice(uri, {
-        token,
-        mimeType: "audio/mp4",
-        fileName: `voice_${Date.now()}.m4a`,
-      });
-
-      const uploadedVoiceUrl =
-        uploadRes.voiceUrl ?? uploadRes.voice_url ?? uploadRes.url;
-
-      if (!uploadedVoiceUrl) {
-        throw new Error("Backend did not return voice URL.");
-      }
-
-      const created = await apiSendMessage(
-        {
-          receiver_id: id,
-          client_temp_id: clientTempId,
-          content: t("messages.voiceMessage"),
-          message_type: "voice",
-          reply_to_id: replyTarget?.id ?? null,
-          voice_url: uploadedVoiceUrl,
-          voice_duration_ms: duration,
-        },
-        { token },
-      );
-
-      const createdMessage = created?.id ? normalizeMessage(created) : null;
-
-      if (createdMessage) {
-        update((d) => ({
-          ...d,
-          messages: replaceLocalMessage(
-            d.messages,
-            localMessage.id,
-            createdMessage,
-          ),
-        }));
-      }
-
-      scrollToBottom(true, 20);
-    } catch (e: any) {
-      console.log("[chat] stop/send voice err", e);
-
-      recordingRef.current = false;
-      recordingLockedRef.current = false;
-      recordingTouchActiveRef.current = false;
-      setRecordingLocked(false);
-      setRecordingMs(0);
-
-      Alert.alert(texts.voiceErrorTitle, e?.message || texts.voiceSendError);
-    } finally {
-      voiceSendingRef.current = false;
-      setVoiceSending(false);
-
-      try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          allowsRecording: false,
-        });
-      } catch {}
     }
-  };
 
-  const micPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () =>
-          !voiceSendingRef.current && !text.trim() && !mediaDraft && !editTarget,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          recordingTouchActiveRef.current = true;
-          startRecord();
-        },
-        onPanResponderMove: (_, gestureState) => {
-          if (gestureState.dy < -52 && recordingRef.current) {
-            recordingLockedRef.current = true;
-            setRecordingLocked(true);
-          }
-        },
-        onPanResponderRelease: () => {
-          recordingTouchActiveRef.current = false;
+    scrollToBottom(true, 20);
+  } catch (e: any) {
+    console.log("[chat] stop/send voice err", e);
 
-          if (!recordingRef.current) return;
+    recordingRef.current = false;
+    recordingLockedRef.current = false;
+    recordingTouchActiveRef.current = false;
+    recordingStartedAtRef.current = 0;
+    pendingStopAfterStartRef.current = false;
+    pendingCancelAfterStartRef.current = false;
 
-          if (recordingLockedRef.current) {
-            return;
-          }
+    setRecordingLocked(false);
+    setRecordingMs(0);
 
-          stopAndSend();
-        },
-        onPanResponderTerminate: () => {
-          recordingTouchActiveRef.current = false;
+    Alert.alert(texts.voiceErrorTitle, e?.message || texts.voiceSendError);
+  } finally {
+    voiceSendingRef.current = false;
+    setVoiceSending(false);
 
-          if (!recordingRef.current) return;
+    setTimeout(() => {
+      voiceHardLockRef.current = false;
+    }, 700);
 
-          if (recordingLockedRef.current) {
-            return;
-          }
+    try {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
+    } catch {}
+  }
+};
 
-          cancelRecord();
-        },
-      }),
-    [startRecord, stopAndSend, cancelRecord, text, mediaDraft, editTarget],
-  );
+const micPanResponder = useMemo(
+  () =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () =>
+        !voiceSendingRef.current &&
+        !voiceHardLockRef.current &&
+        !text.trim() &&
+        !mediaDraft &&
+        !editTarget,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        recordingTouchActiveRef.current = true;
+        startRecord();
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy < -52) {
+          recordingLockedRef.current = true;
+          setRecordingLocked(true);
+        }
+      },
+      onPanResponderRelease: () => {
+        recordingTouchActiveRef.current = false;
+
+        if (recordingLockedRef.current) {
+          return;
+        }
+
+        if (recordStartLockRef.current) {
+          pendingStopAfterStartRef.current = true;
+          return;
+        }
+
+        if (!recordingRef.current && !recState.isRecording) {
+          return;
+        }
+
+        stopAndSend();
+      },
+      onPanResponderTerminate: () => {
+        recordingTouchActiveRef.current = false;
+
+        if (recordingLockedRef.current) {
+          return;
+        }
+
+        if (recordStartLockRef.current) {
+          pendingCancelAfterStartRef.current = true;
+          return;
+        }
+
+        if (!recordingRef.current && !recState.isRecording) {
+          return;
+        }
+
+        cancelRecord();
+      },
+    }),
+  [startRecord, stopAndSend, cancelRecord, text, mediaDraft, editTarget, recState.isRecording],
+);
 
   const forwardToUser = async (receiverId: string) => {
     if (!token || !forwardTarget) return;
@@ -2411,10 +2555,10 @@ export default function Chat() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          initialNumToRender={18}
-          maxToRenderPerBatch={12}
-          updateCellsBatchingPeriod={50}
-          windowSize={8}
+          initialNumToRender={12}
+maxToRenderPerBatch={6}
+updateCellsBatchingPeriod={80}
+windowSize={5}
           removeClippedSubviews={Platform.OS === "android"}
           contentContainerStyle={{
             paddingHorizontal: 14,
@@ -3801,6 +3945,22 @@ function VoicePlayer({
   const player = useAudioPlayer(source);
   const status = useAudioPlayerStatus(player);
 
+  useEffect(() => {
+    try {
+      const anyPlayer = player as any;
+
+      if ("volume" in anyPlayer) {
+        anyPlayer.volume = 1;
+      }
+
+      if ("muted" in anyPlayer) {
+        anyPlayer.muted = false;
+      }
+    } catch (error) {
+      console.log("[chat] voice player volume setup ignored", error);
+    }
+  }, [player]);
+
   const total = msg.voiceDurationMs ?? 0;
   const playing = !!status?.playing;
 
@@ -3827,6 +3987,18 @@ function VoicePlayer({
     } catch (error) {
       console.log("[chat] playback audio mode error", error);
     }
+
+    try {
+      const anyPlayer = player as any;
+
+      if ("volume" in anyPlayer) {
+        anyPlayer.volume = 1;
+      }
+
+      if ("muted" in anyPlayer) {
+        anyPlayer.muted = false;
+      }
+    } catch {}
 
     if (
       (status?.currentTime ?? 0) >= (status?.duration ?? 0) - 0.1 &&

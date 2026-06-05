@@ -27,7 +27,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -50,6 +57,7 @@ from app.schemas.other import (
     MessageUpdateIn,
 )
 from app.services.mappers import message_out
+
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
@@ -82,7 +90,11 @@ class WebSocketConnectionManager:
         if not connections:
             self.active_connections.pop(user_id, None)
 
-    async def send_to_user(self, user_id: str | None, payload: dict[str, Any]) -> None:
+    async def send_to_user(
+        self,
+        user_id: str | None,
+        payload: dict[str, Any],
+    ) -> None:
         if not user_id:
             return
 
@@ -102,8 +114,14 @@ class WebSocketConnectionManager:
         for websocket in dead_connections:
             self.disconnect(user_id, websocket)
 
-    async def send_to_users(self, user_ids: list[str | None], payload: dict[str, Any]) -> None:
-        unique_user_ids = list(dict.fromkeys([user_id for user_id in user_ids if user_id]))
+    async def send_to_users(
+        self,
+        user_ids: list[str | None],
+        payload: dict[str, Any],
+    ) -> None:
+        unique_user_ids = list(
+            dict.fromkeys([user_id for user_id in user_ids if user_id])
+        )
 
         for user_id in unique_user_ids:
             await self.send_to_user(user_id, payload)
@@ -158,6 +176,11 @@ async def _ensure_coach_subscription_if_needed(
     current_user: User,
     db: AsyncSession,
 ) -> None:
+    """
+    Coach actions are subscription-protected.
+    Client messaging is allowed normally.
+    """
+
     if current_user.role == "coach":
         await require_active_coach_subscription(current_user, db)
 
@@ -300,12 +323,78 @@ async def _mark_conversation_as_read(
     return unread_count
 
 
+async def _broadcast_light_message_event(
+    *,
+    event_type: str,
+    message: Message,
+    current_user_id: str,
+    partner_id: str | None,
+) -> None:
+    """
+    Lightweight event for reactions/edit/pin/send.
+
+    Important:
+    - Sends only one changed message.
+    - Does not send full conversation snapshot.
+    - Prevents FlatList heavy rerendering and duplicate messages on frontend.
+    """
+
+    payload = {
+        "type": event_type,
+        "message": serialize_message(message),
+    }
+
+    await ws_manager.send_to_users(
+        [current_user_id, partner_id],
+        payload,
+    )
+
+
+async def _broadcast_delete_event(
+    *,
+    message: Message,
+    current_user_id: str,
+    partner_id: str | None,
+    mode: str,
+) -> None:
+    payload = {
+        "type": "message_deleted",
+        "mode": mode,
+        "messageId": message.id,
+        "message_id": message.id,
+        "deletedAt": message.deleted_at.isoformat()
+        if message.deleted_at
+        else None,
+        "deleted_at": message.deleted_at.isoformat()
+        if message.deleted_at
+        else None,
+    }
+
+    if mode == "everyone":
+        await ws_manager.send_to_users(
+            [current_user_id, partner_id],
+            payload,
+        )
+    else:
+        await ws_manager.send_to_user(current_user_id, payload)
+
+
 async def _broadcast_conversation_snapshot(
     current_user_id: str,
     partner_id: str | None,
     db: AsyncSession,
     event_type: str = "conversation_updated",
 ) -> None:
+    """
+    Full snapshot is intentionally kept only for:
+    - initial connect;
+    - read receipts;
+    - rare recovery cases.
+
+    Do not use this for reactions, edit, pin or normal send,
+    because it causes heavy list rerendering on mobile.
+    """
+
     if not partner_id:
         return
 
@@ -407,7 +496,15 @@ async def _create_message(
     current_user: User,
     receiver: User,
     db: AsyncSession,
-) -> Message:
+) -> tuple[Message, bool]:
+    """
+    Creates message or returns already existing message by client_temp_id.
+
+    Returns:
+    - message
+    - created_now
+    """
+
     existing = await _find_existing_by_client_temp_id(
         client_temp_id=data.client_temp_id,
         current_user_id=current_user.id,
@@ -416,7 +513,7 @@ async def _create_message(
     )
 
     if existing:
-        return existing
+        return existing, False
 
     message_type = data.message_type or "text"
     content = (data.content or "").strip()
@@ -437,10 +534,16 @@ async def _create_message(
         raise HTTPException(status_code=400, detail="Video media URL is required")
 
     if message_type == "image" and data.media_type and data.media_type != "image":
-        raise HTTPException(status_code=400, detail="Invalid media type for image message")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid media type for image message",
+        )
 
     if message_type == "video" and data.media_type and data.media_type != "video":
-        raise HTTPException(status_code=400, detail="Invalid media type for video message")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid media type for video message",
+        )
 
     await _validate_reply_to(
         reply_to_id=data.reply_to_id,
@@ -474,7 +577,13 @@ async def _create_message(
         voice_duration_ms=data.voice_duration_ms,
         media_url=data.media_url,
         media_type=data.media_type
-        or ("image" if message_type == "image" else "video" if message_type == "video" else None),
+        or (
+            "image"
+            if message_type == "image"
+            else "video"
+            if message_type == "video"
+            else None
+        ),
         media_thumbnail_url=data.media_thumbnail_url,
         reactions={},
         read=False,
@@ -487,7 +596,7 @@ async def _create_message(
 
     refreshed = await _get_message_by_id(message.id, db)
 
-    return refreshed
+    return refreshed, True
 
 
 async def _delete_message_by_id(
@@ -606,29 +715,22 @@ async def send_message(
             detail="You cannot send a message to yourself",
         )
 
-    message = await _create_message(
+    message, created_now = await _create_message(
         data=data,
         current_user=current_user,
         receiver=receiver,
         db=db,
     )
 
-    payload = {
-        "type": "message_created",
-        "message": serialize_message(message),
-    }
-
-    await ws_manager.send_to_users(
-        [current_user.id, receiver.id],
-        payload,
-    )
-
-    await _broadcast_conversation_snapshot(
-        current_user_id=current_user.id,
-        partner_id=receiver.id,
-        db=db,
-        event_type="conversation_updated",
-    )
+    # If this was a duplicate request with the same client_temp_id,
+    # return the existing message but do not broadcast it again.
+    if created_now:
+        await _broadcast_light_message_event(
+            event_type="message_created",
+            message=message,
+            current_user_id=current_user.id,
+            partner_id=receiver.id,
+        )
 
     return message_out(message)
 
@@ -736,14 +838,13 @@ async def edit_message(
     await db.commit()
 
     refreshed = await _get_message_by_id(message.id, db)
-
     partner_id = _get_partner_id(refreshed, current_user.id)
 
-    await _broadcast_conversation_snapshot(
+    await _broadcast_light_message_event(
+        event_type="message_edited",
+        message=refreshed,
         current_user_id=current_user.id,
         partner_id=partner_id,
-        db=db,
-        event_type="message_edited",
     )
 
     return message_out(refreshed)
@@ -765,7 +866,9 @@ async def toggle_reaction(
     current_users = list(reactions.get(data.emoji, []))
 
     if current_user.id in current_users:
-        current_users = [user_id for user_id in current_users if user_id != current_user.id]
+        current_users = [
+            user_id for user_id in current_users if user_id != current_user.id
+        ]
     else:
         current_users.append(current_user.id)
 
@@ -783,11 +886,11 @@ async def toggle_reaction(
     refreshed = await _get_message_by_id(message.id, db)
     partner_id = _get_partner_id(refreshed, current_user.id)
 
-    await _broadcast_conversation_snapshot(
+    await _broadcast_light_message_event(
+        event_type="message_reaction_updated",
+        message=refreshed,
         current_user_id=current_user.id,
         partner_id=partner_id,
-        db=db,
-        event_type="message_reaction_updated",
     )
 
     return message_out(refreshed)
@@ -814,11 +917,11 @@ async def pin_message(
     refreshed = await _get_message_by_id(message.id, db)
     partner_id = _get_partner_id(refreshed, current_user.id)
 
-    await _broadcast_conversation_snapshot(
+    await _broadcast_light_message_event(
+        event_type="message_pin_updated",
+        message=refreshed,
         current_user_id=current_user.id,
         partner_id=partner_id,
-        db=db,
-        event_type="message_pin_updated",
     )
 
     return message_out(refreshed)
@@ -866,11 +969,11 @@ async def forward_message(
 
     refreshed = await _get_message_by_id(forwarded.id, db)
 
-    await _broadcast_conversation_snapshot(
+    await _broadcast_light_message_event(
+        event_type="message_forwarded",
+        message=refreshed,
         current_user_id=current_user.id,
         partner_id=receiver.id,
-        db=db,
-        event_type="message_forwarded",
     )
 
     return message_out(refreshed)
@@ -897,27 +1000,11 @@ async def delete_message(
 
     partner_id = _get_partner_id(message, current_user.id)
 
-    payload = {
-        "type": "message_deleted",
-        "mode": mode,
-        "messageId": message.id,
-        "message_id": message.id,
-        "deletedAt": message.deleted_at.isoformat() if message.deleted_at else None,
-        "deleted_at": message.deleted_at.isoformat() if message.deleted_at else None,
-    }
-
-    user_ids = [current_user.id]
-
-    if mode == "everyone" and partner_id:
-        user_ids.append(partner_id)
-
-    await ws_manager.send_to_users(user_ids, payload)
-
-    await _broadcast_conversation_snapshot(
+    await _broadcast_delete_event(
+        message=message,
         current_user_id=current_user.id,
         partner_id=partner_id,
-        db=db,
-        event_type="conversation_updated",
+        mode=mode,
     )
 
     return {
@@ -1004,7 +1091,7 @@ async def messages_ws(
             force=True,
         )
 
-        await _mark_conversation_as_read(
+        read_count = await _mark_conversation_as_read(
             current_user_id=current_user.id,
             partner_id=partner.id,
             db=db,
@@ -1028,12 +1115,13 @@ async def messages_ws(
             }
         )
 
-        await _broadcast_conversation_snapshot(
-            current_user_id=current_user.id,
-            partner_id=partner.id,
-            db=db,
-            event_type="messages_read",
-        )
+        if read_count > 0:
+            await _broadcast_conversation_snapshot(
+                current_user_id=current_user.id,
+                partner_id=partner.id,
+                db=db,
+                event_type="messages_read",
+            )
 
         while True:
             raw = await websocket.receive_text()
@@ -1077,16 +1165,28 @@ async def messages_ws(
                     commit=True,
                 )
 
-                await _broadcast_conversation_snapshot(
-                    current_user_id=current_user.id,
-                    partner_id=partner.id,
-                    db=db,
-                    event_type="messages_read" if read_count > 0 else "conversation_updated",
-                )
+                if read_count > 0:
+                    await _broadcast_conversation_snapshot(
+                        current_user_id=current_user.id,
+                        partner_id=partner.id,
+                        db=db,
+                        event_type="messages_read",
+                    )
+                else:
+                    await websocket.send_json(
+                        {
+                            "type": "read_no_changes",
+                            "readCount": 0,
+                            "read_count": 0,
+                        }
+                    )
+
                 continue
 
             if event_type == "delete_message":
-                message_id = str(data.get("messageId") or data.get("message_id") or "")
+                message_id = str(
+                    data.get("messageId") or data.get("message_id") or ""
+                )
                 mode = str(data.get("mode") or "everyone")
 
                 if not message_id:
@@ -1108,27 +1208,11 @@ async def messages_ws(
 
                     other_user_id = _get_partner_id(message, current_user.id)
 
-                    await ws_manager.send_to_users(
-                        [current_user.id, other_user_id],
-                        {
-                            "type": "message_deleted",
-                            "mode": mode,
-                            "messageId": message.id,
-                            "message_id": message.id,
-                            "deletedAt": message.deleted_at.isoformat()
-                            if message.deleted_at
-                            else None,
-                            "deleted_at": message.deleted_at.isoformat()
-                            if message.deleted_at
-                            else None,
-                        },
-                    )
-
-                    await _broadcast_conversation_snapshot(
+                    await _broadcast_delete_event(
+                        message=message,
                         current_user_id=current_user.id,
                         partner_id=other_user_id,
-                        db=db,
-                        event_type="conversation_updated",
+                        mode=mode,
                     )
 
                 except HTTPException as exc:
