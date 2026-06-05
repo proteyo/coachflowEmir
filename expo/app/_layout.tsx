@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider } from "@/src/context/AuthContext";
@@ -61,6 +62,7 @@ function Nav() {
           contentStyle: {
             backgroundColor: theme.colors.bg,
           },
+          animation: "slide_from_right",
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -104,6 +106,8 @@ function Nav() {
           name="chat/[id]"
           options={{
             title: t("messages.title"),
+            headerShown: false,
+            animation: "slide_from_right",
           }}
         />
 
@@ -174,17 +178,19 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <ThemeProvider>
-            <I18nProvider>
-              <AuthProvider>
-                <DataProvider>
-                  <SubscriptionProvider>
-                    <Nav />
-                  </SubscriptionProvider>
-                </DataProvider>
-              </AuthProvider>
-            </I18nProvider>
-          </ThemeProvider>
+          <KeyboardProvider>
+            <ThemeProvider>
+              <I18nProvider>
+                <AuthProvider>
+                  <DataProvider>
+                    <SubscriptionProvider>
+                      <Nav />
+                    </SubscriptionProvider>
+                  </DataProvider>
+                </AuthProvider>
+              </I18nProvider>
+            </ThemeProvider>
+          </KeyboardProvider>
         </GestureHandlerRootView>
       </SafeAreaProvider>
     </QueryClientProvider>

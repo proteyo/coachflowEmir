@@ -12,6 +12,7 @@ import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { VideoView, useVideoPlayer } from "expo-video";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
   ArrowUp,
@@ -19,13 +20,17 @@ import {
   CheckCheck,
   ChevronLeft,
   Copy,
-  Image as ImageIcon,
+  Edit3,
+  Forward,
   Lock,
   Mic,
   Palette,
   Paperclip,
   Pause,
+  Pin,
+  PinOff,
   Play,
+  Reply,
   Send,
   Sparkles,
   Trash2,
@@ -60,10 +65,19 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useData } from "@/src/context/DataContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import {
-  apiDelete,
-  apiGet,
-  apiPost,
-  apiUploadFile,
+  apiDeleteMessage,
+  apiDeleteMessageFallback,
+  apiEditMessage,
+  apiForwardMessage,
+  apiGetMessages,
+  apiMarkConversationRead,
+  apiPinMessage,
+  apiReactToMessage,
+  apiSendMessage,
+  apiUploadChatImage,
+  apiUploadChatVideo,
+  apiUploadVideoThumbnail,
+  apiUploadVoice,
   toAbsoluteUrl,
 } from "@/src/services/api";
 import { Message } from "@/src/types/models";
@@ -111,6 +125,7 @@ type MediaDraft = {
   type: "image" | "video";
   mimeType?: string | null;
   fileName?: string | null;
+  thumbnailUri?: string | null;
 };
 
 type ChatTexts = {
@@ -153,6 +168,17 @@ type ChatTexts = {
   copied: string;
   removeDraft: string;
   tapToPreview: string;
+  reply: string;
+  edit: string;
+  save: string;
+  editing: string;
+  replyTo: string;
+  pin: string;
+  unpin: string;
+  forward: string;
+  forwardTo: string;
+  chooseReceiver: string;
+  pinnedMessage: string;
 };
 
 const CHAT_THEME_STORAGE_KEY = "coachflow:chat-theme-key";
@@ -253,6 +279,8 @@ const CHAT_THEMES: ChatThemePreset[] = [
   },
 ];
 
+const REACTIONS = ["💙", "👍", "👀", "😂", "🔥", "❤️", "💪", "👏"];
+
 function isValidChatThemeKey(value: string | null): value is ChatThemeKey {
   return (
     value === "premium" ||
@@ -307,6 +335,17 @@ function getChatTexts(lang?: string): ChatTexts {
       copied: "Скопировано",
       removeDraft: "Убрать файл",
       tapToPreview: "Нажмите для просмотра",
+      reply: "Ответить",
+      edit: "Изменить",
+      save: "Сохранить",
+      editing: "Редактирование",
+      replyTo: "Ответ на сообщение",
+      pin: "Закрепить",
+      unpin: "Открепить",
+      forward: "Переслать",
+      forwardTo: "Переслать",
+      chooseReceiver: "Выберите получателя",
+      pinnedMessage: "Закреплённое сообщение",
     };
   }
 
@@ -354,6 +393,17 @@ function getChatTexts(lang?: string): ChatTexts {
       copied: "Көшірілді",
       removeDraft: "Файлды алып тастау",
       tapToPreview: "Көру үшін басыңыз",
+      reply: "Жауап беру",
+      edit: "Өзгерту",
+      save: "Сақтау",
+      editing: "Өзгерту",
+      replyTo: "Хабарламаға жауап",
+      pin: "Бекіту",
+      unpin: "Босату",
+      forward: "Жіберу",
+      forwardTo: "Жіберу",
+      chooseReceiver: "Алушыны таңдаңыз",
+      pinnedMessage: "Бекітілген хабарлама",
     };
   }
 
@@ -398,6 +448,17 @@ function getChatTexts(lang?: string): ChatTexts {
     copied: "Copied",
     removeDraft: "Remove file",
     tapToPreview: "Tap to preview",
+    reply: "Reply",
+    edit: "Edit",
+    save: "Save",
+    editing: "Editing",
+    replyTo: "Replying to message",
+    pin: "Pin",
+    unpin: "Unpin",
+    forward: "Forward",
+    forwardTo: "Forward",
+    chooseReceiver: "Choose receiver",
+    pinnedMessage: "Pinned message",
   };
 }
 
@@ -416,8 +477,11 @@ function normalizeMessage(message: any): Message {
 
   return {
     id: String(message.id),
+    clientTempId: message.clientTempId ?? message.client_temp_id ?? undefined,
     senderId: String(message.senderId ?? message.sender_id),
     receiverId: receiverValue ? String(receiverValue) : null,
+    replyToId: message.replyToId ?? message.reply_to_id ?? undefined,
+    replyPreview: message.replyPreview ?? message.reply_preview ?? undefined,
     content: message.content ?? "",
     messageType: message.messageType ?? message.message_type ?? "text",
     voiceUrl: message.voiceUrl ?? message.voice_url ?? undefined,
@@ -425,7 +489,22 @@ function normalizeMessage(message: any): Message {
       message.voiceDurationMs ?? message.voice_duration_ms ?? undefined,
     mediaUrl: message.mediaUrl ?? message.media_url ?? undefined,
     mediaType: message.mediaType ?? message.media_type ?? undefined,
+    mediaThumbnailUrl:
+      message.mediaThumbnailUrl ?? message.media_thumbnail_url ?? undefined,
+    reactions: message.reactions ?? {},
     read: Boolean(message.read),
+    pinned: Boolean(message.pinned),
+    deletedAt: message.deletedAt ?? message.deleted_at ?? undefined,
+    deletedForSender: Boolean(
+      message.deletedForSender ?? message.deleted_for_sender,
+    ),
+    deletedForReceiver: Boolean(
+      message.deletedForReceiver ?? message.deleted_for_receiver,
+    ),
+    deletedForEveryone: Boolean(
+      message.deletedForEveryone ?? message.deleted_for_everyone,
+    ),
+    editedAt: message.editedAt ?? message.edited_at ?? undefined,
     createdAt:
       message.createdAt ?? message.created_at ?? new Date().toISOString(),
   } as Message;
@@ -620,6 +699,10 @@ function getWebSocketUrl(partnerId: string, token: string) {
   return `${wsBase}/messages/ws?${params.toString()}`;
 }
 
+function createClientTempId() {
+  return `tmp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 function makeLocalMessage({
   senderId,
   receiverId,
@@ -629,6 +712,10 @@ function makeLocalMessage({
   voiceDurationMs,
   mediaUrl,
   mediaType,
+  mediaThumbnailUrl,
+  replyToId,
+  replyPreview,
+  clientTempId,
 }: {
   senderId: string;
   receiverId: string;
@@ -638,31 +725,51 @@ function makeLocalMessage({
   voiceDurationMs?: number;
   mediaUrl?: string;
   mediaType?: string;
+  mediaThumbnailUrl?: string;
+  replyToId?: string | null;
+  replyPreview?: any;
+  clientTempId: string;
 }): Message {
   return {
-    id: `local_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    id: `local_${clientTempId}`,
+    clientTempId,
     senderId,
     receiverId,
+    replyToId: replyToId || undefined,
+    replyPreview,
     content,
     messageType,
     voiceUrl,
     voiceDurationMs,
     mediaUrl,
     mediaType,
+    mediaThumbnailUrl,
+    reactions: {},
     read: false,
+    pinned: false,
     createdAt: new Date().toISOString(),
   } as Message;
+}
+
+function sameByTempId(a: Message, b: Message) {
+  const aTemp = (a as any).clientTempId ?? (a as any).client_temp_id;
+  const bTemp = (b as any).clientTempId ?? (b as any).client_temp_id;
+
+  return Boolean(aTemp && bTemp && aTemp === bTemp);
 }
 
 function messagesLookLikeSameLocal(
   localMessage: Message,
   backendMessage: Message,
 ) {
+  if (sameByTempId(localMessage, backendMessage)) return true;
   if (!String(localMessage.id).startsWith("local_")) return false;
   if (String(backendMessage.id).startsWith("local_")) return false;
   if (localMessage.senderId !== backendMessage.senderId) return false;
   if (localMessage.receiverId !== backendMessage.receiverId) return false;
-  if (localMessage.messageType !== backendMessage.messageType) return false;
+  if ((localMessage as any).messageType !== (backendMessage as any).messageType) {
+    return false;
+  }
 
   const localTime = getMessageTime(localMessage);
   const backendTime = getMessageTime(backendMessage);
@@ -670,7 +777,7 @@ function messagesLookLikeSameLocal(
 
   if (!closeTime) return false;
 
-  if (localMessage.messageType === "text") {
+  if ((localMessage as any).messageType === "text") {
     return localMessage.content.trim() === backendMessage.content.trim();
   }
 
@@ -684,6 +791,7 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
     result = result.filter(
       (existingMessage) =>
         existingMessage.id !== incomingMessage.id &&
+        !sameByTempId(existingMessage, incomingMessage) &&
         !messagesLookLikeSameLocal(existingMessage, incomingMessage),
     );
 
@@ -699,9 +807,9 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
     } as Message);
   });
 
-  return Array.from(map.values()).sort(
-    (a, b) => getMessageTime(a) - getMessageTime(b),
-  );
+  return Array.from(map.values())
+    .filter((message) => !(message as any).deletedForEveryone)
+    .sort((a, b) => getMessageTime(a) - getMessageTime(b));
 }
 
 function replaceLocalMessage(
@@ -769,6 +877,31 @@ function applyReadReceiptsFromPartnerActivity(
   });
 }
 
+function buildReplyPreview(message: Message) {
+  return {
+    id: message.id,
+    senderId: message.senderId,
+    content: message.content,
+    messageType: (message as any).messageType,
+    mediaType: (message as any).mediaType,
+  };
+}
+
+function getReplyPreviewText(message: Message | any, fallback = "") {
+  const type = String(message?.messageType ?? message?.message_type ?? "").toLowerCase();
+
+  if (type === "voice") return "Голосовое сообщение";
+  if (type === "image") return "Фото";
+  if (type === "video") return "Видео";
+
+  return String(message?.content ?? fallback ?? "").trim() || fallback;
+}
+
+function getReactionEntries(message: Message) {
+  const reactions = ((message as any).reactions ?? {}) as Record<string, string[]>;
+  return Object.entries(reactions).filter(([, users]) => Array.isArray(users) && users.length > 0);
+}
+
 export default function Chat() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -797,6 +930,10 @@ export default function Chat() {
   const [mediaDraft, setMediaDraft] = useState<MediaDraft | null>(null);
   const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
   const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const [editTarget, setEditTarget] = useState<Message | null>(null);
+  const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
+  const [forwardModalVisible, setForwardModalVisible] = useState(false);
 
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<FlatList<ChatListItem>>(null);
@@ -823,6 +960,14 @@ export default function Chat() {
   const userId = user?.id;
   const screenOptions = useMemo(() => ({ headerShown: false }), []);
   const partner = db?.users.find((u) => u.id === id);
+
+  const possibleForwardReceivers = useMemo(() => {
+    if (!db?.users || !userId) return [];
+
+    return db.users.filter(
+      (item) => item.id !== userId && item.id !== forwardTarget?.senderId,
+    );
+  }, [db?.users, userId, forwardTarget?.senderId]);
 
   useEffect(() => {
     AsyncStorage.getItem(CHAT_THEME_STORAGE_KEY)
@@ -858,9 +1003,14 @@ export default function Chat() {
     return db.messages
       .filter((m) => isConversationMessage(m, userId, id))
       .filter((m) => !hiddenMessageIds.has(m.id))
+      .filter((m) => !(m as any).deletedForEveryone)
       .slice()
       .sort((a, b) => getMessageTime(a) - getMessageTime(b));
   }, [db, userId, id, hiddenMessageIds]);
+
+  const pinnedMessage = useMemo(() => {
+    return thread.find((message) => Boolean((message as any).pinned)) ?? null;
+  }, [thread]);
 
   const chatItems = useMemo(
     () => buildChatItems(thread, texts, lang),
@@ -896,20 +1046,42 @@ export default function Chat() {
     }, delay);
   }, []);
 
+  const applyIncomingMessages = useCallback(
+    (incoming: Message[]) => {
+      if (!id || !userId) return;
+
+      update((d) => {
+        const otherMessages = d.messages.filter(
+          (message: Message) => !isConversationMessage(message, userId, id),
+        );
+
+        const currentConversation = d.messages.filter((message: Message) =>
+          isConversationMessage(message, userId, id),
+        );
+
+        return {
+          ...d,
+          messages: [
+            ...otherMessages,
+            ...mergeMessages(currentConversation, incoming),
+          ],
+        };
+      });
+    },
+    [id, userId, update],
+  );
+
   const loadConversation = useCallback(
     async (markAsRead: boolean) => {
       if (!id || !userId || !token) return;
 
       try {
-        const res = await apiGet(
-          `/messages?partner_id=${id}&mark_as_read=${
-            markAsRead ? "true" : "false"
-          }&_=${Date.now()}`,
-          { token },
-        );
+        const res = await apiGetMessages(id, {
+          token,
+          markAsRead,
+        });
 
-        const rawMessages: any[] = arr(res);
-        const backendMessages: Message[] = rawMessages
+        const backendMessages: Message[] = arr(res)
           .map(normalizeMessage)
           .filter((message: Message) =>
             isConversationMessage(message, userId, id),
@@ -952,11 +1124,7 @@ export default function Chat() {
     readMarkingRef.current = true;
 
     try {
-      const res = await apiPost(
-        `/messages/read-conversation?partner_id=${id}`,
-        {},
-        { token },
-      );
+      const res = await apiMarkConversationRead(id, { token });
 
       const backendMessages: Message[] = arr(res)
         .map(normalizeMessage)
@@ -965,26 +1133,7 @@ export default function Chat() {
         );
 
       if (backendMessages.length > 0) {
-        update((d) => {
-          const mergedMessages = [
-            ...d.messages.filter(
-              (message: Message) =>
-                !isConversationMessage(message, userId, id),
-            ),
-            ...backendMessages,
-          ];
-
-          return {
-            ...d,
-            messages: applyReadReceiptsFromPartnerActivity(
-              mergedMessages,
-              userId,
-              id,
-              partner?.lastSeenAt,
-            ),
-          };
-        });
-
+        applyIncomingMessages(backendMessages);
         return;
       }
 
@@ -1001,7 +1150,7 @@ export default function Chat() {
     } finally {
       readMarkingRef.current = false;
     }
-  }, [id, userId, token, update, partner?.lastSeenAt]);
+  }, [id, userId, token, update, applyIncomingMessages]);
 
   useEffect(() => {
     if (!id || !userId || !partner?.lastSeenAt) return;
@@ -1060,12 +1209,20 @@ export default function Chat() {
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
-    const showSub = Keyboard.addListener(showEvent, () => {
-      scrollToBottom(true, Platform.OS === "ios" ? 30 : 80);
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      try {
+        Keyboard.scheduleLayoutAnimation?.(event);
+      } catch {}
+
+      scrollToBottom(true, Platform.OS === "ios" ? 10 : 70);
     });
 
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      scrollToBottom(true, 40);
+    const hideSub = Keyboard.addListener(hideEvent, (event) => {
+      try {
+        Keyboard.scheduleLayoutAnimation?.(event);
+      } catch {}
+
+      scrollToBottom(true, 30);
     });
 
     return () => {
@@ -1089,7 +1246,7 @@ export default function Chat() {
       if (!sendingRef.current && !voiceSendingRef.current && !mediaSending) {
         loadConversation(true);
       }
-    }, wsConnected ? 12_000 : 6_000);
+    }, wsConnected ? 18_000 : 8_000);
 
     if (presencePollingRef.current) {
       clearInterval(presencePollingRef.current);
@@ -1148,13 +1305,19 @@ export default function Chat() {
 
           if (payload?.type === "message_deleted") {
             const messageId = String(payload.messageId ?? payload.message_id ?? "");
+            const mode = String(payload.mode ?? "everyone");
 
             if (messageId) {
               update((d) => ({
                 ...d,
-                messages: d.messages.filter(
-                  (message: Message) => message.id !== messageId,
-                ),
+                messages:
+                  mode === "me"
+                    ? d.messages.filter((message: Message) => message.id !== messageId)
+                    : d.messages.map((message: Message) =>
+                        message.id === messageId
+                          ? { ...message, deletedForEveryone: true }
+                          : message,
+                      ),
               }));
             }
 
@@ -1177,24 +1340,7 @@ export default function Chat() {
 
           if (normalizedMessages.length === 0) return;
 
-          update((d) => {
-            const otherMessages = d.messages.filter(
-              (message: Message) =>
-                !isConversationMessage(message, userId, String(id)),
-            );
-
-            const currentConversation = d.messages.filter((message: Message) =>
-              isConversationMessage(message, userId, String(id)),
-            );
-
-            return {
-              ...d,
-              messages: [
-                ...otherMessages,
-                ...mergeMessages(currentConversation, normalizedMessages),
-              ],
-            };
-          });
+          applyIncomingMessages(normalizedMessages);
 
           const hasIncomingFromPartner = normalizedMessages.some(
             (message) => message.senderId === String(id),
@@ -1202,9 +1348,8 @@ export default function Chat() {
 
           if (hasIncomingFromPartner) {
             markConversationRead();
+            scrollToBottom(true);
           }
-
-          scrollToBottom(true);
         } catch (error) {
           console.log("[chat] websocket message parse error", error);
         }
@@ -1232,7 +1377,7 @@ export default function Chat() {
         wsRef.current = null;
       }
     };
-  }, [id, userId, token, update, markConversationRead, scrollToBottom]);
+  }, [id, userId, token, update, markConversationRead, scrollToBottom, applyIncomingMessages]);
 
   useEffect(() => {
     if (!id || !userId || !token) return;
@@ -1288,6 +1433,15 @@ export default function Chat() {
   const clearComposer = () => {
     setText("");
     setMediaDraft(null);
+    setReplyTarget(null);
+    setEditTarget(null);
+  };
+
+  const removeLocalMessage = (localId: string) => {
+    update((d) => ({
+      ...d,
+      messages: d.messages.filter((message: Message) => message.id !== localId),
+    }));
   };
 
   const sendTextOrMedia = async () => {
@@ -1296,16 +1450,75 @@ export default function Chat() {
     if (!userId || !id || !token || sendingRef.current) return;
     if (!content && !mediaDraft) return;
 
+    if (editTarget) {
+      if (!content) return;
+
+      const previousText = editTarget.content;
+      const targetId = editTarget.id;
+
+      sendingRef.current = true;
+      setSending(true);
+
+      setText("");
+      setEditTarget(null);
+
+      update((d) => ({
+        ...d,
+        messages: d.messages.map((message: Message) =>
+          message.id === targetId
+            ? {
+                ...message,
+                content,
+                editedAt: new Date().toISOString(),
+              }
+            : message,
+        ),
+      }));
+
+      try {
+        const updated = await apiEditMessage(targetId, { content }, { token });
+        const normalized = normalizeMessage(updated);
+
+        applyIncomingMessages([normalized]);
+      } catch (e: any) {
+        update((d) => ({
+          ...d,
+          messages: d.messages.map((message: Message) =>
+            message.id === targetId
+              ? {
+                  ...message,
+                  content: previousText,
+                  editedAt: (editTarget as any).editedAt,
+                }
+              : message,
+          ),
+        }));
+
+        setText(content);
+        setEditTarget(editTarget);
+        Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
+      }
+
+      return;
+    }
+
     sendingRef.current = true;
     setSending(true);
 
     const draft = mediaDraft;
+    const reply = replyTarget;
+    const clientTempId = createClientTempId();
+
     clearComposer();
 
     let localMessage: Message | null = null;
 
     try {
       let uploadedUrl: string | undefined;
+      let thumbnailUrl: string | undefined;
       let messageType: "text" | "image" | "video" = "text";
       let mediaType: "image" | "video" | undefined;
       let messageContent = content;
@@ -1325,6 +1538,10 @@ export default function Chat() {
           messageType,
           mediaUrl: draft.uri,
           mediaType,
+          mediaThumbnailUrl: draft.thumbnailUri || undefined,
+          replyToId: reply?.id,
+          replyPreview: reply ? buildReplyPreview(reply) : undefined,
+          clientTempId,
         });
 
         update((d) => ({
@@ -1334,18 +1551,33 @@ export default function Chat() {
 
         scrollToBottom(true, 20);
 
-        const uploadRes = await apiUploadFile(
-          draft.type === "video" ? "/uploads/video" : "/uploads/image",
-          draft.uri,
-          "file",
-          {
+        if (draft.type === "video" && draft.thumbnailUri) {
+          const thumbnailUpload = await apiUploadVideoThumbnail(draft.thumbnailUri, {
             token,
-            mimeType: draft.mimeType ?? (draft.type === "video" ? "video/mp4" : "image/jpeg"),
-            fileName:
-              draft.fileName ??
-              `chat_${Date.now()}.${draft.type === "video" ? "mp4" : "jpg"}`,
-          },
-        );
+            mimeType: "image/jpeg",
+            fileName: `video_thumb_${Date.now()}.jpg`,
+          });
+
+          thumbnailUrl =
+            thumbnailUpload.mediaThumbnailUrl ??
+            thumbnailUpload.media_thumbnail_url ??
+            thumbnailUpload.thumbnailUrl ??
+            thumbnailUpload.thumbnail_url ??
+            thumbnailUpload.url;
+        }
+
+        const uploadRes =
+          draft.type === "video"
+            ? await apiUploadChatVideo(draft.uri, {
+                token,
+                mimeType: draft.mimeType ?? "video/mp4",
+                fileName: draft.fileName ?? `chat_${Date.now()}.mp4`,
+              })
+            : await apiUploadChatImage(draft.uri, {
+                token,
+                mimeType: draft.mimeType ?? "image/jpeg",
+                fileName: draft.fileName ?? `chat_${Date.now()}.jpg`,
+              });
 
         uploadedUrl =
           uploadRes.mediaUrl ??
@@ -1365,6 +1597,9 @@ export default function Chat() {
           receiverId: String(id),
           content: messageContent,
           messageType,
+          replyToId: reply?.id,
+          replyPreview: reply ? buildReplyPreview(reply) : undefined,
+          clientTempId,
         });
 
         update((d) => ({
@@ -1375,16 +1610,18 @@ export default function Chat() {
         scrollToBottom(true, 20);
       }
 
-      const created = await apiPost(
-        "/messages",
+      const created = await apiSendMessage(
         {
           receiver_id: id,
+          client_temp_id: clientTempId,
           content: messageContent,
           message_type: messageType,
+          reply_to_id: reply?.id ?? null,
           ...(uploadedUrl
             ? {
                 media_url: uploadedUrl,
                 media_type: mediaType,
+                media_thumbnail_url: thumbnailUrl ?? null,
               }
             : {}),
         },
@@ -1409,16 +1646,12 @@ export default function Chat() {
       console.log("[chat] send text/media err", e);
 
       if (localMessage) {
-        update((d) => ({
-          ...d,
-          messages: d.messages.filter(
-            (message: Message) => message.id !== localMessage?.id,
-          ),
-        }));
+        removeLocalMessage(localMessage.id);
       }
 
       setText(content);
       setMediaDraft(draft);
+      setReplyTarget(reply);
 
       Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
     } finally {
@@ -1445,7 +1678,105 @@ export default function Chat() {
     closeActionMenu();
   };
 
-  const deleteForMe = (message: Message) => {
+  const replyToMessage = (message: Message) => {
+    setReplyTarget(message);
+    setEditTarget(null);
+    closeActionMenu();
+  };
+
+  const editMessage = (message: Message) => {
+    setEditTarget(message);
+    setReplyTarget(null);
+    setMediaDraft(null);
+    setText(message.content || "");
+    closeActionMenu();
+  };
+
+  const forwardMessage = (message: Message) => {
+    setForwardTarget(message);
+    setForwardModalVisible(true);
+    closeActionMenu();
+  };
+
+  const pinMessage = async (message: Message) => {
+    if (!token) return;
+
+    const nextPinned = !Boolean((message as any).pinned);
+
+    closeActionMenu();
+
+    update((d) => ({
+      ...d,
+      messages: d.messages.map((item: Message) =>
+        item.id === message.id ? { ...item, pinned: nextPinned } : item,
+      ),
+    }));
+
+    try {
+      const updated = await apiPinMessage(
+        message.id,
+        { pinned: nextPinned },
+        { token },
+      );
+
+      applyIncomingMessages([normalizeMessage(updated)]);
+    } catch (e) {
+      console.log("[chat] pin error", e);
+    }
+  };
+
+  const reactToMessage = async (message: Message, emoji: string) => {
+    if (!token || !userId) return;
+
+    closeActionMenu();
+
+    const previous = (message as any).reactions ?? {};
+
+    update((d) => ({
+      ...d,
+      messages: d.messages.map((item: Message) => {
+        if (item.id !== message.id) return item;
+
+        const reactions = { ...(((item as any).reactions ?? {}) as any) };
+        const users = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
+
+        if (users.includes(userId)) {
+          reactions[emoji] = users.filter((id: string) => id !== userId);
+        } else {
+          reactions[emoji] = [...users, userId];
+        }
+
+        if (Array.isArray(reactions[emoji]) && reactions[emoji].length === 0) {
+          delete reactions[emoji];
+        }
+
+        return {
+          ...item,
+          reactions,
+        };
+      }),
+    }));
+
+    try {
+      const updated = await apiReactToMessage(message.id, { emoji }, { token });
+      applyIncomingMessages([normalizeMessage(updated)]);
+    } catch (e) {
+      console.log("[chat] reaction error", e);
+
+      update((d) => ({
+        ...d,
+        messages: d.messages.map((item: Message) =>
+          item.id === message.id ? { ...item, reactions: previous } : item,
+        ),
+      }));
+    }
+  };
+
+  const deleteForMe = async (message: Message) => {
+    if (!token) return;
+
+    closeActionMenu();
+
     setHiddenMessageIds((prev) => {
       const next = new Set(prev);
       next.add(message.id);
@@ -1457,7 +1788,17 @@ export default function Chat() {
       messages: d.messages.filter((item: Message) => item.id !== message.id),
     }));
 
-    closeActionMenu();
+    try {
+      await apiDeleteMessage(message.id, "me", { token });
+    } catch (e) {
+      console.log("[chat] delete for me error", e);
+
+      try {
+        await apiDeleteMessageFallback(message.id, "me", { token });
+      } catch (fallbackError) {
+        console.log("[chat] delete for me fallback error", fallbackError);
+      }
+    }
   };
 
   const deleteForEveryone = async (message: Message) => {
@@ -1467,7 +1808,9 @@ export default function Chat() {
 
     update((d) => ({
       ...d,
-      messages: d.messages.filter((item: Message) => item.id !== message.id),
+      messages: d.messages.map((item: Message) =>
+        item.id === message.id ? { ...item, deletedForEveryone: true } : item,
+      ),
     }));
 
     try {
@@ -1475,18 +1818,19 @@ export default function Chat() {
         wsRef.current.send(
           JSON.stringify({
             type: "delete_message",
+            mode: "everyone",
             messageId: message.id,
             message_id: message.id,
           }),
         );
+      } else {
+        await apiDeleteMessage(message.id, "everyone", { token });
       }
-
-      await apiDelete(`/messages/${message.id}`, { token });
     } catch (e) {
       console.log("[chat] delete message error", e);
 
       try {
-        await apiPost(`/messages/${message.id}/delete`, {}, { token });
+        await apiDeleteMessageFallback(message.id, "everyone", { token });
       } catch (fallbackError) {
         console.log("[chat] delete message fallback error", fallbackError);
       }
@@ -1529,12 +1873,28 @@ export default function Chat() {
       const mimeType = String(asset.mimeType ?? "").toLowerCase();
       const isVideo = asset.type === "video" || mimeType.startsWith("video");
 
+      let thumbnailUri: string | null = null;
+
+      if (isVideo) {
+        try {
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+            time: 700,
+            quality: 0.75,
+          });
+
+          thumbnailUri = thumbnail.uri;
+        } catch (thumbnailError) {
+          console.log("[chat] video thumbnail error", thumbnailError);
+        }
+      }
+
       setMediaDraft({
         uri: asset.uri,
         type: isVideo ? "video" : "image",
         mimeType: asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
         fileName:
           asset.fileName ?? `chat_${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+        thumbnailUri,
       });
     } catch (e: any) {
       console.log("[chat] pick media err", e);
@@ -1559,7 +1919,7 @@ export default function Chat() {
   };
 
   const startRecord = async () => {
-    if (voiceSendingRef.current || recordingRef.current || text.trim() || mediaDraft) {
+    if (voiceSendingRef.current || recordingRef.current || text.trim() || mediaDraft || editTarget) {
       return;
     }
 
@@ -1660,6 +2020,8 @@ export default function Chat() {
       return;
     }
 
+    const clientTempId = createClientTempId();
+
     try {
       if (recordTimer.current) {
         clearInterval(recordTimer.current);
@@ -1698,7 +2060,12 @@ export default function Chat() {
         messageType: "voice",
         voiceUrl: uri,
         voiceDurationMs: duration,
+        replyToId: replyTarget?.id,
+        replyPreview: replyTarget ? buildReplyPreview(replyTarget) : undefined,
+        clientTempId,
       });
+
+      setReplyTarget(null);
 
       update((d) => ({
         ...d,
@@ -1707,7 +2074,7 @@ export default function Chat() {
 
       scrollToBottom(true, 20);
 
-      const uploadRes = await apiUploadFile("/uploads/voice", uri, "file", {
+      const uploadRes = await apiUploadVoice(uri, {
         token,
         mimeType: "audio/mp4",
         fileName: `voice_${Date.now()}.m4a`,
@@ -1720,12 +2087,13 @@ export default function Chat() {
         throw new Error("Backend did not return voice URL.");
       }
 
-      const created = await apiPost(
-        "/messages",
+      const created = await apiSendMessage(
         {
           receiver_id: id,
+          client_temp_id: clientTempId,
           content: t("messages.voiceMessage"),
           message_type: "voice",
+          reply_to_id: replyTarget?.id ?? null,
           voice_url: uploadedVoiceUrl,
           voice_duration_ms: duration,
         },
@@ -1773,7 +2141,7 @@ export default function Chat() {
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () =>
-          !voiceSendingRef.current && !text.trim() && !mediaDraft,
+          !voiceSendingRef.current && !text.trim() && !mediaDraft && !editTarget,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
           recordingTouchActiveRef.current = true;
@@ -1808,8 +2176,35 @@ export default function Chat() {
           cancelRecord();
         },
       }),
-    [startRecord, stopAndSend, cancelRecord, text, mediaDraft],
+    [startRecord, stopAndSend, cancelRecord, text, mediaDraft, editTarget],
   );
+
+  const forwardToUser = async (receiverId: string) => {
+    if (!token || !forwardTarget) return;
+
+    const target = forwardTarget;
+
+    setForwardModalVisible(false);
+    setForwardTarget(null);
+
+    try {
+      const created = await apiForwardMessage(
+        target.id,
+        {
+          receiver_id: receiverId,
+        },
+        { token },
+      );
+
+      const normalized = normalizeMessage(created);
+
+      if (isConversationMessage(normalized, userId ?? "", id ?? "")) {
+        applyIncomingMessages([normalized]);
+      }
+    } catch (e: any) {
+      Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
+    }
+  };
 
   const isRecording = recState.isRecording || recordingRef.current;
   const canSend = (text.trim().length > 0 || !!mediaDraft) && !sending;
@@ -1818,7 +2213,7 @@ export default function Chat() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: chatTheme.background }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
       <Stack.Screen options={screenOptions} />
@@ -1968,6 +2363,48 @@ export default function Chat() {
           </View>
         </View>
 
+        {pinnedMessage ? (
+          <Pressable
+            onPress={() => {
+              const index = chatItems.findIndex(
+                (item) => item.kind === "message" && item.message.id === pinnedMessage.id,
+              );
+
+              if (index >= 0) {
+                listRef.current?.scrollToIndex({
+                  index,
+                  animated: true,
+                  viewPosition: 0.5,
+                });
+              }
+            }}
+            style={{
+              marginHorizontal: 14,
+              marginTop: 10,
+              padding: 12,
+              borderRadius: 18,
+              backgroundColor: chatTheme.input,
+              borderWidth: 1,
+              borderColor: chatTheme.border,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <Pin color={chatTheme.accent} size={18} />
+
+            <View style={{ flex: 1 }}>
+              <AppText variant="caption" color={chatTheme.accent}>
+                {texts.pinnedMessage}
+              </AppText>
+
+              <AppText variant="small" color={chatTheme.text} numberOfLines={1}>
+                {getReplyPreviewText(pinnedMessage, texts.pinnedMessage)}
+              </AppText>
+            </View>
+          </Pressable>
+        ) : null}
+
         <FlatList
           ref={listRef}
           data={chatItems}
@@ -1991,6 +2428,7 @@ export default function Chat() {
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: false })
           }
+          onScrollToIndexFailed={() => scrollToBottom(true)}
           renderItem={({ item }) => {
             if (item.kind === "date") {
               return <DateSeparator label={item.label} chatTheme={chatTheme} />;
@@ -2005,6 +2443,7 @@ export default function Chat() {
                 chatTheme={chatTheme}
                 texts={texts}
                 lang={lang}
+                currentUserId={userId ?? ""}
                 onOpenActions={openActionMenu}
                 onOpenImage={(url) => setImageViewerUrl(url)}
                 onOpenVideo={(url) => setVideoViewerUrl(url)}
@@ -2065,6 +2504,29 @@ export default function Chat() {
             backgroundColor: chatTheme.composer,
           }}
         >
+          {replyTarget && !isRecording ? (
+            <ComposerInfoBar
+              title={texts.replyTo}
+              text={getReplyPreviewText(replyTarget, texts.replyTo)}
+              icon={<Reply color={chatTheme.accent} size={18} />}
+              chatTheme={chatTheme}
+              onClose={() => setReplyTarget(null)}
+            />
+          ) : null}
+
+          {editTarget && !isRecording ? (
+            <ComposerInfoBar
+              title={texts.editing}
+              text={editTarget.content}
+              icon={<Edit3 color={chatTheme.accent} size={18} />}
+              chatTheme={chatTheme}
+              onClose={() => {
+                setEditTarget(null);
+                setText("");
+              }}
+            />
+          ) : null}
+
           {mediaDraft && !isRecording ? (
             <MediaDraftPreview
               draft={mediaDraft}
@@ -2105,7 +2567,7 @@ export default function Chat() {
             >
               <Pressable
                 onPress={pickMedia}
-                disabled={mediaSending || voiceSending || sending}
+                disabled={mediaSending || voiceSending || sending || !!editTarget}
                 style={{
                   width: 46,
                   height: 46,
@@ -2115,7 +2577,7 @@ export default function Chat() {
                   borderColor: chatTheme.border,
                   alignItems: "center",
                   justifyContent: "center",
-                  opacity: mediaSending ? 0.65 : 1,
+                  opacity: mediaSending || editTarget ? 0.55 : 1,
                 }}
               >
                 <Paperclip color={chatTheme.text} size={18} />
@@ -2152,7 +2614,7 @@ export default function Chat() {
                   autoCorrect
                   returnKeyType="default"
                   submitBehavior="newline"
-                  onFocus={() => scrollToBottom(true, 60)}
+                  onFocus={() => scrollToBottom(true, 30)}
                 />
               </View>
 
@@ -2230,8 +2692,25 @@ export default function Chat() {
           mine={selectedMessage?.senderId === userId}
           onClose={closeActionMenu}
           onCopy={(message) => copyMessage(message)}
+          onReply={(message) => replyToMessage(message)}
+          onEdit={(message) => editMessage(message)}
+          onPin={(message) => pinMessage(message)}
+          onForward={(message) => forwardMessage(message)}
+          onReact={(message, emoji) => reactToMessage(message, emoji)}
           onDeleteForMe={(message) => deleteForMe(message)}
           onDeleteForEveryone={(message) => deleteForEveryone(message)}
+        />
+
+        <ForwardModal
+          visible={forwardModalVisible}
+          users={possibleForwardReceivers}
+          chatTheme={chatTheme}
+          texts={texts}
+          onClose={() => {
+            setForwardModalVisible(false);
+            setForwardTarget(null);
+          }}
+          onSelect={forwardToUser}
         />
 
         <ImageViewerModal
@@ -2247,6 +2726,62 @@ export default function Chat() {
         />
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+function ComposerInfoBar({
+  title,
+  text,
+  icon,
+  chatTheme,
+  onClose,
+}: {
+  title: string;
+  text: string;
+  icon: React.ReactNode;
+  chatTheme: ChatThemePreset;
+  onClose: () => void;
+}) {
+  return (
+    <View
+      style={{
+        marginBottom: 10,
+        padding: 10,
+        borderRadius: 18,
+        backgroundColor: chatTheme.input,
+        borderWidth: 1,
+        borderColor: chatTheme.border,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      {icon}
+
+      <View style={{ flex: 1 }}>
+        <AppText variant="caption" color={chatTheme.accent}>
+          {title}
+        </AppText>
+
+        <AppText variant="small" color={chatTheme.text} numberOfLines={1}>
+          {text}
+        </AppText>
+      </View>
+
+      <Pressable
+        onPress={onClose}
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          backgroundColor: chatTheme.surfaceSoft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <X color={chatTheme.text} size={16} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -2361,6 +2896,8 @@ function MediaDraftPreview({
   onRemove: () => void;
   onOpen: () => void;
 }) {
+  const previewUri = draft.type === "video" ? draft.thumbnailUri || draft.uri : draft.uri;
+
   return (
     <View
       style={{
@@ -2376,9 +2913,9 @@ function MediaDraftPreview({
       }}
     >
       <Pressable onPress={onOpen}>
-        {draft.type === "image" ? (
+        <View>
           <Image
-            source={{ uri: draft.uri }}
+            source={{ uri: previewUri }}
             style={{
               width: 58,
               height: 58,
@@ -2387,20 +2924,25 @@ function MediaDraftPreview({
             }}
             contentFit="cover"
           />
-        ) : (
-          <View
-            style={{
-              width: 58,
-              height: 58,
-              borderRadius: 16,
-              backgroundColor: chatTheme.surfaceSoft,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Play color={chatTheme.text} size={22} fill={chatTheme.text} />
-          </View>
-        )}
+
+          {draft.type === "video" ? (
+            <View
+              style={{
+                position: "absolute",
+                left: 17,
+                top: 17,
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: "rgba(0,0,0,0.55)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Play color="#fff" size={11} fill="#fff" />
+            </View>
+          ) : null}
+        </View>
       </Pressable>
 
       <View style={{ flex: 1 }}>
@@ -2438,6 +2980,11 @@ function MessageActionMenu({
   mine,
   onClose,
   onCopy,
+  onReply,
+  onEdit,
+  onPin,
+  onForward,
+  onReact,
   onDeleteForMe,
   onDeleteForEveryone,
 }: {
@@ -2448,14 +2995,17 @@ function MessageActionMenu({
   mine: boolean;
   onClose: () => void;
   onCopy: (message: Message) => void;
+  onReply: (message: Message) => void;
+  onEdit: (message: Message) => void;
+  onPin: (message: Message) => void;
+  onForward: (message: Message) => void;
+  onReact: (message: Message, emoji: string) => void;
   onDeleteForMe: (message: Message) => void;
   onDeleteForEveryone: (message: Message) => void;
 }) {
   if (!message) {
     return null;
   }
-
-  const reactions = ["💙", "👍", "👀", "😂", "🔥", "❤️"];
 
   const menuBg = chatTheme.isLight ? "#FFFFFF" : "rgba(17,24,39,0.98)";
   const reactionBg = chatTheme.isLight ? "#FFFFFF" : "rgba(17,24,39,0.96)";
@@ -2470,6 +3020,8 @@ function MessageActionMenu({
     paddingHorizontal: 16,
     paddingVertical: 13,
   };
+
+  const canEdit = mine && String((message as any).messageType).toLowerCase() === "text";
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -2486,7 +3038,7 @@ function MessageActionMenu({
         <Pressable
           onPress={(event) => event.stopPropagation()}
           style={{
-            width: 286,
+            width: 306,
             gap: 10,
           }}
         >
@@ -2495,7 +3047,7 @@ function MessageActionMenu({
               alignSelf: mine ? "flex-end" : "flex-start",
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
+              gap: 8,
               paddingHorizontal: 12,
               paddingVertical: 9,
               borderRadius: 999,
@@ -2504,12 +3056,12 @@ function MessageActionMenu({
               borderColor: menuBorder,
             }}
           >
-            {reactions.map((reaction) => (
+            {REACTIONS.map((reaction) => (
               <Pressable
                 key={reaction}
-                onPress={onClose}
+                onPress={() => onReact(message, reaction)}
                 style={{
-                  width: 28,
+                  width: 27,
                   height: 28,
                   alignItems: "center",
                   justifyContent: "center",
@@ -2535,10 +3087,50 @@ function MessageActionMenu({
             }}
           >
             <MenuRow
+              icon={<Reply color={chatTheme.text} size={22} />}
+              label={texts.reply}
+              color={chatTheme.text}
+              onPress={() => onReply(message)}
+              style={itemStyle}
+            />
+
+            <MenuRow
               icon={<Copy color={chatTheme.text} size={22} />}
               label={texts.copy}
               color={chatTheme.text}
               onPress={() => onCopy(message)}
+              style={itemStyle}
+            />
+
+            {canEdit ? (
+              <MenuRow
+                icon={<Edit3 color={chatTheme.text} size={22} />}
+                label={texts.edit}
+                color={chatTheme.text}
+                onPress={() => onEdit(message)}
+                style={itemStyle}
+              />
+            ) : null}
+
+            <MenuRow
+              icon={
+                (message as any).pinned ? (
+                  <PinOff color={chatTheme.text} size={22} />
+                ) : (
+                  <Pin color={chatTheme.text} size={22} />
+                )
+              }
+              label={(message as any).pinned ? texts.unpin : texts.pin}
+              color={chatTheme.text}
+              onPress={() => onPin(message)}
+              style={itemStyle}
+            />
+
+            <MenuRow
+              icon={<Forward color={chatTheme.text} size={22} />}
+              label={texts.forward}
+              color={chatTheme.text}
+              onPress={() => onForward(message)}
               style={itemStyle}
             />
 
@@ -2610,6 +3202,107 @@ function MenuRow({
         {label}
       </AppText>
     </Pressable>
+  );
+}
+
+function ForwardModal({
+  visible,
+  users,
+  chatTheme,
+  texts,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  users: any[];
+  chatTheme: ChatThemePreset;
+  texts: ChatTexts;
+  onClose: () => void;
+  onSelect: (userId: string) => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 22,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxHeight: "70%",
+            borderRadius: 28,
+            padding: 16,
+            backgroundColor: chatTheme.header,
+            borderWidth: 1,
+            borderColor: chatTheme.border,
+            gap: 12,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <AppText variant="h3" color={chatTheme.text} style={{ flex: 1 }}>
+              {texts.chooseReceiver}
+            </AppText>
+
+            <Pressable
+              onPress={onClose}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 19,
+                backgroundColor: chatTheme.surfaceSoft,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <X color={chatTheme.text} size={18} />
+            </Pressable>
+          </View>
+
+          <FlatList
+            data={users}
+            keyExtractor={(item) => String(item.id)}
+            ItemSeparatorComponent={() => (
+              <View style={{ height: 1, backgroundColor: chatTheme.border }} />
+            )}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => onSelect(String(item.id))}
+                style={{
+                  paddingVertical: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <AppAvatar
+                  uri={toAbsoluteUrl(item.avatarUrl)}
+                  name={item.name}
+                  size={42}
+                  ring
+                />
+
+                <View style={{ flex: 1 }}>
+                  <AppText variant="bodyStrong" color={chatTheme.text}>
+                    {item.name}
+                  </AppText>
+
+                  <AppText variant="caption" color={chatTheme.muted}>
+                    {item.role}
+                  </AppText>
+                </View>
+
+                <Forward color={chatTheme.accent} size={19} />
+              </Pressable>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -2809,6 +3502,7 @@ const MessageBubble = memo(function MessageBubble({
   chatTheme,
   texts,
   lang,
+  currentUserId,
   onOpenActions,
   onOpenImage,
   onOpenVideo,
@@ -2818,6 +3512,7 @@ const MessageBubble = memo(function MessageBubble({
   chatTheme: ChatThemePreset;
   texts: ChatTexts;
   lang?: string;
+  currentUserId: string;
   onOpenActions: (message: Message) => void;
   onOpenImage: (url: string) => void;
   onOpenVideo: (url: string) => void;
@@ -2827,145 +3522,265 @@ const MessageBubble = memo(function MessageBubble({
   const isImage = messageType === "image";
   const isVideo = messageType === "video";
   const mediaUrl = (msg as any).mediaUrl ?? (msg as any).media_url;
+  const thumbnailUrl =
+    (msg as any).mediaThumbnailUrl ?? (msg as any).media_thumbnail_url;
   const absoluteMediaUrl = mediaUrl ? toAbsoluteUrl(mediaUrl) ?? mediaUrl : "";
+  const absoluteThumbnailUrl = thumbnailUrl
+    ? toAbsoluteUrl(thumbnailUrl) ?? thumbnailUrl
+    : "";
+  const reactionEntries = getReactionEntries(msg);
+  const replyPreview = (msg as any).replyPreview;
 
   return (
-    <Pressable
-      onLongPress={() => onOpenActions(msg)}
-      delayLongPress={360}
+    <View
       style={{
         alignSelf: mine ? "flex-end" : "flex-start",
         maxWidth: "84%",
-        paddingVertical: isImage || isVideo ? 7 : 10,
-        paddingHorizontal: isImage || isVideo ? 7 : 14,
-        borderRadius: 22,
-        borderBottomRightRadius: mine ? 7 : 22,
-        borderBottomLeftRadius: mine ? 22 : 7,
-        backgroundColor: mine ? chatTheme.mine : chatTheme.partner,
-        borderWidth: mine ? 0 : 1,
-        borderColor: chatTheme.border,
-        shadowColor: mine ? chatTheme.mine : "#000",
-        shadowOpacity: mine ? 0.16 : 0.1,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: mine ? 3 : 1,
       }}
     >
-      {isVoice ? (
-        <VoicePlayer msg={msg} mine={mine} chatTheme={chatTheme} />
-      ) : isImage && absoluteMediaUrl ? (
-        <Pressable onPress={() => onOpenImage(absoluteMediaUrl)} style={{ gap: 8 }}>
-          <Image
-            source={{ uri: absoluteMediaUrl }}
-            style={{
-              width: 232,
-              height: 270,
-              borderRadius: 18,
-              backgroundColor: chatTheme.surfaceSoft,
-            }}
-            contentFit="cover"
-            transition={180}
-          />
-
-          {msg.content ? (
-            <AppText
-              variant="body"
-              color={mine ? chatTheme.mineText : chatTheme.partnerText}
-              style={{ lineHeight: 21, paddingHorizontal: 4 }}
-            >
-              {msg.content}
-            </AppText>
-          ) : null}
-        </Pressable>
-      ) : isVideo && absoluteMediaUrl ? (
-        <Pressable
-          onPress={() => onOpenVideo(absoluteMediaUrl)}
-          style={{
-            width: 232,
-            minHeight: 132,
-            borderRadius: 18,
-            padding: 14,
-            backgroundColor: mine ? "rgba(0,0,0,0.10)" : chatTheme.surfaceSoft,
-            borderWidth: 1,
-            borderColor: chatTheme.border,
-            gap: 8,
-          }}
-        >
-          <View
-            style={{
-              width: 54,
-              height: 54,
-              borderRadius: 27,
-              backgroundColor: mine
-                ? "rgba(255,255,255,0.24)"
-                : chatTheme.accentSoft,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Play
-              size={20}
-              color={mine ? chatTheme.mineText : chatTheme.accent}
-              fill={mine ? chatTheme.mineText : chatTheme.accent}
-            />
-          </View>
-
-          <AppText
-            variant="bodyStrong"
-            color={mine ? chatTheme.mineText : chatTheme.partnerText}
-          >
-            {texts.videoMessage}
-          </AppText>
-
-          <AppText
-            variant="caption"
-            color={mine ? "rgba(0,0,0,0.55)" : chatTheme.muted}
-            numberOfLines={1}
-          >
-            {texts.tapToPreview}
-          </AppText>
-        </Pressable>
-      ) : (
-        <AppText
-          variant="body"
-          color={mine ? chatTheme.mineText : chatTheme.partnerText}
-          style={{ lineHeight: 21 }}
-        >
-          {msg.content}
-        </AppText>
-      )}
-
-      <View
+      <Pressable
+        onLongPress={() => onOpenActions(msg)}
+        delayLongPress={330}
         style={{
-          marginTop: 5,
-          flexDirection: "row",
-          justifyContent: "flex-end",
-          alignItems: "center",
-          gap: 6,
+          paddingVertical: isImage || isVideo ? 7 : 10,
+          paddingHorizontal: isImage || isVideo ? 7 : 14,
+          borderRadius: 22,
+          borderBottomRightRadius: mine ? 7 : 22,
+          borderBottomLeftRadius: mine ? 22 : 7,
+          backgroundColor: mine ? chatTheme.mine : chatTheme.partner,
+          borderWidth: mine ? 0 : 1,
+          borderColor: chatTheme.border,
+          shadowColor: mine ? chatTheme.mine : "#000",
+          shadowOpacity: mine ? 0.16 : 0.1,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: mine ? 3 : 1,
         }}
       >
-        <AppText
-          variant="caption"
-          color={
-            mine
-              ? chatTheme.mineText === "#FFFFFF"
-                ? "rgba(255,255,255,0.72)"
-                : "rgba(0,0,0,0.48)"
-              : chatTheme.muted
-          }
-        >
-          {new Date(msg.createdAt).toLocaleTimeString(getLocale(lang), {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          })}
-        </AppText>
+        {replyPreview ? (
+          <View
+            style={{
+              marginBottom: 8,
+              padding: 8,
+              borderRadius: 14,
+              backgroundColor: mine
+                ? "rgba(255,255,255,0.22)"
+                : chatTheme.surfaceSoft,
+              borderLeftWidth: 3,
+              borderLeftColor: chatTheme.accent,
+            }}
+          >
+            <AppText
+              variant="caption"
+              color={mine ? chatTheme.mineText : chatTheme.accent}
+              numberOfLines={1}
+            >
+              {texts.replyTo}
+            </AppText>
 
-        {mine ? (
-          <MessageStatus msg={msg} chatTheme={chatTheme} texts={texts} />
+            <AppText
+              variant="small"
+              color={mine ? chatTheme.mineText : chatTheme.partnerText}
+              numberOfLines={1}
+            >
+              {getReplyPreviewText(replyPreview, texts.replyTo)}
+            </AppText>
+          </View>
         ) : null}
-      </View>
-    </Pressable>
+
+        {isVoice ? (
+          <VoicePlayer msg={msg} mine={mine} chatTheme={chatTheme} />
+        ) : isImage && absoluteMediaUrl ? (
+          <Pressable onPress={() => onOpenImage(absoluteMediaUrl)} style={{ gap: 8 }}>
+            <Image
+              source={{ uri: absoluteMediaUrl }}
+              style={{
+                width: 232,
+                height: 270,
+                borderRadius: 18,
+                backgroundColor: chatTheme.surfaceSoft,
+              }}
+              contentFit="cover"
+              transition={180}
+            />
+
+            {msg.content ? (
+              <AppText
+                variant="body"
+                color={mine ? chatTheme.mineText : chatTheme.partnerText}
+                style={{ lineHeight: 21, paddingHorizontal: 4 }}
+              >
+                {msg.content}
+              </AppText>
+            ) : null}
+          </Pressable>
+        ) : isVideo && absoluteMediaUrl ? (
+          <Pressable
+            onPress={() => onOpenVideo(absoluteMediaUrl)}
+            style={{
+              width: 232,
+              minHeight: 154,
+              borderRadius: 18,
+              overflow: "hidden",
+              backgroundColor: mine ? "rgba(0,0,0,0.10)" : chatTheme.surfaceSoft,
+              borderWidth: 1,
+              borderColor: chatTheme.border,
+            }}
+          >
+            {absoluteThumbnailUrl ? (
+              <Image
+                source={{ uri: absoluteThumbnailUrl }}
+                style={{
+                  width: "100%",
+                  height: 136,
+                  backgroundColor: "#000",
+                }}
+                contentFit="cover"
+              />
+            ) : (
+              <View
+                style={{
+                  width: "100%",
+                  height: 136,
+                  backgroundColor: "#111827",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Sparkles color={chatTheme.accent} size={26} />
+              </View>
+            )}
+
+            <View
+              style={{
+                position: "absolute",
+                top: 48,
+                left: 89,
+                width: 54,
+                height: 54,
+                borderRadius: 27,
+                backgroundColor: "rgba(0,0,0,0.55)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Play size={20} color="#fff" fill="#fff" />
+            </View>
+
+            <View style={{ padding: 10, gap: 2 }}>
+              <AppText
+                variant="bodyStrong"
+                color={mine ? chatTheme.mineText : chatTheme.partnerText}
+              >
+                {texts.videoMessage}
+              </AppText>
+
+              <AppText
+                variant="caption"
+                color={mine ? "rgba(0,0,0,0.55)" : chatTheme.muted}
+                numberOfLines={1}
+              >
+                {texts.tapToPreview}
+              </AppText>
+            </View>
+          </Pressable>
+        ) : (
+          <AppText
+            variant="body"
+            color={mine ? chatTheme.mineText : chatTheme.partnerText}
+            style={{ lineHeight: 21 }}
+          >
+            {msg.content}
+          </AppText>
+        )}
+
+        {Boolean((msg as any).editedAt) ? (
+          <AppText
+            variant="caption"
+            color={mine ? "rgba(0,0,0,0.48)" : chatTheme.muted}
+            style={{ marginTop: 4 }}
+          >
+            edited
+          </AppText>
+        ) : null}
+
+        <View
+          style={{
+            marginTop: 5,
+            flexDirection: "row",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <AppText
+            variant="caption"
+            color={
+              mine
+                ? chatTheme.mineText === "#FFFFFF"
+                  ? "rgba(255,255,255,0.72)"
+                  : "rgba(0,0,0,0.48)"
+                : chatTheme.muted
+            }
+          >
+            {new Date(msg.createdAt).toLocaleTimeString(getLocale(lang), {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })}
+          </AppText>
+
+          {mine ? (
+            <MessageStatus msg={msg} chatTheme={chatTheme} texts={texts} />
+          ) : null}
+        </View>
+      </Pressable>
+
+      {reactionEntries.length > 0 ? (
+        <View
+          style={{
+            alignSelf: mine ? "flex-end" : "flex-start",
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 5,
+            marginTop: -5,
+            marginHorizontal: 8,
+          }}
+        >
+          {reactionEntries.map(([emoji, users]) => {
+            const mineReacted = users.includes(currentUserId);
+
+            return (
+              <View
+                key={emoji}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 999,
+                  backgroundColor: mineReacted
+                    ? chatTheme.accentSoft
+                    : chatTheme.input,
+                  borderWidth: 1,
+                  borderColor: mineReacted ? chatTheme.accent : chatTheme.border,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 3,
+                }}
+              >
+                <AppText variant="caption">{emoji}</AppText>
+
+                <AppText
+                  variant="caption"
+                  color={mineReacted ? chatTheme.accent : chatTheme.muted}
+                >
+                  {users.length}
+                </AppText>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
   );
 });
 
@@ -3151,7 +3966,6 @@ function ImageViewerModal({
 
 function VideoViewerModal({
   url,
-  chatTheme,
   onClose,
 }: {
   url: string | null;
@@ -3165,12 +3979,35 @@ function VideoViewerModal({
   useEffect(() => {
     if (!url) return;
 
-    try {
-      player.replace(url);
-      player.play();
-    } catch (error) {
-      console.log("[chat] video player error", error);
-    }
+    let mounted = true;
+
+    const load = async () => {
+      try {
+        const anyPlayer = player as any;
+
+        if (typeof anyPlayer.replaceAsync === "function") {
+          await anyPlayer.replaceAsync(url);
+        } else {
+          player.replace(url);
+        }
+
+        if (mounted) {
+          player.play();
+        }
+      } catch (error) {
+        console.log("[chat] video player error", error);
+      }
+    };
+
+    load();
+
+    return () => {
+      mounted = false;
+
+      try {
+        player.pause();
+      } catch {}
+    };
   }, [url, player]);
 
   return (
@@ -3206,7 +4043,6 @@ function VideoViewerModal({
           <VideoView
             player={player}
             nativeControls
-            allowsFullscreen
             allowsPictureInPicture
             contentFit="contain"
             surfaceType="textureView"
