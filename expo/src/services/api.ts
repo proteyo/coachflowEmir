@@ -5,23 +5,55 @@ const API_BASE_URL =
 
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
 
-type ApiOptions = {
+export type ApiOptions = {
   token?: string | null;
 };
 
-type UploadOptions = ApiOptions & {
+export type UploadOptions = ApiOptions & {
   mimeType?: string | null;
   fileName?: string | null;
 };
 
-type SendMessagePayload = {
+export type MessageType = "text" | "voice" | "image" | "video";
+export type MediaType = "image" | "video";
+export type DeleteMessageMode = "me" | "everyone";
+
+export type SendMessagePayload = {
   receiver_id: string;
+
+  // Защита от дублей.
+  client_temp_id?: string | null;
+
   content: string;
-  message_type?: "text" | "voice" | "image" | "video";
+  message_type?: MessageType;
+
+  // Ответ на сообщение.
+  reply_to_id?: string | null;
+
+  // Voice
   voice_url?: string | null;
   voice_duration_ms?: number | null;
+
+  // Image / video
   media_url?: string | null;
-  media_type?: "image" | "video" | null;
+  media_type?: MediaType | null;
+  media_thumbnail_url?: string | null;
+};
+
+export type EditMessagePayload = {
+  content: string;
+};
+
+export type ReactToMessagePayload = {
+  emoji: string;
+};
+
+export type PinMessagePayload = {
+  pinned: boolean;
+};
+
+export type ForwardMessagePayload = {
+  receiver_id: string;
 };
 
 function buildUrl(path: string) {
@@ -112,6 +144,7 @@ function getExtensionFromMimeType(mimeType: string) {
   if (normalized.includes("png")) return "png";
   if (normalized.includes("webp")) return "webp";
   if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
+  if (normalized.includes("heic") || normalized.includes("heif")) return "jpg";
 
   if (normalized.includes("mp4") && normalized.startsWith("video")) return "mp4";
   if (normalized.includes("quicktime")) return "mov";
@@ -174,6 +207,14 @@ function getMimeType(
   if (lower.endsWith(".aac")) return "audio/aac";
   if (lower.endsWith(".webm")) return "audio/webm";
 
+  if (
+    cleanPath.includes("/uploads/video-thumbnail") ||
+    cleanPath.includes("/video-thumbnail") ||
+    cleanPath.includes("/video-thumbnails")
+  ) {
+    return "image/jpeg";
+  }
+
   if (cleanPath.includes("/uploads/video") || cleanPath.includes("/video")) {
     return "video/mp4";
   }
@@ -208,19 +249,39 @@ function normalizeUploadResponse(data: any) {
     data.url ??
     null;
 
+  const thumbnailUrl =
+    data.mediaThumbnailUrl ??
+    data.media_thumbnail_url ??
+    data.thumbnailUrl ??
+    data.thumbnail_url ??
+    null;
+
   return {
     ...data,
+
     url: data.url ?? mediaUrl,
+
     mediaUrl: data.mediaUrl ?? data.media_url ?? mediaUrl,
     media_url: data.media_url ?? data.mediaUrl ?? mediaUrl,
+
     voiceUrl: data.voiceUrl ?? data.voice_url ?? mediaUrl,
     voice_url: data.voice_url ?? data.voiceUrl ?? mediaUrl,
+
     imageUrl: data.imageUrl ?? data.image_url ?? mediaUrl,
     image_url: data.image_url ?? data.imageUrl ?? mediaUrl,
+
     videoUrl: data.videoUrl ?? data.video_url ?? mediaUrl,
     video_url: data.video_url ?? data.videoUrl ?? mediaUrl,
+
     publicUrl: data.publicUrl ?? data.public_url ?? mediaUrl,
     public_url: data.public_url ?? data.publicUrl ?? mediaUrl,
+
+    mediaThumbnailUrl:
+      data.mediaThumbnailUrl ?? data.media_thumbnail_url ?? thumbnailUrl,
+    media_thumbnail_url:
+      data.media_thumbnail_url ?? data.mediaThumbnailUrl ?? thumbnailUrl,
+    thumbnailUrl: data.thumbnailUrl ?? data.thumbnail_url ?? thumbnailUrl,
+    thumbnail_url: data.thumbnail_url ?? data.thumbnailUrl ?? thumbnailUrl,
   };
 }
 
@@ -248,7 +309,7 @@ export async function apiPost(
       "Content-Type": "application/json",
       ...getAuthHeaders(options),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   return handleResponse(res);
@@ -266,7 +327,7 @@ export async function apiPatch(
       "Content-Type": "application/json",
       ...getAuthHeaders(options),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   return handleResponse(res);
@@ -379,22 +440,112 @@ export async function apiMarkMessageRead(
   return apiPost(`/messages/${messageId}/read`, {}, options);
 }
 
-export async function apiDeleteMessage(
+export async function apiEditMessage(
   messageId: string,
+  payload: EditMessagePayload,
   options?: ApiOptions,
 ) {
-  return apiDelete(`/messages/${messageId}`, options);
+  return apiPatch(`/messages/${messageId}`, payload, options);
+}
+
+export async function apiReactToMessage(
+  messageId: string,
+  payload: ReactToMessagePayload,
+  options?: ApiOptions,
+) {
+  return apiPost(`/messages/${messageId}/reaction`, payload, options);
+}
+
+export async function apiPinMessage(
+  messageId: string,
+  payload: PinMessagePayload,
+  options?: ApiOptions,
+) {
+  return apiPost(`/messages/${messageId}/pin`, payload, options);
+}
+
+export async function apiForwardMessage(
+  messageId: string,
+  payload: ForwardMessagePayload,
+  options?: ApiOptions,
+) {
+  return apiPost(`/messages/${messageId}/forward`, payload, options);
+}
+
+export async function apiDeleteMessage(
+  messageId: string,
+  mode: DeleteMessageMode = "everyone",
+  options?: ApiOptions,
+) {
+  const query = new URLSearchParams({
+    mode,
+  });
+
+  return apiDelete(`/messages/${messageId}?${query.toString()}`, options);
 }
 
 export async function apiDeleteMessageFallback(
   messageId: string,
+  mode: DeleteMessageMode = "everyone",
   options?: ApiOptions,
 ) {
-  return apiPost(`/messages/${messageId}/delete`, {}, options);
+  const query = new URLSearchParams({
+    mode,
+  });
+
+  return apiPost(`/messages/${messageId}/delete?${query.toString()}`, {}, options);
 }
 
 export async function apiGetUnreadCount(options?: ApiOptions) {
   return apiGet(`/messages/unread-count?_=${Date.now()}`, options);
+}
+
+/**
+ * Upload helpers
+ */
+
+export async function apiUploadVoice(
+  fileUri: string,
+  options?: UploadOptions,
+) {
+  return apiUploadFile("/uploads/voice", fileUri, "file", {
+    ...options,
+    mimeType: options?.mimeType ?? "audio/mp4",
+    fileName: options?.fileName ?? `voice_${Date.now()}.m4a`,
+  });
+}
+
+export async function apiUploadChatImage(
+  fileUri: string,
+  options?: UploadOptions,
+) {
+  return apiUploadFile("/uploads/image", fileUri, "file", {
+    ...options,
+    mimeType: options?.mimeType ?? "image/jpeg",
+    fileName: options?.fileName ?? `image_${Date.now()}.jpg`,
+  });
+}
+
+export async function apiUploadChatVideo(
+  fileUri: string,
+  options?: UploadOptions,
+) {
+  return apiUploadFile("/uploads/video", fileUri, "file", {
+    ...options,
+    mimeType: options?.mimeType ?? "video/mp4",
+    fileName: options?.fileName ?? `video_${Date.now()}.mp4`,
+  });
+}
+
+export async function apiUploadVideoThumbnail(
+  fileUri: string,
+  options?: UploadOptions,
+) {
+  return apiUploadFile("/uploads/video-thumbnail", fileUri, "file", {
+    ...options,
+    mimeType: options?.mimeType ?? "image/jpeg",
+    fileName: options?.fileName ?? `video_thumb_${Date.now()}.jpg`,
+  });
 }
 
 export function getConfiguredApiBaseUrl() {

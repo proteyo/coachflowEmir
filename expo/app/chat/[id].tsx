@@ -8,8 +8,10 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
+import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
   ArrowUp,
@@ -17,21 +19,20 @@ import {
   CheckCheck,
   ChevronLeft,
   Copy,
+  Image as ImageIcon,
   Lock,
-  MessageCircle,
   Mic,
   Palette,
   Paperclip,
   Pause,
-  Pin,
   Play,
-  Reply,
   Send,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react-native";
 import React, {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -39,12 +40,12 @@ import React, {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   AppState,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -79,12 +80,13 @@ type ChatListItem =
       message: Message;
     };
 
-type ChatThemeKey = "premium" | "midnight" | "energy";
+type ChatThemeKey = "premium" | "midnight" | "energy" | "light";
 
 type ChatThemePreset = {
   key: ChatThemeKey;
   name: string;
   shortName: string;
+  isLight: boolean;
   background: string;
   header: string;
   surface: string;
@@ -99,6 +101,16 @@ type ChatThemePreset = {
   border: string;
   shadow: string;
   input: string;
+  text: string;
+  muted: string;
+  composer: string;
+};
+
+type MediaDraft = {
+  uri: string;
+  type: "image" | "video";
+  mimeType?: string | null;
+  fileName?: string | null;
 };
 
 type ChatTexts = {
@@ -125,7 +137,6 @@ type ChatTexts = {
   swipeUpToLock: string;
   lockedRecording: string;
   cancelRecording: string;
-  deleteMessage: string;
   deleteForMe: string;
   deleteForEveryone: string;
   deleteMessageTitle: string;
@@ -138,24 +149,21 @@ type ChatTexts = {
   mediaPermissionMessage: string;
   voiceTooShort: string;
   attachMedia: string;
-  connecting: string;
-  connected: string;
-  reply: string;
   copy: string;
-  speak: string;
-  edit: string;
-  pin: string;
-  forward: string;
-  select: string;
+  copied: string;
+  removeDraft: string;
+  tapToPreview: string;
 };
 
 const CHAT_THEME_STORAGE_KEY = "coachflow:chat-theme-key";
+const MIN_VOICE_DURATION_MS = 1000;
 
 const CHAT_THEMES: ChatThemePreset[] = [
   {
     key: "premium",
     name: "CoachFlow Premium",
     shortName: "Premium",
+    isLight: false,
     background: "#06111F",
     header: "rgba(6,17,31,0.98)",
     surface: "rgba(255,255,255,0.075)",
@@ -170,11 +178,15 @@ const CHAT_THEMES: ChatThemePreset[] = [
     border: "rgba(255,255,255,0.13)",
     shadow: "rgba(24,201,137,0.35)",
     input: "rgba(255,255,255,0.09)",
+    text: "#FFFFFF",
+    muted: "rgba(255,255,255,0.68)",
+    composer: "rgba(5,10,20,0.96)",
   },
   {
     key: "midnight",
     name: "Midnight Coach",
     shortName: "Night",
+    isLight: false,
     background: "#050816",
     header: "rgba(5,8,22,0.98)",
     surface: "rgba(18,24,45,0.95)",
@@ -189,11 +201,15 @@ const CHAT_THEMES: ChatThemePreset[] = [
     border: "rgba(255,255,255,0.10)",
     shadow: "rgba(47,128,237,0.35)",
     input: "rgba(255,255,255,0.075)",
+    text: "#FFFFFF",
+    muted: "rgba(255,255,255,0.68)",
+    composer: "rgba(5,8,22,0.96)",
   },
   {
     key: "energy",
     name: "Energy Orange",
     shortName: "Energy",
+    isLight: false,
     background: "#130B07",
     header: "rgba(19,11,7,0.98)",
     surface: "rgba(255,255,255,0.08)",
@@ -208,11 +224,42 @@ const CHAT_THEMES: ChatThemePreset[] = [
     border: "rgba(255,255,255,0.15)",
     shadow: "rgba(255,122,26,0.35)",
     input: "rgba(255,255,255,0.08)",
+    text: "#FFFFFF",
+    muted: "rgba(255,255,255,0.68)",
+    composer: "rgba(19,11,7,0.96)",
+  },
+  {
+    key: "light",
+    name: "Clean Light",
+    shortName: "Light",
+    isLight: true,
+    background: "#F4F7FB",
+    header: "rgba(255,255,255,0.98)",
+    surface: "rgba(15,23,42,0.055)",
+    surfaceSoft: "rgba(15,23,42,0.09)",
+    mine: "#18C989",
+    mineText: "#04140E",
+    partner: "#FFFFFF",
+    partnerText: "#111827",
+    accent: "#12B981",
+    accentText: "#FFFFFF",
+    accentSoft: "rgba(18,185,129,0.14)",
+    border: "rgba(15,23,42,0.12)",
+    shadow: "rgba(15,23,42,0.12)",
+    input: "#FFFFFF",
+    text: "#111827",
+    muted: "rgba(15,23,42,0.62)",
+    composer: "rgba(255,255,255,0.98)",
   },
 ];
 
 function isValidChatThemeKey(value: string | null): value is ChatThemeKey {
-  return value === "premium" || value === "midnight" || value === "energy";
+  return (
+    value === "premium" ||
+    value === "midnight" ||
+    value === "energy" ||
+    value === "light"
+  );
 }
 
 function getChatTexts(lang?: string): ChatTexts {
@@ -233,7 +280,8 @@ function getChatTexts(lang?: string): ChatTexts {
       chooseTheme: "Тема чата",
       recording: "Идёт запись",
       voiceErrorTitle: "Ошибка голосового сообщения",
-      voiceStartError: "Не удалось начать запись. Проверьте разрешение на микрофон.",
+      voiceStartError:
+        "Не удалось начать запись. Проверьте разрешение на микрофон.",
       voiceSendError: "Не удалось отправить голосовое сообщение.",
       messageErrorTitle: "Ошибка сообщения",
       messageSendError: "Не удалось отправить сообщение. Попробуйте ещё раз.",
@@ -242,7 +290,6 @@ function getChatTexts(lang?: string): ChatTexts {
       swipeUpToLock: "Проведите вверх — закрепить запись",
       lockedRecording: "Запись закреплена",
       cancelRecording: "Удалить запись",
-      deleteMessage: "Удалить",
       deleteForMe: "Удалить у себя",
       deleteForEveryone: "Удалить у всех",
       deleteMessageTitle: "Сообщение",
@@ -256,15 +303,10 @@ function getChatTexts(lang?: string): ChatTexts {
         "Разрешите доступ к галерее, чтобы отправлять фото и видео.",
       voiceTooShort: "Голосовое слишком короткое",
       attachMedia: "Фото/видео",
-      connecting: "подключение",
-      connected: "онлайн-чат",
-      reply: "Ответить",
       copy: "Копировать",
-      speak: "Озвучить",
-      edit: "Изменить",
-      pin: "Закрепить",
-      forward: "Переслать",
-      select: "Выбрать",
+      copied: "Скопировано",
+      removeDraft: "Убрать файл",
+      tapToPreview: "Нажмите для просмотра",
     };
   }
 
@@ -285,7 +327,8 @@ function getChatTexts(lang?: string): ChatTexts {
       chooseTheme: "Чат тақырыбы",
       recording: "Жазылып жатыр",
       voiceErrorTitle: "Дауыс хабарламасы қатесі",
-      voiceStartError: "Жазуды бастау мүмкін болмады. Микрофон рұқсатын тексеріңіз.",
+      voiceStartError:
+        "Жазуды бастау мүмкін болмады. Микрофон рұқсатын тексеріңіз.",
       voiceSendError: "Дауыс хабарламасын жіберу мүмкін болмады.",
       messageErrorTitle: "Хабарлама қатесі",
       messageSendError: "Хабарламаны жіберу мүмкін болмады. Қайталап көріңіз.",
@@ -294,7 +337,6 @@ function getChatTexts(lang?: string): ChatTexts {
       swipeUpToLock: "Жоғары сырғыту — жазуды бекіту",
       lockedRecording: "Жазу бекітілді",
       cancelRecording: "Жазбаны өшіру",
-      deleteMessage: "Өшіру",
       deleteForMe: "Өзімнен өшіру",
       deleteForEveryone: "Барлығынан өшіру",
       deleteMessageTitle: "Хабарлама",
@@ -308,15 +350,10 @@ function getChatTexts(lang?: string): ChatTexts {
         "Фото және видео жіберу үшін галереяға рұқсат беріңіз.",
       voiceTooShort: "Дауыс жазбасы тым қысқа",
       attachMedia: "Фото/видео",
-      connecting: "қосылу",
-      connected: "онлайн-чат",
-      reply: "Жауап беру",
       copy: "Көшіру",
-      speak: "Оқу",
-      edit: "Өзгерту",
-      pin: "Бекіту",
-      forward: "Жіберу",
-      select: "Таңдау",
+      copied: "Көшірілді",
+      removeDraft: "Файлды алып тастау",
+      tapToPreview: "Көру үшін басыңыз",
     };
   }
 
@@ -345,7 +382,6 @@ function getChatTexts(lang?: string): ChatTexts {
     swipeUpToLock: "Swipe up to lock",
     lockedRecording: "Recording locked",
     cancelRecording: "Delete recording",
-    deleteMessage: "Delete",
     deleteForMe: "Delete for me",
     deleteForEveryone: "Delete for everyone",
     deleteMessageTitle: "Message",
@@ -358,15 +394,10 @@ function getChatTexts(lang?: string): ChatTexts {
     mediaPermissionMessage: "Allow gallery access to send photos and videos.",
     voiceTooShort: "Voice message is too short",
     attachMedia: "Photo/video",
-    connecting: "connecting",
-    connected: "live chat",
-    reply: "Reply",
     copy: "Copy",
-    speak: "Speak",
-    edit: "Edit",
-    pin: "Pin",
-    forward: "Forward",
-    select: "Select",
+    copied: "Copied",
+    removeDraft: "Remove file",
+    tapToPreview: "Tap to preview",
   };
 }
 
@@ -623,10 +654,45 @@ function makeLocalMessage({
   } as Message;
 }
 
+function messagesLookLikeSameLocal(
+  localMessage: Message,
+  backendMessage: Message,
+) {
+  if (!String(localMessage.id).startsWith("local_")) return false;
+  if (String(backendMessage.id).startsWith("local_")) return false;
+  if (localMessage.senderId !== backendMessage.senderId) return false;
+  if (localMessage.receiverId !== backendMessage.receiverId) return false;
+  if (localMessage.messageType !== backendMessage.messageType) return false;
+
+  const localTime = getMessageTime(localMessage);
+  const backendTime = getMessageTime(backendMessage);
+  const closeTime = Math.abs(localTime - backendTime) < 20_000;
+
+  if (!closeTime) return false;
+
+  if (localMessage.messageType === "text") {
+    return localMessage.content.trim() === backendMessage.content.trim();
+  }
+
+  return true;
+}
+
 function mergeMessages(existing: Message[], incoming: Message[]) {
+  let result = [...existing];
+
+  incoming.forEach((incomingMessage) => {
+    result = result.filter(
+      (existingMessage) =>
+        existingMessage.id !== incomingMessage.id &&
+        !messagesLookLikeSameLocal(existingMessage, incomingMessage),
+    );
+
+    result.push(incomingMessage);
+  });
+
   const map = new Map<string, Message>();
 
-  [...existing, ...incoming].forEach((message) => {
+  result.forEach((message) => {
     map.set(message.id, {
       ...(map.get(message.id) ?? {}),
       ...message,
@@ -643,12 +709,10 @@ function replaceLocalMessage(
   localId: string,
   createdMessage: Message,
 ) {
-  return [
-    ...messages.filter(
-      (message) => message.id !== localId && message.id !== createdMessage.id,
-    ),
-    createdMessage,
-  ].sort((a, b) => getMessageTime(a) - getMessageTime(b));
+  return mergeMessages(
+    messages.filter((message) => message.id !== localId),
+    [createdMessage],
+  );
 }
 
 function applyReadReceiptsFromPartnerActivity(
@@ -730,6 +794,9 @@ export default function Chat() {
   );
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [actionMenuVisible, setActionMenuVisible] = useState<boolean>(false);
+  const [mediaDraft, setMediaDraft] = useState<MediaDraft | null>(null);
+  const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
+  const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
 
   const recordTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<FlatList<ChatListItem>>(null);
@@ -994,11 +1061,11 @@ export default function Chat() {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const showSub = Keyboard.addListener(showEvent, () => {
-      scrollToBottom(true, Platform.OS === "ios" ? 60 : 90);
+      scrollToBottom(true, Platform.OS === "ios" ? 30 : 80);
     });
 
     const hideSub = Keyboard.addListener(hideEvent, () => {
-      scrollToBottom(true, 60);
+      scrollToBottom(true, 40);
     });
 
     return () => {
@@ -1019,8 +1086,10 @@ export default function Chat() {
     }
 
     pollingRef.current = setInterval(() => {
-      loadConversation(true);
-    }, wsConnected ? 9000 : 2400);
+      if (!sendingRef.current && !voiceSendingRef.current && !mediaSending) {
+        loadConversation(true);
+      }
+    }, wsConnected ? 12_000 : 6_000);
 
     if (presencePollingRef.current) {
       clearInterval(presencePollingRef.current);
@@ -1028,7 +1097,7 @@ export default function Chat() {
 
     presencePollingRef.current = setInterval(() => {
       refreshFromBackendRef.current();
-    }, 6000);
+    }, 12_000);
 
     return () => {
       if (pollingRef.current) {
@@ -1049,6 +1118,7 @@ export default function Chat() {
     loadConversation,
     scrollToBottom,
     wsConnected,
+    mediaSending,
   ]);
 
   useEffect(() => {
@@ -1215,73 +1285,146 @@ export default function Chat() {
     }
   };
 
-  const send = async () => {
+  const clearComposer = () => {
+    setText("");
+    setMediaDraft(null);
+  };
+
+  const sendTextOrMedia = async () => {
     const content = text.trim();
 
-    if (!content || !userId || !id || !token || sendingRef.current) return;
-
-    const localMessage = makeLocalMessage({
-      senderId: userId,
-      receiverId: String(id),
-      content,
-      messageType: "text",
-    });
+    if (!userId || !id || !token || sendingRef.current) return;
+    if (!content && !mediaDraft) return;
 
     sendingRef.current = true;
-    setText("");
     setSending(true);
 
-    update((d) => ({
-      ...d,
-      messages: [...d.messages, localMessage],
-    }));
+    const draft = mediaDraft;
+    clearComposer();
 
-    scrollToBottom(true);
+    let localMessage: Message | null = null;
 
     try {
+      let uploadedUrl: string | undefined;
+      let messageType: "text" | "image" | "video" = "text";
+      let mediaType: "image" | "video" | undefined;
+      let messageContent = content;
+
+      if (draft) {
+        setMediaSending(true);
+
+        messageType = draft.type;
+        mediaType = draft.type;
+        messageContent =
+          content || (draft.type === "video" ? texts.videoMessage : texts.photoMessage);
+
+        localMessage = makeLocalMessage({
+          senderId: userId,
+          receiverId: String(id),
+          content: messageContent,
+          messageType,
+          mediaUrl: draft.uri,
+          mediaType,
+        });
+
+        update((d) => ({
+          ...d,
+          messages: [...d.messages, localMessage as Message],
+        }));
+
+        scrollToBottom(true, 20);
+
+        const uploadRes = await apiUploadFile(
+          draft.type === "video" ? "/uploads/video" : "/uploads/image",
+          draft.uri,
+          "file",
+          {
+            token,
+            mimeType: draft.mimeType ?? (draft.type === "video" ? "video/mp4" : "image/jpeg"),
+            fileName:
+              draft.fileName ??
+              `chat_${Date.now()}.${draft.type === "video" ? "mp4" : "jpg"}`,
+          },
+        );
+
+        uploadedUrl =
+          uploadRes.mediaUrl ??
+          uploadRes.media_url ??
+          uploadRes.imageUrl ??
+          uploadRes.image_url ??
+          uploadRes.videoUrl ??
+          uploadRes.video_url ??
+          uploadRes.url;
+
+        if (!uploadedUrl) {
+          throw new Error("Backend did not return media URL.");
+        }
+      } else {
+        localMessage = makeLocalMessage({
+          senderId: userId,
+          receiverId: String(id),
+          content: messageContent,
+          messageType,
+        });
+
+        update((d) => ({
+          ...d,
+          messages: [...d.messages, localMessage as Message],
+        }));
+
+        scrollToBottom(true, 20);
+      }
+
       const created = await apiPost(
         "/messages",
         {
           receiver_id: id,
-          content,
-          message_type: "text",
+          content: messageContent,
+          message_type: messageType,
+          ...(uploadedUrl
+            ? {
+                media_url: uploadedUrl,
+                media_type: mediaType,
+              }
+            : {}),
         },
         { token },
       );
 
       const createdMessage = created?.id ? normalizeMessage(created) : null;
 
-      if (createdMessage) {
+      if (createdMessage && localMessage) {
         update((d) => ({
           ...d,
           messages: replaceLocalMessage(
             d.messages,
-            localMessage.id,
+            localMessage?.id ?? "",
             createdMessage,
           ),
         }));
       }
 
-      if (!wsConnected) {
-        await loadConversation(false);
+      scrollToBottom(true, 20);
+    } catch (e: any) {
+      console.log("[chat] send text/media err", e);
+
+      if (localMessage) {
+        update((d) => ({
+          ...d,
+          messages: d.messages.filter(
+            (message: Message) => message.id !== localMessage?.id,
+          ),
+        }));
       }
 
-      scrollToBottom(true);
-    } catch (e) {
-      console.log("[chat] send message err", e);
-
-      update((d) => ({
-        ...d,
-        messages: d.messages.filter(
-          (message: Message) => message.id !== localMessage.id,
-        ),
-      }));
-
       setText(content);
-      Alert.alert(texts.messageErrorTitle, texts.messageSendError);
+      setMediaDraft(draft);
+
+      Alert.alert(texts.messageErrorTitle, e?.message || texts.messageSendError);
     } finally {
       sendingRef.current = false;
       setSending(false);
+      setMediaSending(false);
     }
   };
 
@@ -1289,7 +1432,17 @@ export default function Chat() {
     setActionMenuVisible(false);
     setTimeout(() => {
       setSelectedMessage(null);
-    }, 180);
+    }, 160);
+  };
+
+  const copyMessage = async (message: Message) => {
+    const textToCopy = message.content || "";
+
+    if (textToCopy) {
+      await Clipboard.setStringAsync(textToCopy);
+    }
+
+    closeActionMenu();
   };
 
   const deleteForMe = (message: Message) => {
@@ -1345,12 +1498,10 @@ export default function Chat() {
     setActionMenuVisible(true);
   };
 
-  const sendMedia = async () => {
-    if (!userId || !id || !token || mediaSending) return;
+  const pickMedia = async () => {
+    if (mediaSending || voiceSending || sending) return;
 
     try {
-      setMediaSending(true);
-
       const currentPermission =
         await ImagePicker.getMediaLibraryPermissionsAsync();
 
@@ -1378,85 +1529,16 @@ export default function Chat() {
       const mimeType = String(asset.mimeType ?? "").toLowerCase();
       const isVideo = asset.type === "video" || mimeType.startsWith("video");
 
-      const uploadRes = await apiUploadFile(
-        isVideo ? "/uploads/video" : "/uploads/image",
-        asset.uri,
-        "file",
-        {
-          token,
-          mimeType:
-            asset.mimeType ??
-            (isVideo ? "video/mp4" : "image/jpeg"),
-          fileName:
-            asset.fileName ??
-            `chat_${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
-        },
-      );
-
-      const uploadedUrl =
-        uploadRes.mediaUrl ??
-        uploadRes.media_url ??
-        uploadRes.imageUrl ??
-        uploadRes.image_url ??
-        uploadRes.videoUrl ??
-        uploadRes.video_url ??
-        uploadRes.url;
-
-      if (!uploadedUrl) {
-        throw new Error("Backend did not return media URL.");
-      }
-
-      const localMessage = makeLocalMessage({
-        senderId: userId,
-        receiverId: String(id),
-        content: isVideo ? texts.videoMessage : texts.photoMessage,
-        messageType: isVideo ? "video" : "image",
-        mediaUrl: uploadedUrl,
-        mediaType: isVideo ? "video" : "image",
+      setMediaDraft({
+        uri: asset.uri,
+        type: isVideo ? "video" : "image",
+        mimeType: asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
+        fileName:
+          asset.fileName ?? `chat_${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
       });
-
-      update((d) => ({
-        ...d,
-        messages: [...d.messages, localMessage],
-      }));
-
-      scrollToBottom(true);
-
-      const created = await apiPost(
-        "/messages",
-        {
-          receiver_id: id,
-          content: isVideo ? texts.videoMessage : texts.photoMessage,
-          message_type: isVideo ? "video" : "image",
-          media_url: uploadedUrl,
-          media_type: isVideo ? "video" : "image",
-        },
-        { token },
-      );
-
-      const createdMessage = created?.id ? normalizeMessage(created) : null;
-
-      if (createdMessage) {
-        update((d) => ({
-          ...d,
-          messages: replaceLocalMessage(
-            d.messages,
-            localMessage.id,
-            createdMessage,
-          ),
-        }));
-      }
-
-      if (!wsConnected) {
-        await loadConversation(false);
-      }
-
-      scrollToBottom(true);
     } catch (e: any) {
-      console.log("[chat] send media err", e);
+      console.log("[chat] pick media err", e);
       Alert.alert(texts.mediaErrorTitle, e?.message || texts.mediaSendError);
-    } finally {
-      setMediaSending(false);
     }
   };
 
@@ -1477,7 +1559,9 @@ export default function Chat() {
   };
 
   const startRecord = async () => {
-    if (voiceSendingRef.current || recordingRef.current) return;
+    if (voiceSendingRef.current || recordingRef.current || text.trim() || mediaDraft) {
+      return;
+    }
 
     try {
       const granted = await ensureMicPermission();
@@ -1571,7 +1655,7 @@ export default function Chat() {
           ? Date.now() - recordingStartedAtRef.current
           : 0;
 
-    if (finalDuration < 850) {
+    if (finalDuration < MIN_VOICE_DURATION_MS) {
       await cancelRecord();
       return;
     }
@@ -1607,6 +1691,22 @@ export default function Chat() {
       voiceSendingRef.current = true;
       setVoiceSending(true);
 
+      const localMessage = makeLocalMessage({
+        senderId: userId,
+        receiverId: String(id),
+        content: t("messages.voiceMessage"),
+        messageType: "voice",
+        voiceUrl: uri,
+        voiceDurationMs: duration,
+      });
+
+      update((d) => ({
+        ...d,
+        messages: [...d.messages, localMessage],
+      }));
+
+      scrollToBottom(true, 20);
+
       const uploadRes = await apiUploadFile("/uploads/voice", uri, "file", {
         token,
         mimeType: "audio/mp4",
@@ -1619,22 +1719,6 @@ export default function Chat() {
       if (!uploadedVoiceUrl) {
         throw new Error("Backend did not return voice URL.");
       }
-
-      const localMessage = makeLocalMessage({
-        senderId: userId,
-        receiverId: String(id),
-        content: t("messages.voiceMessage"),
-        messageType: "voice",
-        voiceUrl: uploadedVoiceUrl,
-        voiceDurationMs: duration,
-      });
-
-      update((d) => ({
-        ...d,
-        messages: [...d.messages, localMessage],
-      }));
-
-      scrollToBottom(true);
 
       const created = await apiPost(
         "/messages",
@@ -1661,11 +1745,7 @@ export default function Chat() {
         }));
       }
 
-      if (!wsConnected) {
-        await loadConversation(false);
-      }
-
-      scrollToBottom(true);
+      scrollToBottom(true, 20);
     } catch (e: any) {
       console.log("[chat] stop/send voice err", e);
 
@@ -1692,7 +1772,8 @@ export default function Chat() {
   const micPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => !voiceSendingRef.current,
+        onStartShouldSetPanResponder: () =>
+          !voiceSendingRef.current && !text.trim() && !mediaDraft,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
           recordingTouchActiveRef.current = true;
@@ -1727,11 +1808,11 @@ export default function Chat() {
           cancelRecord();
         },
       }),
-    [startRecord, stopAndSend, cancelRecord],
+    [startRecord, stopAndSend, cancelRecord, text, mediaDraft],
   );
 
   const isRecording = recState.isRecording || recordingRef.current;
-  const canSendText = text.trim().length > 0 && !sending;
+  const canSend = (text.trim().length > 0 || !!mediaDraft) && !sending;
   const bottomPadding = Math.max(insets.bottom, 10);
 
   return (
@@ -1752,7 +1833,7 @@ export default function Chat() {
             height: 260,
             borderRadius: 130,
             backgroundColor: chatTheme.shadow,
-            opacity: 0.35,
+            opacity: chatTheme.isLight ? 0.55 : 0.35,
           }}
         />
 
@@ -1766,18 +1847,6 @@ export default function Chat() {
             borderRadius: 155,
             backgroundColor: chatTheme.accentSoft,
             opacity: 0.95,
-          }}
-        />
-
-        <View
-          style={{
-            position: "absolute",
-            bottom: 70,
-            left: -150,
-            width: 280,
-            height: 280,
-            borderRadius: 140,
-            backgroundColor: "rgba(255,255,255,0.045)",
           }}
         />
 
@@ -1811,7 +1880,7 @@ export default function Chat() {
                 justifyContent: "center",
               }}
             >
-              <ChevronLeft color="#fff" size={24} />
+              <ChevronLeft color={chatTheme.text} size={24} />
             </Pressable>
 
             <Pressable
@@ -1847,7 +1916,7 @@ export default function Chat() {
               </View>
 
               <View style={{ flex: 1 }}>
-                <AppText variant="h3" color="#fff" numberOfLines={1}>
+                <AppText variant="h3" color={chatTheme.text} numberOfLines={1}>
                   {partner?.name ?? t("messages.title")}
                 </AppText>
 
@@ -1866,20 +1935,16 @@ export default function Chat() {
                       borderRadius: 4,
                       backgroundColor: presence.online
                         ? chatTheme.accent
-                        : "rgba(255,255,255,0.4)",
+                        : chatTheme.muted,
                     }}
                   />
 
                   <AppText
                     variant="caption"
-                    color={
-                      presence.online
-                        ? chatTheme.accent
-                        : "rgba(255,255,255,0.68)"
-                    }
+                    color={presence.online ? chatTheme.accent : chatTheme.muted}
                     numberOfLines={1}
                   >
-                    {wsConnected ? texts.connected : presence.label}
+                    {presence.label}
                   </AppText>
                 </View>
               </View>
@@ -1909,6 +1974,11 @@ export default function Chat() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          initialNumToRender={18}
+          maxToRenderPerBatch={12}
+          updateCellsBatchingPeriod={50}
+          windowSize={8}
+          removeClippedSubviews={Platform.OS === "android"}
           contentContainerStyle={{
             paddingHorizontal: 14,
             paddingTop: 18,
@@ -1921,7 +1991,6 @@ export default function Chat() {
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: false })
           }
-          onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             if (item.kind === "date") {
               return <DateSeparator label={item.label} chatTheme={chatTheme} />;
@@ -1937,6 +2006,8 @@ export default function Chat() {
                 texts={texts}
                 lang={lang}
                 onOpenActions={openActionMenu}
+                onOpenImage={(url) => setImageViewerUrl(url)}
+                onOpenVideo={(url) => setVideoViewerUrl(url)}
               />
             );
           }}
@@ -1965,13 +2036,17 @@ export default function Chat() {
                 <Sparkles color={chatTheme.accent} size={30} />
               </View>
 
-              <AppText variant="h3" color="#fff" style={{ textAlign: "center" }}>
+              <AppText
+                variant="h3"
+                color={chatTheme.text}
+                style={{ textAlign: "center" }}
+              >
                 {partner?.name ?? t("messages.title")}
               </AppText>
 
               <AppText
                 variant="body"
-                color="rgba(255,255,255,0.68)"
+                color={chatTheme.muted}
                 style={{ textAlign: "center" }}
               >
                 {texts.startConversation}
@@ -1987,9 +2062,25 @@ export default function Chat() {
             paddingBottom: bottomPadding,
             borderTopWidth: 1,
             borderTopColor: chatTheme.border,
-            backgroundColor: "rgba(5,10,20,0.96)",
+            backgroundColor: chatTheme.composer,
           }}
         >
+          {mediaDraft && !isRecording ? (
+            <MediaDraftPreview
+              draft={mediaDraft}
+              chatTheme={chatTheme}
+              texts={texts}
+              onRemove={() => setMediaDraft(null)}
+              onOpen={() => {
+                if (mediaDraft.type === "image") {
+                  setImageViewerUrl(mediaDraft.uri);
+                } else {
+                  setVideoViewerUrl(mediaDraft.uri);
+                }
+              }}
+            />
+          ) : null}
+
           {isRecording ? (
             <RecordingComposer
               recordingMs={recordingMs}
@@ -2013,15 +2104,13 @@ export default function Chat() {
               }}
             >
               <Pressable
-                onPress={sendMedia}
+                onPress={pickMedia}
                 disabled={mediaSending || voiceSending || sending}
                 style={{
                   width: 46,
                   height: 46,
                   borderRadius: 23,
-                  backgroundColor: mediaSending
-                    ? "rgba(255,255,255,0.22)"
-                    : chatTheme.surfaceSoft,
+                  backgroundColor: chatTheme.surfaceSoft,
                   borderWidth: 1,
                   borderColor: chatTheme.border,
                   alignItems: "center",
@@ -2029,7 +2118,7 @@ export default function Chat() {
                   opacity: mediaSending ? 0.65 : 1,
                 }}
               >
-                <Paperclip color="#fff" size={18} />
+                <Paperclip color={chatTheme.text} size={18} />
               </Pressable>
 
               <View
@@ -2050,9 +2139,9 @@ export default function Chat() {
                   value={text}
                   onChangeText={setText}
                   placeholder={t("messages.placeholder")}
-                  placeholderTextColor="rgba(255,255,255,0.48)"
+                  placeholderTextColor={chatTheme.muted}
                   style={{
-                    color: "#fff",
+                    color: chatTheme.text,
                     fontSize: 15,
                     maxHeight: 100,
                     paddingVertical: Platform.OS === "android" ? 4 : 0,
@@ -2063,24 +2152,23 @@ export default function Chat() {
                   autoCorrect
                   returnKeyType="default"
                   submitBehavior="newline"
-                  onFocus={() => scrollToBottom(true, 90)}
+                  onFocus={() => scrollToBottom(true, 60)}
                 />
               </View>
 
-              {text.trim().length > 0 ? (
+              {canSend ? (
                 <Pressable
-                  onPress={send}
-                  disabled={!canSendText}
+                  onPress={sendTextOrMedia}
+                  disabled={!canSend || sending || mediaSending}
                   style={{
                     width: 46,
                     height: 46,
                     borderRadius: 23,
-                    backgroundColor: !canSendText
-                      ? "rgba(255,255,255,0.22)"
-                      : chatTheme.mine,
+                    backgroundColor:
+                      sending || mediaSending ? chatTheme.surfaceSoft : chatTheme.mine,
                     alignItems: "center",
                     justifyContent: "center",
-                    opacity: !canSendText ? 0.65 : 1,
+                    opacity: sending || mediaSending ? 0.7 : 1,
                     shadowColor: chatTheme.mine,
                     shadowOpacity: 0.35,
                     shadowRadius: 12,
@@ -2088,7 +2176,11 @@ export default function Chat() {
                     elevation: 6,
                   }}
                 >
-                  <Send color={chatTheme.mineText} size={18} />
+                  {sending || mediaSending ? (
+                    <ActivityIndicator color={chatTheme.mineText} size="small" />
+                  ) : (
+                    <Send color={chatTheme.mineText} size={18} />
+                  )}
                 </Pressable>
               ) : (
                 <Pressable
@@ -2099,7 +2191,7 @@ export default function Chat() {
                     height: 46,
                     borderRadius: 23,
                     backgroundColor: voiceSending
-                      ? "rgba(255,255,255,0.22)"
+                      ? chatTheme.surfaceSoft
                       : chatTheme.accent,
                     alignItems: "center",
                     justifyContent: "center",
@@ -2137,8 +2229,21 @@ export default function Chat() {
           texts={texts}
           mine={selectedMessage?.senderId === userId}
           onClose={closeActionMenu}
+          onCopy={(message) => copyMessage(message)}
           onDeleteForMe={(message) => deleteForMe(message)}
           onDeleteForEveryone={(message) => deleteForEveryone(message)}
+        />
+
+        <ImageViewerModal
+          url={imageViewerUrl}
+          chatTheme={chatTheme}
+          onClose={() => setImageViewerUrl(null)}
+        />
+
+        <VideoViewerModal
+          url={videoViewerUrl}
+          chatTheme={chatTheme}
+          onClose={() => setVideoViewerUrl(null)}
         />
       </View>
     </KeyboardAvoidingView>
@@ -2176,7 +2281,7 @@ function ThemeModal({
         <Pressable
           onPress={(event) => event.stopPropagation()}
           style={{
-            width: 230,
+            width: 240,
             borderRadius: 24,
             padding: 14,
             backgroundColor: chatTheme.header,
@@ -2185,7 +2290,7 @@ function ThemeModal({
             gap: 10,
           }}
         >
-          <AppText variant="bodyStrong" color="#fff">
+          <AppText variant="bodyStrong" color={chatTheme.text}>
             {texts.chooseTheme}
           </AppText>
 
@@ -2203,9 +2308,7 @@ function ThemeModal({
                   paddingVertical: 10,
                   paddingHorizontal: 10,
                   borderRadius: 16,
-                  backgroundColor: active
-                    ? item.accentSoft
-                    : "rgba(255,255,255,0.06)",
+                  backgroundColor: active ? item.accentSoft : item.surface,
                   borderWidth: 1,
                   borderColor: active ? item.accent : chatTheme.border,
                 }}
@@ -2222,11 +2325,15 @@ function ThemeModal({
                 />
 
                 <View style={{ flex: 1 }}>
-                  <AppText variant="small" color="#fff" style={{ fontWeight: "800" }}>
+                  <AppText
+                    variant="small"
+                    color={chatTheme.text}
+                    style={{ fontWeight: "800" }}
+                  >
                     {item.name}
                   </AppText>
 
-                  <AppText variant="caption" color="rgba(255,255,255,0.62)">
+                  <AppText variant="caption" color={chatTheme.muted}>
                     {item.shortName}
                   </AppText>
                 </View>
@@ -2241,6 +2348,88 @@ function ThemeModal({
   );
 }
 
+function MediaDraftPreview({
+  draft,
+  chatTheme,
+  texts,
+  onRemove,
+  onOpen,
+}: {
+  draft: MediaDraft;
+  chatTheme: ChatThemePreset;
+  texts: ChatTexts;
+  onRemove: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <View
+      style={{
+        marginBottom: 10,
+        padding: 10,
+        borderRadius: 22,
+        backgroundColor: chatTheme.input,
+        borderWidth: 1,
+        borderColor: chatTheme.border,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <Pressable onPress={onOpen}>
+        {draft.type === "image" ? (
+          <Image
+            source={{ uri: draft.uri }}
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: 16,
+              backgroundColor: chatTheme.surfaceSoft,
+            }}
+            contentFit="cover"
+          />
+        ) : (
+          <View
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: 16,
+              backgroundColor: chatTheme.surfaceSoft,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Play color={chatTheme.text} size={22} fill={chatTheme.text} />
+          </View>
+        )}
+      </Pressable>
+
+      <View style={{ flex: 1 }}>
+        <AppText variant="bodyStrong" color={chatTheme.text} numberOfLines={1}>
+          {draft.type === "video" ? texts.videoMessage : texts.photoMessage}
+        </AppText>
+
+        <AppText variant="caption" color={chatTheme.muted} numberOfLines={1}>
+          {texts.tapToPreview}
+        </AppText>
+      </View>
+
+      <Pressable
+        onPress={onRemove}
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: chatTheme.surfaceSoft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <X color={chatTheme.text} size={18} />
+      </Pressable>
+    </View>
+  );
+}
+
 function MessageActionMenu({
   visible,
   message,
@@ -2248,6 +2437,7 @@ function MessageActionMenu({
   texts,
   mine,
   onClose,
+  onCopy,
   onDeleteForMe,
   onDeleteForEveryone,
 }: {
@@ -2257,6 +2447,7 @@ function MessageActionMenu({
   texts: ChatTexts;
   mine: boolean;
   onClose: () => void;
+  onCopy: (message: Message) => void;
   onDeleteForMe: (message: Message) => void;
   onDeleteForEveryone: (message: Message) => void;
 }) {
@@ -2265,6 +2456,12 @@ function MessageActionMenu({
   }
 
   const reactions = ["💙", "👍", "👀", "😂", "🔥", "❤️"];
+
+  const menuBg = chatTheme.isLight ? "#FFFFFF" : "rgba(17,24,39,0.98)";
+  const reactionBg = chatTheme.isLight ? "#FFFFFF" : "rgba(17,24,39,0.96)";
+  const menuBorder = chatTheme.isLight
+    ? "rgba(15,23,42,0.10)"
+    : "rgba(255,255,255,0.12)";
 
   const itemStyle = {
     flexDirection: "row" as const,
@@ -2280,7 +2477,7 @@ function MessageActionMenu({
         onPress={onClose}
         style={{
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.38)",
+          backgroundColor: "rgba(0,0,0,0.34)",
           justifyContent: "center",
           alignItems: mine ? "flex-end" : "flex-start",
           paddingHorizontal: 22,
@@ -2302,9 +2499,9 @@ function MessageActionMenu({
               paddingHorizontal: 12,
               paddingVertical: 9,
               borderRadius: 999,
-              backgroundColor: "rgba(17,24,39,0.96)",
+              backgroundColor: reactionBg,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.12)",
+              borderColor: menuBorder,
             }}
           >
             {reactions.map((reaction) => (
@@ -2326,49 +2523,29 @@ function MessageActionMenu({
           <View
             style={{
               borderRadius: 28,
-              backgroundColor: "rgba(17,24,39,0.98)",
+              backgroundColor: menuBg,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.12)",
+              borderColor: menuBorder,
               overflow: "hidden",
               shadowColor: "#000",
-              shadowOpacity: 0.35,
+              shadowOpacity: 0.3,
               shadowRadius: 22,
               shadowOffset: { width: 0, height: 12 },
               elevation: 14,
             }}
           >
             <MenuRow
-              icon={<Reply color="#F9FAFB" size={22} />}
-              label={texts.reply}
-              onPress={onClose}
-              style={itemStyle}
-            />
-
-            <MenuRow
-              icon={<Copy color="#F9FAFB" size={22} />}
+              icon={<Copy color={chatTheme.text} size={22} />}
               label={texts.copy}
-              onPress={onClose}
-              style={itemStyle}
-            />
-
-            <MenuRow
-              icon={<MessageCircle color="#F9FAFB" size={22} />}
-              label={texts.speak}
-              onPress={onClose}
-              style={itemStyle}
-            />
-
-            <MenuRow
-              icon={<Pin color="#F9FAFB" size={22} />}
-              label={texts.pin}
-              onPress={onClose}
+              color={chatTheme.text}
+              onPress={() => onCopy(message)}
               style={itemStyle}
             />
 
             <View
               style={{
                 height: 1,
-                backgroundColor: "rgba(255,255,255,0.09)",
+                backgroundColor: chatTheme.border,
                 marginHorizontal: 16,
               }}
             />
@@ -2390,22 +2567,6 @@ function MessageActionMenu({
                 style={itemStyle}
               />
             ) : null}
-
-            <View
-              style={{
-                height: 1,
-                backgroundColor: "rgba(255,255,255,0.09)",
-                marginHorizontal: 16,
-              }}
-            />
-
-            <MenuRow
-              icon={<Check color={chatTheme.accent} size={22} />}
-              label={texts.select}
-              color="#F9FAFB"
-              onPress={onClose}
-              style={itemStyle}
-            />
           </View>
         </Pressable>
       </Pressable>
@@ -2416,13 +2577,13 @@ function MessageActionMenu({
 function MenuRow({
   icon,
   label,
-  color = "#F9FAFB",
+  color,
   onPress,
   style,
 }: {
   icon: React.ReactNode;
   label: string;
-  color?: string;
+  color: string;
   onPress: () => void;
   style: any;
 }) {
@@ -2432,7 +2593,7 @@ function MenuRow({
       style={({ pressed }) => [
         style,
         {
-          backgroundColor: pressed ? "rgba(255,255,255,0.08)" : "transparent",
+          backgroundColor: pressed ? "rgba(128,128,128,0.10)" : "transparent",
         },
       ]}
     >
@@ -2442,7 +2603,7 @@ function MenuRow({
         variant="body"
         color={color}
         style={{
-          fontSize: 18,
+          fontSize: 17,
           fontWeight: "700",
         }}
       >
@@ -2491,11 +2652,11 @@ function RecordingComposer({
         />
 
         <View style={{ flex: 1 }}>
-          <AppText variant="bodyStrong" color="#fff">
+          <AppText variant="bodyStrong" color={chatTheme.text}>
             {locked ? texts.lockedRecording : texts.recording}
           </AppText>
 
-          <AppText variant="caption" color="rgba(255,255,255,0.65)">
+          <AppText variant="caption" color={chatTheme.muted}>
             {fmtDur(recordingMs)} · {locked ? texts.cancelRecording : texts.releaseToSend}
           </AppText>
         </View>
@@ -2544,7 +2705,7 @@ function RecordingComposer({
             opacity: voiceSending ? 0.5 : 1,
           }}
         >
-          <X color="#fff" size={18} />
+          <X color={chatTheme.text} size={18} />
         </Pressable>
 
         <Pressable
@@ -2555,7 +2716,7 @@ function RecordingComposer({
             height: 46,
             borderRadius: 23,
             backgroundColor: voiceSending
-              ? "rgba(255,255,255,0.22)"
+              ? chatTheme.surfaceSoft
               : chatTheme.mine,
             alignItems: "center",
             justifyContent: "center",
@@ -2568,7 +2729,7 @@ function RecordingComposer({
 
       <AppText
         variant="caption"
-        color="rgba(255,255,255,0.58)"
+        color={chatTheme.muted}
         style={{ textAlign: "center" }}
       >
         {texts.swipeUpToLock}
@@ -2599,7 +2760,7 @@ function DateSeparator({
     >
       <AppText
         variant="caption"
-        color="rgba(255,255,255,0.7)"
+        color={chatTheme.muted}
         style={{ fontWeight: "800" }}
       >
         {label}
@@ -2633,22 +2794,24 @@ function MessageStatus({
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <Check color="rgba(255,255,255,0.72)" size={13} />
+      <Check color={chatTheme.muted} size={13} />
 
-      <AppText variant="caption" color="rgba(255,255,255,0.72)">
+      <AppText variant="caption" color={chatTheme.muted}>
         {texts.sent}
       </AppText>
     </View>
   );
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   msg,
   mine,
   chatTheme,
   texts,
   lang,
   onOpenActions,
+  onOpenImage,
+  onOpenVideo,
 }: {
   msg: Message;
   mine: boolean;
@@ -2656,6 +2819,8 @@ function MessageBubble({
   texts: ChatTexts;
   lang?: string;
   onOpenActions: (message: Message) => void;
+  onOpenImage: (url: string) => void;
+  onOpenVideo: (url: string) => void;
 }) {
   const messageType = String((msg as any).messageType ?? "").toLowerCase();
   const isVoice = messageType === "voice";
@@ -2680,23 +2845,23 @@ function MessageBubble({
         borderWidth: mine ? 0 : 1,
         borderColor: chatTheme.border,
         shadowColor: mine ? chatTheme.mine : "#000",
-        shadowOpacity: mine ? 0.2 : 0.16,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 5 },
-        elevation: mine ? 4 : 2,
+        shadowOpacity: mine ? 0.16 : 0.1,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: mine ? 3 : 1,
       }}
     >
       {isVoice ? (
         <VoicePlayer msg={msg} mine={mine} chatTheme={chatTheme} />
       ) : isImage && absoluteMediaUrl ? (
-        <View style={{ gap: 8 }}>
+        <Pressable onPress={() => onOpenImage(absoluteMediaUrl)} style={{ gap: 8 }}>
           <Image
             source={{ uri: absoluteMediaUrl }}
             style={{
               width: 232,
               height: 270,
               borderRadius: 18,
-              backgroundColor: "rgba(255,255,255,0.12)",
+              backgroundColor: chatTheme.surfaceSoft,
             }}
             contentFit="cover"
             transition={180}
@@ -2711,37 +2876,37 @@ function MessageBubble({
               {msg.content}
             </AppText>
           ) : null}
-        </View>
+        </Pressable>
       ) : isVideo && absoluteMediaUrl ? (
         <Pressable
-          onPress={() => Linking.openURL(absoluteMediaUrl)}
+          onPress={() => onOpenVideo(absoluteMediaUrl)}
           style={{
             width: 232,
             minHeight: 132,
             borderRadius: 18,
             padding: 14,
-            backgroundColor: "rgba(0,0,0,0.22)",
+            backgroundColor: mine ? "rgba(0,0,0,0.10)" : chatTheme.surfaceSoft,
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.16)",
+            borderColor: chatTheme.border,
             gap: 8,
           }}
         >
           <View
             style={{
-              width: 50,
-              height: 50,
-              borderRadius: 25,
+              width: 54,
+              height: 54,
+              borderRadius: 27,
               backgroundColor: mine
                 ? "rgba(255,255,255,0.24)"
-                : chatTheme.surfaceSoft,
+                : chatTheme.accentSoft,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <Play
-              size={18}
-              color={mine ? chatTheme.mineText : chatTheme.partnerText}
-              fill={mine ? chatTheme.mineText : chatTheme.partnerText}
+              size={20}
+              color={mine ? chatTheme.mineText : chatTheme.accent}
+              fill={mine ? chatTheme.mineText : chatTheme.accent}
             />
           </View>
 
@@ -2754,10 +2919,10 @@ function MessageBubble({
 
           <AppText
             variant="caption"
-            color={mine ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.58)"}
-            numberOfLines={2}
+            color={mine ? "rgba(0,0,0,0.55)" : chatTheme.muted}
+            numberOfLines={1}
           >
-            {absoluteMediaUrl}
+            {texts.tapToPreview}
           </AppText>
         </Pressable>
       ) : (
@@ -2781,7 +2946,13 @@ function MessageBubble({
       >
         <AppText
           variant="caption"
-          color={mine ? "rgba(0,0,0,0.48)" : "rgba(255,255,255,0.55)"}
+          color={
+            mine
+              ? chatTheme.mineText === "#FFFFFF"
+                ? "rgba(255,255,255,0.72)"
+                : "rgba(0,0,0,0.48)"
+              : chatTheme.muted
+          }
         >
           {new Date(msg.createdAt).toLocaleTimeString(getLocale(lang), {
             hour: "2-digit",
@@ -2796,7 +2967,7 @@ function MessageBubble({
       </View>
     </Pressable>
   );
-}
+});
 
 function VoicePlayer({
   msg,
@@ -2868,9 +3039,7 @@ function VoicePlayer({
           width: 34,
           height: 34,
           borderRadius: 17,
-          backgroundColor: mine
-            ? "rgba(255,255,255,0.24)"
-            : chatTheme.surfaceSoft,
+          backgroundColor: mine ? "rgba(255,255,255,0.24)" : chatTheme.surfaceSoft,
           alignItems: "center",
           justifyContent: "center",
           opacity: source ? 1 : 0.45,
@@ -2907,7 +3076,7 @@ function VoicePlayer({
                     ? fg
                     : mine
                       ? "rgba(0,0,0,0.25)"
-                      : "rgba(255,255,255,0.22)",
+                      : chatTheme.border,
                 }}
               />
             );
@@ -2916,11 +3085,140 @@ function VoicePlayer({
 
         <AppText
           variant="caption"
-          color={mine ? "rgba(0,0,0,0.58)" : "rgba(255,255,255,0.62)"}
+          color={mine ? "rgba(0,0,0,0.58)" : chatTheme.muted}
         >
           {fmtDur(total)}
         </AppText>
       </View>
     </View>
+  );
+}
+
+function ImageViewerModal({
+  url,
+  chatTheme,
+  onClose,
+}: {
+  url: string | null;
+  chatTheme: ChatThemePreset;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={!!url} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.96)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Pressable
+          onPress={onClose}
+          style={{
+            position: "absolute",
+            top: 54,
+            right: 18,
+            zIndex: 2,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: "rgba(255,255,255,0.14)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <X color="#fff" size={22} />
+        </Pressable>
+
+        {url ? (
+          <Image
+            source={{ uri: url }}
+            style={{
+              width: "94%",
+              height: "78%",
+              borderRadius: 22,
+              backgroundColor: chatTheme.surfaceSoft,
+            }}
+            contentFit="contain"
+            transition={180}
+          />
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
+function VideoViewerModal({
+  url,
+  chatTheme,
+  onClose,
+}: {
+  url: string | null;
+  chatTheme: ChatThemePreset;
+  onClose: () => void;
+}) {
+  const player = useVideoPlayer(url || "", (createdPlayer) => {
+    createdPlayer.loop = false;
+  });
+
+  useEffect(() => {
+    if (!url) return;
+
+    try {
+      player.replace(url);
+      player.play();
+    } catch (error) {
+      console.log("[chat] video player error", error);
+    }
+  }, [url, player]);
+
+  return (
+    <Modal visible={!!url} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.97)",
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 12,
+        }}
+      >
+        <Pressable
+          onPress={onClose}
+          style={{
+            position: "absolute",
+            top: 54,
+            right: 18,
+            zIndex: 2,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: "rgba(255,255,255,0.14)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <X color="#fff" size={22} />
+        </Pressable>
+
+        {url ? (
+          <VideoView
+            player={player}
+            nativeControls
+            allowsFullscreen
+            allowsPictureInPicture
+            contentFit="contain"
+            surfaceType="textureView"
+            style={{
+              width: "100%",
+              height: "72%",
+              borderRadius: 22,
+              backgroundColor: "#000",
+            }}
+          />
+        ) : null}
+      </View>
+    </Modal>
   );
 }

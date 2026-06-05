@@ -71,7 +71,8 @@
         }
       ],
       "expo-asset",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,16 +21,46 @@ class ProgressEntryOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
 # ── Messages ──────────────────────────────────────────────────────────────────
 
 class MessageIn(BaseModel):
     receiver_id: str
+
+    # Для защиты от дублей:
+    # frontend создаёт temp id, backend сохраняет и возвращает его обратно.
+    client_temp_id: Optional[str] = None
+
     content: str = ""
     message_type: str = "text"
+
+    # Ответ на сообщение.
+    reply_to_id: Optional[str] = None
+
+    # Voice
     voice_url: Optional[str] = None
     voice_duration_ms: Optional[int] = None
+
+    # Image / video
     media_url: Optional[str] = None
     media_type: Optional[str] = None
+    media_thumbnail_url: Optional[str] = None
+
+    @field_validator("client_temp_id")
+    @classmethod
+    def client_temp_id_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        cleaned = value.strip()
+
+        if not cleaned:
+            return None
+
+        if len(cleaned) > 120:
+            raise ValueError("client_temp_id is too long")
+
+        return cleaned
 
     @field_validator("content")
     @classmethod
@@ -45,12 +75,14 @@ class MessageIn(BaseModel):
     @field_validator("message_type")
     @classmethod
     def message_type_valid(cls, value: str) -> str:
+        normalized = (value or "text").strip().lower()
+
         allowed = {"text", "voice", "image", "video"}
 
-        if value not in allowed:
+        if normalized not in allowed:
             raise ValueError("message_type must be text, voice, image, or video")
 
-        return value
+        return normalized
 
     @field_validator("media_type")
     @classmethod
@@ -58,29 +90,127 @@ class MessageIn(BaseModel):
         if value is None:
             return None
 
+        normalized = value.strip().lower()
+
         allowed = {"image", "video"}
 
-        if value not in allowed:
+        if normalized not in allowed:
             raise ValueError("media_type must be image or video")
+
+        return normalized
+
+    @field_validator("media_url", "media_thumbnail_url", "voice_url")
+    @classmethod
+    def url_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        cleaned = value.strip()
+
+        return cleaned or None
+
+    @field_validator("voice_duration_ms")
+    @classmethod
+    def voice_duration_valid(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return None
+
+        if value < 0:
+            raise ValueError("voice_duration_ms cannot be negative")
+
+        if value > 30 * 60 * 1000:
+            raise ValueError("voice_duration_ms is too long")
 
         return value
 
 
+class MessageUpdateIn(BaseModel):
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def content_valid(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+
+        if not cleaned:
+            raise ValueError("content is required")
+
+        if len(cleaned) > 5000:
+            raise ValueError("content is too long")
+
+        return cleaned
+
+
+class MessageReactionIn(BaseModel):
+    emoji: str
+
+    @field_validator("emoji")
+    @classmethod
+    def emoji_valid(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+
+        allowed = {"💙", "👍", "👀", "😂", "🔥", "❤️", "💪", "👏"}
+
+        if cleaned not in allowed:
+            raise ValueError("Unsupported reaction emoji")
+
+        return cleaned
+
+
+class MessagePinIn(BaseModel):
+    pinned: bool = True
+
+
+class MessageForwardIn(BaseModel):
+    receiver_id: str
+
+
 class MessageOut(BaseModel):
     id: str
+
+    # Возвращаем frontend temp id обратно, чтобы он мог заменить local-сообщение,
+    # а не добавить дубль.
+    clientTempId: Optional[str] = None
+
     senderId: str
     receiverId: Optional[str] = None
+
+    # Reply
+    replyToId: Optional[str] = None
+    replyPreview: Optional[dict[str, Any]] = None
+
     content: str
     messageType: str
+
+    # Voice
     voiceUrl: Optional[str] = None
     voiceDurationMs: Optional[int] = None
+
+    # Image / video
     mediaUrl: Optional[str] = None
     mediaType: Optional[str] = None
+    mediaThumbnailUrl: Optional[str] = None
+
+    # Reactions:
+    # {
+    #   "👍": ["u_1", "u_2"],
+    #   "❤️": ["u_3"]
+    # }
+    reactions: dict[str, Any] = Field(default_factory=dict)
+
     read: bool
+    pinned: bool = False
+
     deletedAt: Optional[str] = None
+    deletedForSender: bool = False
+    deletedForReceiver: bool = False
+    deletedForEveryone: bool = False
+
+    editedAt: Optional[str] = None
     createdAt: str
 
     model_config = {"from_attributes": True}
+
 
 # ── Weekly Goals ──────────────────────────────────────────────────────────────
 

@@ -131,6 +131,40 @@ def parse_list(value: Any) -> list[str]:
         return []
 
 
+def safe_dict(value: Any) -> dict[str, Any]:
+    """
+    Safely normalizes JSON/dict fields from database.
+
+    Supports:
+    - None
+    - already existing dict
+    - JSON string dict
+    """
+    if value is None:
+        return {}
+
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, str):
+        cleaned = value.strip()
+
+        if not cleaned:
+            return {}
+
+        try:
+            parsed = json.loads(cleaned)
+
+            if isinstance(parsed, dict):
+                return parsed
+
+            return {}
+        except Exception:
+            return {}
+
+    return {}
+
+
 def to_optional_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -221,26 +255,20 @@ def exercise_out(exercise: Exercise) -> ExerciseOut:
     return ExerciseOut(
         id=exercise.id,
         workoutId=exercise.workout_id,
-
         libraryExerciseId=getattr(exercise, "library_exercise_id", None),
-
         name=exercise.name,
         nameRu=getattr(exercise, "name_ru", None),
         nameKk=getattr(exercise, "name_kk", None),
-
         sets=exercise.sets,
         reps=exercise.reps,
         restSeconds=exercise.rest_seconds,
         weight=exercise.weight,
-
         notes=exercise.notes,
         notesRu=getattr(exercise, "notes_ru", None),
         notesKk=getattr(exercise, "notes_kk", None),
-
         imageUrl=exercise.image_url,
         gifUrl=getattr(exercise, "gif_url", None),
         animationFrames=parse_list(getattr(exercise, "animation_frames", None)),
-
         muscleGroup=exercise.muscle_group,
         tempo=getattr(exercise, "tempo", None),
         targetRpe=to_optional_float(getattr(exercise, "target_rpe", None)),
@@ -270,23 +298,18 @@ def workout_out(workout: WorkoutAssignment) -> WorkoutOut:
         clientId=workout.client_id,
         date=workout.date,
         time=workout.time,
-
         name=workout.name,
         nameRu=getattr(workout, "name_ru", None),
         nameKk=getattr(workout, "name_kk", None),
-
         description=workout.description,
         descriptionRu=getattr(workout, "description_ru", None),
         descriptionKk=getattr(workout, "description_kk", None),
-
         category=workout.category,
         categoryRu=getattr(workout, "category_ru", None),
         categoryKk=getattr(workout, "category_kk", None),
-
         completed=workout.completed,
         completedAt=to_iso(workout.completed_at),
         durationMinutes=workout.duration_minutes,
-
         source=getattr(workout, "source", None),
         weeklyPlanId=getattr(workout, "weekly_plan_id", None),
         weeklyPlanTitle=getattr(workout, "weekly_plan_title", None),
@@ -295,19 +318,14 @@ def workout_out(workout: WorkoutAssignment) -> WorkoutOut:
         weeklyPlanDayIndex=to_optional_int(
             getattr(workout, "weekly_plan_day_index", None)
         ),
-
         difficulty=getattr(workout, "difficulty", None),
-
         focus=getattr(workout, "focus", None),
         focusRu=getattr(workout, "focus_ru", None),
         focusKk=getattr(workout, "focus_kk", None),
-
         coachNotes=getattr(workout, "coach_notes", None),
         coachNotesRu=getattr(workout, "coach_notes_ru", None),
         coachNotesKk=getattr(workout, "coach_notes_kk", None),
-
         createdAt=to_iso(getattr(workout, "created_at", None)),
-
         exercises=[
             exercise_out(exercise)
             for exercise in exercises
@@ -366,19 +384,44 @@ def progress_out(entry: ProgressEntry) -> ProgressEntryOut:
     )
 
 
+def build_message_reply_preview(message: Message) -> dict[str, Any] | None:
+    reply_to = getattr(message, "reply_to", None)
+
+    if not reply_to:
+        return None
+
+    return {
+        "id": reply_to.id,
+        "senderId": reply_to.sender_id,
+        "content": reply_to.content,
+        "messageType": reply_to.message_type,
+        "mediaType": getattr(reply_to, "media_type", None),
+    }
+
+
 def message_out(message: Message) -> MessageOut:
     return MessageOut(
         id=message.id,
+        clientTempId=getattr(message, "client_temp_id", None),
         senderId=message.sender_id,
         receiverId=message.receiver_id,
+        replyToId=getattr(message, "reply_to_id", None),
+        replyPreview=build_message_reply_preview(message),
         content=message.content,
         messageType=message.message_type,
         voiceUrl=message.voice_url,
         voiceDurationMs=message.voice_duration_ms,
         mediaUrl=getattr(message, "media_url", None),
         mediaType=getattr(message, "media_type", None),
+        mediaThumbnailUrl=getattr(message, "media_thumbnail_url", None),
+        reactions=safe_dict(getattr(message, "reactions", None)),
         read=bool(message.read),
+        pinned=bool(getattr(message, "pinned", False)),
         deletedAt=to_iso(getattr(message, "deleted_at", None)),
+        deletedForSender=bool(getattr(message, "deleted_for_sender", False)),
+        deletedForReceiver=bool(getattr(message, "deleted_for_receiver", False)),
+        deletedForEveryone=bool(getattr(message, "deleted_for_everyone", False)),
+        editedAt=to_iso(getattr(message, "edited_at", None)),
         createdAt=to_iso_required(message.created_at),
     )
 
@@ -447,7 +490,6 @@ def subscription_out(subscription: Subscription) -> SubscriptionOut:
     - Does NOT expose google_purchase_token_hash.
     - Does NOT expose google_raw_response.
     """
-
     return SubscriptionOut(
         id=subscription.id,
         coachId=subscription.coach_id,
