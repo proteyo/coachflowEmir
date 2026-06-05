@@ -18,14 +18,14 @@ def _now() -> datetime:
 
 def _default_reactions() -> dict[str, Any]:
     """
-    Храним реакции так:
+    Reactions storage format:
 
     {
         "👍": ["u_123", "u_456"],
         "❤️": ["u_789"]
     }
 
-    То есть emoji -> список user_id, кто поставил реакцию.
+    emoji -> list of user IDs who reacted.
     """
     return {}
 
@@ -39,13 +39,18 @@ class Message(Base):
         default=lambda: f"msg_{uuid.uuid4().hex[:12]}",
     )
 
-    # Нужен для защиты от дублей.
-    # Frontend создаёт local/temp id, отправляет его на backend,
-    # backend возвращает тот же client_temp_id, и frontend заменяет временное сообщение.
+    # Used to prevent duplicate messages.
+    # Frontend creates a temporary ID, sends it to backend,
+    # backend returns the same client_temp_id,
+    # then frontend replaces local message with real backend message.
+    #
+    # Important:
+    # Do NOT set unique=True here.
+    # Alembic migration creates a partial unique index:
+    # client_temp_id IS NOT NULL
     client_temp_id: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
-        unique=True,
     )
 
     sender_id: Mapped[str] = mapped_column(
@@ -60,7 +65,6 @@ class Message(Base):
         nullable=True,
     )
 
-    # Ответ на другое сообщение.
     reply_to_id: Mapped[str | None] = mapped_column(
         String,
         ForeignKey("messages.id", ondelete="SET NULL"),
@@ -101,13 +105,11 @@ class Message(Base):
         nullable=True,
     )
 
-    # Обложка для видео.
     media_thumbnail_url: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
     )
 
-    # Реакции пользователей.
     reactions: Mapped[dict[str, Any]] = mapped_column(
         JSON,
         default=_default_reactions,
@@ -120,34 +122,29 @@ class Message(Base):
         nullable=False,
     )
 
-    # Закреплено ли сообщение в чате.
     pinned: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
     )
 
-    # Полное удаление/мягкое удаление.
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    # Удалено только у отправителя.
     deleted_for_sender: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
     )
 
-    # Удалено только у получателя.
     deleted_for_receiver: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,
     )
 
-    # Удалено у всех.
     deleted_for_everyone: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

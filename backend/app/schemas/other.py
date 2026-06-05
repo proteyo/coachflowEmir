@@ -27,14 +27,14 @@ class ProgressEntryOut(BaseModel):
 class MessageIn(BaseModel):
     receiver_id: str
 
-    # Для защиты от дублей:
-    # frontend создаёт temp id, backend сохраняет и возвращает его обратно.
+    # Frontend creates this temp id and backend returns it back.
+    # This protects chat from duplicate messages.
     client_temp_id: Optional[str] = None
 
     content: str = ""
     message_type: str = "text"
 
-    # Ответ на сообщение.
+    # Reply to another message.
     reply_to_id: Optional[str] = None
 
     # Voice
@@ -45,6 +45,19 @@ class MessageIn(BaseModel):
     media_url: Optional[str] = None
     media_type: Optional[str] = None
     media_thumbnail_url: Optional[str] = None
+
+    @field_validator("receiver_id")
+    @classmethod
+    def receiver_id_valid(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+
+        if not cleaned:
+            raise ValueError("receiver_id is required")
+
+        if len(cleaned) > 120:
+            raise ValueError("receiver_id is too long")
+
+        return cleaned
 
     @field_validator("client_temp_id")
     @classmethod
@@ -59,6 +72,22 @@ class MessageIn(BaseModel):
 
         if len(cleaned) > 120:
             raise ValueError("client_temp_id is too long")
+
+        return cleaned
+
+    @field_validator("reply_to_id")
+    @classmethod
+    def reply_to_id_valid(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        cleaned = value.strip()
+
+        if not cleaned:
+            return None
+
+        if len(cleaned) > 120:
+            raise ValueError("reply_to_id is too long")
 
         return cleaned
 
@@ -106,6 +135,9 @@ class MessageIn(BaseModel):
             return None
 
         cleaned = value.strip()
+
+        if len(cleaned) > 3000:
+            raise ValueError("url is too long")
 
         return cleaned or None
 
@@ -164,12 +196,25 @@ class MessagePinIn(BaseModel):
 class MessageForwardIn(BaseModel):
     receiver_id: str
 
+    @field_validator("receiver_id")
+    @classmethod
+    def receiver_id_valid(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+
+        if not cleaned:
+            raise ValueError("receiver_id is required")
+
+        if len(cleaned) > 120:
+            raise ValueError("receiver_id is too long")
+
+        return cleaned
+
 
 class MessageOut(BaseModel):
     id: str
 
-    # Возвращаем frontend temp id обратно, чтобы он мог заменить local-сообщение,
-    # а не добавить дубль.
+    # Returned so frontend can replace local optimistic message
+    # instead of adding duplicate backend message.
     clientTempId: Optional[str] = None
 
     senderId: str
@@ -191,7 +236,7 @@ class MessageOut(BaseModel):
     mediaType: Optional[str] = None
     mediaThumbnailUrl: Optional[str] = None
 
-    # Reactions:
+    # Example:
     # {
     #   "👍": ["u_1", "u_2"],
     #   "❤️": ["u_3"]

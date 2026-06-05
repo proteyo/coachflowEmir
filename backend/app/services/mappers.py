@@ -393,9 +393,19 @@ def build_message_reply_preview(message: Message) -> dict[str, Any] | None:
     return {
         "id": reply_to.id,
         "senderId": reply_to.sender_id,
+        "receiverId": getattr(reply_to, "receiver_id", None),
         "content": reply_to.content,
         "messageType": reply_to.message_type,
+        "voiceUrl": getattr(reply_to, "voice_url", None),
+        "voiceDurationMs": getattr(reply_to, "voice_duration_ms", None),
+        "mediaUrl": getattr(reply_to, "media_url", None),
         "mediaType": getattr(reply_to, "media_type", None),
+        "mediaThumbnailUrl": getattr(reply_to, "media_thumbnail_url", None),
+        "deletedAt": to_iso(getattr(reply_to, "deleted_at", None)),
+        "deletedForEveryone": bool(
+            getattr(reply_to, "deleted_for_everyone", False)
+        ),
+        "createdAt": to_iso_required(getattr(reply_to, "created_at", None)),
     }
 
 

@@ -20,21 +20,12 @@ export type DeleteMessageMode = "me" | "everyone";
 
 export type SendMessagePayload = {
   receiver_id: string;
-
-  // Защита от дублей.
   client_temp_id?: string | null;
-
   content: string;
   message_type?: MessageType;
-
-  // Ответ на сообщение.
   reply_to_id?: string | null;
-
-  // Voice
   voice_url?: string | null;
   voice_duration_ms?: number | null;
-
-  // Image / video
   media_url?: string | null;
   media_type?: MediaType | null;
   media_thumbnail_url?: string | null;
@@ -146,8 +137,8 @@ function getExtensionFromMimeType(mimeType: string) {
   if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
   if (normalized.includes("heic") || normalized.includes("heif")) return "jpg";
 
-  if (normalized.includes("mp4") && normalized.startsWith("video")) return "mp4";
   if (normalized.includes("quicktime")) return "mov";
+  if (normalized.includes("mp4") && normalized.startsWith("video")) return "mp4";
   if (normalized.includes("webm") && normalized.startsWith("video")) return "webm";
 
   if (normalized.includes("m4a")) return "m4a";
@@ -280,6 +271,7 @@ function normalizeUploadResponse(data: any) {
       data.mediaThumbnailUrl ?? data.media_thumbnail_url ?? thumbnailUrl,
     media_thumbnail_url:
       data.media_thumbnail_url ?? data.mediaThumbnailUrl ?? thumbnailUrl,
+
     thumbnailUrl: data.thumbnailUrl ?? data.thumbnail_url ?? thumbnailUrl,
     thumbnail_url: data.thumbnail_url ?? data.thumbnailUrl ?? thumbnailUrl,
   };
@@ -394,7 +386,7 @@ export async function apiUploadFile(
 }
 
 /**
- * Chat API helpers
+ * Messages
  */
 
 export async function apiGetMessages(
@@ -501,7 +493,7 @@ export async function apiGetUnreadCount(options?: ApiOptions) {
 }
 
 /**
- * Upload helpers
+ * Uploads
  */
 
 export async function apiUploadVoice(
@@ -547,6 +539,10 @@ export async function apiUploadVideoThumbnail(
     fileName: options?.fileName ?? `video_thumb_${Date.now()}.jpg`,
   });
 }
+
+/**
+ * Config helpers
+ */
 
 export function getConfiguredApiBaseUrl() {
   return API_BASE_URL;
