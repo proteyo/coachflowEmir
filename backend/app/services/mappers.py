@@ -200,6 +200,20 @@ def user_out(user: User) -> UserOut:
     )
 
 
+def coach_profile_out(profile: CoachProfile) -> CoachProfileOut:
+    return CoachProfileOut(
+        userId=profile.user_id,
+        specialty=profile.specialty,
+        bio=profile.bio,
+        experienceYears=profile.experience_years,
+        achievements=parse_list(profile.achievements),
+        certificates=parse_list(profile.certificates),
+        rating=profile.rating,
+        profileImageUrl=profile.profile_image_url,
+        coverImageUrl=profile.cover_image_url,
+    )
+
+
 def client_profile_out(profile: ClientProfile) -> ClientProfileOut:
     return ClientProfileOut(
         userId=profile.user_id,
@@ -215,23 +229,6 @@ def client_profile_out(profile: ClientProfile) -> ClientProfileOut:
         healthNotes=profile.health_notes,
         createdAt=to_iso_required(profile.created_at),
     )
-
-
-def client_profile_out(profile: ClientProfile) -> ClientProfileOut:
-    return ClientProfileOut(
-        userId=profile.user_id,
-        coachId=profile.coach_id or "",
-        goal=profile.goal,
-        goalType=profile.goal_type,
-        startWeight=profile.start_weight,
-        currentWeight=profile.current_weight,
-        height=profile.height,
-        age=profile.age,
-        fitnessLevel=profile.fitness_level,
-        healthNotes=profile.health_notes,
-        createdAt=to_iso_required(profile.created_at),
-    )
-
 
 def client_with_profile_out(user: User) -> ClientWithProfileOut:
     return ClientWithProfileOut(
