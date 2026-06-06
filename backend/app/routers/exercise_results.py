@@ -38,6 +38,42 @@ def result_out(result: ExerciseResult) -> ExerciseResultOut:
     )
 
 
+def build_latest_history_output(
+    rows: list[ExerciseResult],
+) -> list[ExerciseLatestResultOut]:
+    grouped: dict[str, list[ExerciseResult]] = defaultdict(list)
+
+    for result in rows:
+        grouped[result.exercise_name].append(result)
+
+    output: list[ExerciseLatestResultOut] = []
+
+    for exercise_name, items in grouped.items():
+        latest_workout_id = items[0].workout_id
+        latest_created_at = items[0].created_at
+
+        latest_sets = [
+            result
+            for result in items
+            if result.workout_id == latest_workout_id
+            and result.created_at.date() == latest_created_at.date()
+        ]
+
+        latest_sets.sort(key=lambda item: item.set_number)
+
+        output.append(
+            ExerciseLatestResultOut(
+                exerciseName=exercise_name,
+                muscleGroup=items[0].muscle_group,
+                workoutId=latest_workout_id,
+                createdAt=latest_created_at.isoformat(),
+                sets=[result_out(result) for result in latest_sets],
+            )
+        )
+
+    return output
+
+
 async def ensure_coach_subscription_if_needed(
     current_user: User,
     db: AsyncSession,
@@ -296,6 +332,35 @@ async def get_latest_result(
     )
 
 
+@router.get("/me/history", response_model=list[ExerciseLatestResultOut])
+async def get_my_exercise_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Client can get own latest exercise history.
+
+    This endpoint is needed for client-side progress and future 3D muscle analytics.
+    It does not require coach subscription because clients do not own subscriptions.
+    """
+    if current_user.role != "client":
+        raise HTTPException(status_code=403, detail="Client access required")
+
+    res = await db.execute(
+        select(ExerciseResult)
+        .where(ExerciseResult.client_id == current_user.id)
+        .order_by(
+            ExerciseResult.exercise_name.asc(),
+            ExerciseResult.created_at.desc(),
+            ExerciseResult.set_number.asc(),
+        )
+    )
+
+    rows = res.scalars().all()
+
+    return build_latest_history_output(rows)
+
+
 @router.get("/client/{client_id}/history", response_model=list[ExerciseLatestResultOut])
 async def get_client_exercise_history(
     client_id: str,
@@ -322,34 +387,4 @@ async def get_client_exercise_history(
 
     rows = res.scalars().all()
 
-    grouped: dict[str, list[ExerciseResult]] = defaultdict(list)
-
-    for result in rows:
-        grouped[result.exercise_name].append(result)
-
-    output: list[ExerciseLatestResultOut] = []
-
-    for exercise_name, items in grouped.items():
-        latest_workout_id = items[0].workout_id
-        latest_created_at = items[0].created_at
-
-        latest_sets = [
-            result
-            for result in items
-            if result.workout_id == latest_workout_id
-            and result.created_at.date() == latest_created_at.date()
-        ]
-
-        latest_sets.sort(key=lambda item: item.set_number)
-
-        output.append(
-            ExerciseLatestResultOut(
-                exerciseName=exercise_name,
-                muscleGroup=items[0].muscle_group,
-                workoutId=latest_workout_id,
-                createdAt=latest_created_at.isoformat(),
-                sets=[result_out(result) for result in latest_sets],
-            )
-        )
-
-    return output
+    return build_latest_history_output(rows)

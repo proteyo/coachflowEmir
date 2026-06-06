@@ -899,26 +899,26 @@ export default function ClientProgress() {
 
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
 
-  const loadExerciseHistory = useCallback(async () => {
-    if (!token || !user) return;
+ const loadExerciseHistory = useCallback(async () => {
+  if (!token || !user) return;
 
-    try {
-      setHistoryLoading(true);
+  try {
+    setHistoryLoading(true);
 
-      const res = await apiGet(`/exercise-results/client/${user.id}/history`, {
-        token,
-      });
+    const res = await apiGet("/exercise-results/me/history", {
+      token,
+    });
 
-      setExerciseHistory(
-        Array.isArray(res) ? res.map(normalizeBackendHistoryItem) : [],
-      );
-    } catch (e) {
-      console.log("[client-progress] load exercise history error", e);
-      setExerciseHistory([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [token, user]);
+    setExerciseHistory(
+      Array.isArray(res) ? res.map(normalizeBackendHistoryItem) : [],
+    );
+  } catch (e) {
+    console.log("[client-progress] load exercise history error", e);
+    setExerciseHistory([]);
+  } finally {
+    setHistoryLoading(false);
+  }
+}, [token, user]);
 
   useEffect(() => {
     loadExerciseHistory();
