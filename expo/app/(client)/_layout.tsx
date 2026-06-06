@@ -8,7 +8,6 @@ import {
   User as UserIcon,
 } from "lucide-react-native";
 import React from "react";
-import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/src/context/ThemeContext";
@@ -19,13 +18,8 @@ export default function ClientLayout() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
-  const bottomSafePadding =
-    Platform.OS === "android"
-      ? Math.max(insets.bottom, 20)
-      : Math.max(insets.bottom, 10);
-
-  const tabBarHeight =
-    Platform.OS === "android" ? 82 + bottomSafePadding : 62 + bottomSafePadding;
+  const bottomSafePadding = Math.max(insets.bottom, 16);
+  const tabBarHeight = 68 + bottomSafePadding;
 
   return (
     <Tabs
@@ -41,15 +35,12 @@ export default function ClientLayout() {
           borderTopWidth: 1,
 
           height: tabBarHeight,
-
           paddingTop: 8,
           paddingBottom: bottomSafePadding,
 
-          marginBottom: Platform.OS === "android" ? 10 : 0,
-
           elevation: 12,
           shadowColor: "#000",
-          shadowOpacity: 0.06,
+          shadowOpacity: 0.08,
           shadowRadius: 10,
           shadowOffset: {
             width: 0,
@@ -58,7 +49,8 @@ export default function ClientLayout() {
         },
 
         tabBarItemStyle: {
-          paddingVertical: 4,
+          paddingTop: 4,
+          paddingBottom: 4,
           justifyContent: "center",
           alignItems: "center",
         },

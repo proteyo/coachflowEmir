@@ -7,7 +7,6 @@ import {
   Users,
 } from "lucide-react-native";
 import React, { useEffect, useMemo } from "react";
-import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/context/AuthContext";
@@ -51,13 +50,8 @@ export default function CoachLayout() {
     href: isSubscriptionLocked ? null : undefined,
   };
 
-  const bottomSafePadding =
-    Platform.OS === "android"
-      ? Math.max(insets.bottom, 20)
-      : Math.max(insets.bottom, 10);
-
-  const tabBarHeight =
-    Platform.OS === "android" ? 82 + bottomSafePadding : 62 + bottomSafePadding;
+  const bottomSafePadding = Math.max(insets.bottom, 16);
+  const tabBarHeight = 68 + bottomSafePadding;
 
   return (
     <Tabs
@@ -65,21 +59,20 @@ export default function CoachLayout() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textMuted,
 
+        tabBarHideOnKeyboard: true,
+
         tabBarStyle: {
           backgroundColor: theme.colors.tabBar,
           borderTopColor: theme.colors.borderSoft,
           borderTopWidth: 1,
 
           height: tabBarHeight,
-
           paddingTop: 8,
           paddingBottom: bottomSafePadding,
 
-          marginBottom: Platform.OS === "android" ? 10 : 0,
-
           elevation: 12,
           shadowColor: "#000",
-          shadowOpacity: 0.06,
+          shadowOpacity: 0.08,
           shadowRadius: 10,
           shadowOffset: {
             width: 0,
@@ -88,17 +81,23 @@ export default function CoachLayout() {
         },
 
         tabBarItemStyle: {
-          paddingVertical: 4,
+          paddingTop: 4,
+          paddingBottom: 4,
+          justifyContent: "center",
+          alignItems: "center",
         },
 
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "700",
           marginTop: 2,
+          marginBottom: 0,
+          includeFontPadding: false,
         },
 
         tabBarIconStyle: {
           marginTop: 2,
+          marginBottom: 0,
         },
 
         headerStyle: {
