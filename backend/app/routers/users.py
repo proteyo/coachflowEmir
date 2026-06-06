@@ -39,6 +39,9 @@ from app.services.mappers import (
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+ALLOWED_CLIENT_GENDERS = {"male", "female"}
+
+
 def require_coach(current_user: User) -> None:
     if current_user.role != "coach":
         raise HTTPException(
@@ -62,6 +65,21 @@ def clean_optional_string(value: str | None) -> str | None:
     cleaned = value.strip()
 
     return cleaned or None
+
+
+def normalize_client_gender(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned = value.strip().lower()
+
+    if cleaned not in ALLOWED_CLIENT_GENDERS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Gender must be either 'male' or 'female'",
+        )
+
+    return cleaned
 
 
 async def get_or_create_notification_settings(
@@ -252,6 +270,9 @@ async def patch_client_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Client profile not found",
         )
+
+    if data.gender is not None:
+        profile.gender = normalize_client_gender(data.gender)
 
     string_fields = (
         "goal",

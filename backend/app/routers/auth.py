@@ -432,18 +432,19 @@ async def register(
 
     if role == "client":
         db.add(
-            ClientProfile(
-                user_id=user_id,
-                coach_id=None,
-                goal=data.goal or "",
-                goal_type=data.goal_type,
-                age=data.age,
-                start_weight=0,
-                current_weight=0,
-                height=0,
-                fitness_level="beginner",
-                created_at=current_time,
-            )
+        ClientProfile(
+            user_id=user_id,
+            coach_id=None,
+            gender=data.gender or "male",
+            goal=data.goal or "",
+            goal_type=data.goal_type,
+            age=data.age,
+            start_weight=0,
+            current_weight=0,
+            height=0,
+            fitness_level="beginner",
+            created_at=current_time,
+        )
         )
 
         db.add(

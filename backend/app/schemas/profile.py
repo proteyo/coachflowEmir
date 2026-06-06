@@ -28,7 +28,8 @@ class UpdateCoachProfileRequest(BaseModel):
 
 class ClientProfileOut(BaseModel):
     userId: str
-    coachId: str
+    coachId: Optional[str] = None
+    gender: str = "male"
     goal: str
     goalType: Optional[str] = None
     startWeight: float
@@ -43,6 +44,7 @@ class ClientProfileOut(BaseModel):
 
 
 class UpdateClientProfileRequest(BaseModel):
+    gender: Optional[str] = None
     goal: Optional[str] = None
     goal_type: Optional[str] = None
     start_weight: Optional[float] = None

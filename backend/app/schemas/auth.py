@@ -9,6 +9,7 @@ class RegisterRequest(BaseModel):
     password: str
     role: str
     age: Optional[int] = None
+    gender: Optional[str] = "male"
     goal: Optional[str] = None
     goal_type: Optional[str] = None
 
@@ -21,6 +22,30 @@ class RegisterRequest(BaseModel):
             raise ValueError("role must be 'coach' or 'client'")
 
         return cleaned
+
+    @field_validator("gender")
+    @classmethod
+    def gender_valid(cls, v: Optional[str]) -> str:
+        if v is None:
+            return "male"
+
+        cleaned = v.strip().lower()
+
+        if cleaned not in ("male", "female"):
+            raise ValueError("gender must be 'male' or 'female'")
+
+        return cleaned
+
+    @field_validator("age")
+    @classmethod
+    def age_valid(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return None
+
+        if v < 0:
+            raise ValueError("Age cannot be negative")
+
+        return v
 
     @field_validator("password")
     @classmethod
