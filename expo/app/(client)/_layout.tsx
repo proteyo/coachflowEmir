@@ -19,8 +19,13 @@ export default function ClientLayout() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
-  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 10 : 8);
-  const tabBarHeight = Platform.OS === "android" ? 86 : 74 + bottomInset;
+  const bottomSafePadding =
+    Platform.OS === "android"
+      ? Math.max(insets.bottom, 20)
+      : Math.max(insets.bottom, 10);
+
+  const tabBarHeight =
+    Platform.OS === "android" ? 82 + bottomSafePadding : 62 + bottomSafePadding;
 
   return (
     <Tabs
@@ -36,22 +41,24 @@ export default function ClientLayout() {
           borderTopWidth: 1,
 
           height: tabBarHeight,
+
           paddingTop: 8,
-          paddingBottom: bottomInset,
+          paddingBottom: bottomSafePadding,
 
-          marginBottom: 0,
+          marginBottom: Platform.OS === "android" ? 10 : 0,
 
-          elevation: 16,
+          elevation: 12,
           shadowColor: "#000",
-          shadowOpacity: 0.14,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.06,
+          shadowRadius: 10,
+          shadowOffset: {
+            width: 0,
+            height: -2,
+          },
         },
 
         tabBarItemStyle: {
-          minHeight: 64,
-          paddingTop: 6,
-          paddingBottom: 6,
+          paddingVertical: 4,
           justifyContent: "center",
           alignItems: "center",
         },
@@ -65,7 +72,7 @@ export default function ClientLayout() {
         },
 
         tabBarIconStyle: {
-          marginTop: 0,
+          marginTop: 2,
           marginBottom: 0,
         },
 

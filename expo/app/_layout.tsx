@@ -5,7 +5,10 @@ import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 
 import { AuthProvider } from "@/src/context/AuthContext";
 import { DataProvider } from "@/src/context/DataContext";
@@ -59,6 +62,7 @@ function Nav() {
             fontWeight: "700",
           },
           headerTintColor: theme.colors.text,
+          headerShadowVisible: false,
           contentStyle: {
             backgroundColor: theme.colors.bg,
           },
@@ -176,8 +180,8 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <KeyboardProvider>
             <ThemeProvider>
               <I18nProvider>
@@ -191,8 +195,8 @@ export default function RootLayout() {
               </I18nProvider>
             </ThemeProvider>
           </KeyboardProvider>
-        </GestureHandlerRootView>
-      </SafeAreaProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
     </QueryClientProvider>
   );
 }

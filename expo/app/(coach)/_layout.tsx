@@ -34,7 +34,6 @@ export default function CoachLayout() {
 
   const currentTab = useMemo(() => {
     const lastSegment = segments[segments.length - 1];
-
     return typeof lastSegment === "string" ? lastSegment : "";
   }, [segments]);
 
@@ -42,15 +41,23 @@ export default function CoachLayout() {
   const isSubscriptionLocked = isCoach && !isActive;
   const isProtectedTab = PROTECTED_COACH_TABS.has(currentTab);
 
- useEffect(() => {
-  if (isSubscriptionLocked && isProtectedTab) {
-    router.replace("/(coach)/profile");
-  }
-}, [isSubscriptionLocked, isProtectedTab, router]);
+  useEffect(() => {
+    if (isSubscriptionLocked && isProtectedTab) {
+      router.replace("/(coach)/profile");
+    }
+  }, [isSubscriptionLocked, isProtectedTab, router]);
 
   const protectedTabOptions = {
     href: isSubscriptionLocked ? null : undefined,
   };
+
+  const bottomSafePadding =
+    Platform.OS === "android"
+      ? Math.max(insets.bottom, 20)
+      : Math.max(insets.bottom, 10);
+
+  const tabBarHeight =
+    Platform.OS === "android" ? 82 + bottomSafePadding : 62 + bottomSafePadding;
 
   return (
     <Tabs
@@ -63,21 +70,31 @@ export default function CoachLayout() {
           borderTopColor: theme.colors.borderSoft,
           borderTopWidth: 1,
 
-          height: Platform.OS === "android" ? 78 : 64 + insets.bottom,
+          height: tabBarHeight,
 
-          paddingTop: 6,
+          paddingTop: 8,
+          paddingBottom: bottomSafePadding,
 
-          paddingBottom:
-            Platform.OS === "android"
-              ? Math.max(insets.bottom, 12)
-              : Math.max(insets.bottom, 8),
+          marginBottom: Platform.OS === "android" ? 10 : 0,
 
-          marginBottom: Platform.OS === "android" ? 14 : 0,
+          elevation: 12,
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowRadius: 10,
+          shadowOffset: {
+            width: 0,
+            height: -2,
+          },
+        },
+
+        tabBarItemStyle: {
+          paddingVertical: 4,
         },
 
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "700",
+          marginTop: 2,
         },
 
         tabBarIconStyle: {
@@ -114,9 +131,7 @@ export default function CoachLayout() {
         options={{
           ...protectedTabOptions,
           title: t("tabs.clients"),
-          tabBarIcon: ({ color, size }) => (
-            <Users color={color} size={size} />
-          ),
+          tabBarIcon: ({ color, size }) => <Users color={color} size={size} />,
         }}
       />
 

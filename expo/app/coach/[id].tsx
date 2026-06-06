@@ -52,18 +52,119 @@ type CoachReviewsSummary = {
   reviews: CoachReview[];
 };
 
-function formatReviewDate(value?: string) {
+type AppLanguage = "ru" | "kk" | "en" | string;
+
+const SPECIALTY_LABELS: Record<
+  string,
+  {
+    ru: string;
+    kk: string;
+    en: string;
+  }
+> = {
+  personal_trainer: {
+    ru: "Персональный тренер",
+    kk: "Жеке жаттықтырушы",
+    en: "Personal trainer",
+  },
+  fitness_coach: {
+    ru: "Фитнес-тренер",
+    kk: "Фитнес жаттықтырушысы",
+    en: "Fitness coach",
+  },
+  strength_coach: {
+    ru: "Тренер по силовой подготовке",
+    kk: "Күш дайындығы жаттықтырушысы",
+    en: "Strength coach",
+  },
+  bodybuilding_coach: {
+    ru: "Тренер по бодибилдингу",
+    kk: "Бодибилдинг жаттықтырушысы",
+    en: "Bodybuilding coach",
+  },
+  nutritionist: {
+    ru: "Нутрициолог",
+    kk: "Нутрициолог",
+    en: "Nutritionist",
+  },
+  rehab_trainer: {
+    ru: "Тренер по восстановлению",
+    kk: "Қалпына келтіру жаттықтырушысы",
+    en: "Rehabilitation trainer",
+  },
+  yoga_trainer: {
+    ru: "Тренер по йоге",
+    kk: "Йога жаттықтырушысы",
+    en: "Yoga trainer",
+  },
+  boxing_coach: {
+    ru: "Тренер по боксу",
+    kk: "Бокс жаттықтырушысы",
+    en: "Boxing coach",
+  },
+  running_coach: {
+    ru: "Тренер по бегу",
+    kk: "Жүгіру жаттықтырушысы",
+    en: "Running coach",
+  },
+};
+
+function getLocale(lang?: AppLanguage) {
+  if (lang === "ru") return "ru-RU";
+  if (lang === "kk") return "kk-KZ";
+
+  return "en-US";
+}
+
+function formatReviewDate(value?: string, lang?: AppLanguage) {
   if (!value) return "";
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return value.slice(0, 10);
 
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(getLocale(lang), {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
+}
+
+function prettifySnakeCase(value: string) {
+  const cleaned = value
+    .replace(/_/g, " ")
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function getCoachSpecialtyLabel(
+  value: string | null | undefined,
+  lang: AppLanguage,
+  fallback: string,
+) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  const translated = SPECIALTY_LABELS[normalized];
+
+  if (translated) {
+    if (lang === "ru") return translated.ru;
+    if (lang === "kk") return translated.kk;
+
+    return translated.en;
+  }
+
+  return prettifySnakeCase(normalized);
 }
 
 export default function CoachPublicProfile() {
@@ -71,7 +172,7 @@ export default function CoachPublicProfile() {
   const coachId = String(id ?? "");
 
   const { theme } = useTheme();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user, token } = useAuth();
   const { db, refreshFromBackend } = useData();
 
@@ -95,12 +196,19 @@ export default function CoachPublicProfile() {
     return summary.reviews.find((r) => r.clientId === user.id) ?? null;
   }, [summary, user]);
 
+  const specialtyLabel = useMemo(() => {
+    return getCoachSpecialtyLabel(
+      coachProfile?.specialty,
+      lang,
+      t("coachPublic.defaultSpecialty"),
+    );
+  }, [coachProfile?.specialty, lang, t]);
+
   const loadReviews = useCallback(async () => {
     if (!coachId) return;
 
     try {
       const res = await apiGet(`/reviews/coaches/${coachId}`);
-
       setSummary(res);
     } catch (e) {
       console.log("[coach-profile] load reviews error", e);
@@ -204,8 +312,9 @@ export default function CoachPublicProfile() {
             variant="small"
             color="rgba(255,255,255,0.82)"
             numberOfLines={1}
+            style={{ textAlign: "center" }}
           >
-            {coachProfile?.specialty ?? t("coachPublic.defaultSpecialty")}
+            {specialtyLabel}
           </AppText>
 
           <View
@@ -379,7 +488,7 @@ export default function CoachPublicProfile() {
                     </AppText>
 
                     <AppText variant="small" color={theme.colors.textMuted}>
-                      {formatReviewDate(review.updatedAt)}
+                      {formatReviewDate(review.updatedAt, lang)}
                     </AppText>
                   </View>
 
@@ -520,7 +629,7 @@ function ReviewModal({
                   <Pressable key={value} onPress={() => setRating(value)}>
                     <Star
                       size={34}
-                      color="#FFB020"
+                      color={active ? "#FFB020" : theme.colors.border}
                       fill={active ? "#FFB020" : "transparent"}
                     />
                   </Pressable>
@@ -534,31 +643,23 @@ function ReviewModal({
               onChangeText={setComment}
               placeholder={t("coachPublic.commentPlaceholder")}
               multiline
-              autoCapitalize="sentences"
-              autoCorrect
-              returnKeyType="done"
-              submitBehavior="blurAndSubmit"
-              onSubmitEditing={onSubmit}
+              numberOfLines={5}
+              textAlignVertical="top"
               style={{
-                minHeight: 110,
-                textAlignVertical: "top",
-                paddingTop: 10,
+                minHeight: 120,
               }}
             />
 
             <AppButton
               title={
                 saving
-                  ? t("coachPublic.saving")
+                  ? t("common.saving")
                   : t("coachPublic.saveReview")
               }
-              loading={saving}
-              disabled={saving}
               onPress={onSubmit}
+              disabled={saving}
               fullWidth
             />
-
-            <View style={{ height: 24 }} />
           </ScrollView>
         </View>
       </KeyboardAvoidingView>

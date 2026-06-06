@@ -958,7 +958,8 @@ const recordStartLockRef = useRef<boolean>(false);
 const pendingStopAfterStartRef = useRef<boolean>(false);
 const pendingCancelAfterStartRef = useRef<boolean>(false);
 const voiceHardLockRef = useRef<boolean>(false);
-
+const micPressActiveRef = useRef<boolean>(false);
+const micPressStartedAtRef = useRef<number>(0);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder);
 
@@ -971,13 +972,33 @@ const voiceHardLockRef = useRef<boolean>(false);
   const screenOptions = useMemo(() => ({ headerShown: false }), []);
   const partner = db?.users.find((u) => u.id === id);
 
-  const possibleForwardReceivers = useMemo(() => {
-    if (!db?.users || !userId) return [];
+const possibleForwardReceivers = useMemo(() => {
+  if (!db?.users || !db?.messages || !userId) return [];
 
-    return db.users.filter(
-      (item) => item.id !== userId && item.id !== forwardTarget?.senderId,
-    );
-  }, [db?.users, userId, forwardTarget?.senderId]);
+  const chatPartnerIds = new Set<string>();
+
+  db.messages.forEach((message: Message) => {
+    if (message.senderId === userId && message.receiverId) {
+      chatPartnerIds.add(String(message.receiverId));
+    }
+
+    if (message.receiverId === userId && message.senderId) {
+      chatPartnerIds.add(String(message.senderId));
+    }
+  });
+
+  if (id && String(id) !== userId) {
+    chatPartnerIds.add(String(id));
+  }
+
+  return db.users.filter((item) => {
+    if (!item?.id) return false;
+    if (item.id === userId) return false;
+    if (!chatPartnerIds.has(item.id)) return false;
+
+    return true;
+  });
+}, [db?.users, db?.messages, userId, id]);
 
   useEffect(() => {
     AsyncStorage.getItem(CHAT_THEME_STORAGE_KEY)
@@ -2266,13 +2287,12 @@ const stopAndSend = async () => {
 const micPanResponder = useMemo(
   () =>
     PanResponder.create({
-      onStartShouldSetPanResponder: () =>
-        !voiceSendingRef.current &&
-        !voiceHardLockRef.current &&
-        !text.trim() &&
-        !mediaDraft &&
-        !editTarget,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+onStartShouldSetPanResponderCapture: () => false,
+onMoveShouldSetPanResponder: (_, gestureState) =>
+  Math.abs(gestureState.dy) > 8 || Math.abs(gestureState.dx) > 8,
+onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+  Math.abs(gestureState.dy) > 8 || Math.abs(gestureState.dx) > 8,
       onPanResponderGrant: () => {
         recordingTouchActiveRef.current = true;
         startRecord();
@@ -2322,6 +2342,47 @@ const micPanResponder = useMemo(
     }),
   [startRecord, stopAndSend, cancelRecord, text, mediaDraft, editTarget, recState.isRecording],
 );
+const handleMicPressIn = () => {
+  if (
+    voiceSendingRef.current ||
+    voiceHardLockRef.current ||
+    recordingRef.current ||
+    recordStartLockRef.current ||
+    text.trim() ||
+    mediaDraft ||
+    editTarget
+  ) {
+    return;
+  }
+
+  micPressActiveRef.current = true;
+  micPressStartedAtRef.current = Date.now();
+
+  startRecord();
+};
+
+const handleMicPressOut = () => {
+  if (!micPressActiveRef.current) {
+    return;
+  }
+
+  micPressActiveRef.current = false;
+
+  if (recordingLockedRef.current) {
+    return;
+  }
+
+  if (recordStartLockRef.current) {
+    pendingStopAfterStartRef.current = true;
+    return;
+  }
+
+  if (!recordingRef.current && !recState.isRecording) {
+    return;
+  }
+
+  stopAndSend();
+};
 
   const forwardToUser = async (receiverId: string) => {
     if (!token || !forwardTarget) return;
@@ -2791,27 +2852,33 @@ windowSize={5}
                 </Pressable>
               ) : (
                 <Pressable
-                  {...micPanResponder.panHandlers}
-                  disabled={voiceSending}
-                  style={{
-                    width: 46,
-                    height: 46,
-                    borderRadius: 23,
-                    backgroundColor: voiceSending
-                      ? chatTheme.surfaceSoft
-                      : chatTheme.accent,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: voiceSending ? 0.65 : 1,
-                    shadowColor: chatTheme.accent,
-                    shadowOpacity: 0.35,
-                    shadowRadius: 12,
-                    shadowOffset: { width: 0, height: 6 },
-                    elevation: 6,
-                  }}
-                >
-                  <Mic color={chatTheme.accentText} size={18} />
-                </Pressable>
+  {...micPanResponder.panHandlers}
+  onPressIn={handleMicPressIn}
+  onPressOut={handleMicPressOut}
+  disabled={voiceSending}
+  hitSlop={10}
+  style={({ pressed }) => ({
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: voiceSending
+      ? chatTheme.surfaceSoft
+      : pressed || isRecording
+        ? chatTheme.mine
+        : chatTheme.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: voiceSending ? 0.65 : 1,
+    transform: [{ scale: pressed || isRecording ? 1.06 : 1 }],
+    shadowColor: chatTheme.accent,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  })}
+>
+  <Mic color={chatTheme.accentText} size={18} />
+</Pressable>
               )}
             </View>
           )}
