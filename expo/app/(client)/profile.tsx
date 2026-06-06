@@ -49,6 +49,7 @@ import { LANGUAGES } from "@/src/i18n/translations";
 import { apiPatch, apiUploadFile, toAbsoluteUrl } from "@/src/services/api";
 
 type FitnessLevel = "beginner" | "intermediate" | "advanced";
+type Gender = "male" | "female";
 
 type NotificationKey =
   | "workoutReminders"
@@ -64,8 +65,18 @@ const FITNESS_LEVEL_KEYS: { key: FitnessLevel; tKey: string }[] = [
   { key: "advanced", tKey: "auth.fitnessAdvanced" },
 ];
 
+const GENDER_KEYS: { key: Gender; icon: string; ru: string; en: string; kk: string }[] = [
+  { key: "male", icon: "♂", ru: "Мужской", en: "Male", kk: "Ер" },
+  { key: "female", icon: "♀", ru: "Женский", en: "Female", kk: "Әйел" },
+];
+
 const CLIENT_PROFILE_TEXT = {
   en: {
+    gender: "Gender",
+    male: "Male",
+    female: "Female",
+    genderSubtitle:
+      "Used for the future 3D muscle model and personalized analytics.",
     goalLose: "Lose weight",
     goalGain: "Gain muscle",
     goalMobility: "Improve mobility",
@@ -86,6 +97,11 @@ const CLIENT_PROFILE_TEXT = {
     supportErrorText: "Please email us directly: klaevers001@gmail.com",
   },
   ru: {
+    gender: "Пол",
+    male: "Мужской",
+    female: "Женский",
+    genderSubtitle:
+      "Используется для будущей 3D-модели мышц и персональной аналитики.",
     goalLose: "Снижение веса",
     goalGain: "Набор мышц",
     goalMobility: "Улучшение мобильности",
@@ -106,6 +122,11 @@ const CLIENT_PROFILE_TEXT = {
     supportErrorText: "Напишите нам напрямую: klaevers001@gmail.com",
   },
   kk: {
+    gender: "Жынысы",
+    male: "Ер",
+    female: "Әйел",
+    genderSubtitle:
+      "Болашақ 3D бұлшықет моделі және жеке аналитика үшін қолданылады.",
     goalLose: "Салмақ тастау",
     goalGain: "Бұлшықет жинау",
     goalMobility: "Қозғалысты жақсарту",
@@ -131,6 +152,17 @@ function getLangSafe(lang: string): AppLangCode {
   if (lang === "ru" || lang === "kk" || lang === "en") return lang;
 
   return "en";
+}
+
+function getGenderSafe(value?: string | null): Gender {
+  return value === "female" ? "female" : "male";
+}
+
+function getGenderLabel(value: string | undefined | null, lang: AppLangCode) {
+  const L = CLIENT_PROFILE_TEXT[lang];
+  const gender = getGenderSafe(value);
+
+  return gender === "female" ? L.female : L.male;
 }
 
 function getFitnessLevelLabel(
@@ -355,6 +387,7 @@ export default function ClientProfile() {
 
   const [editName, setEditName] = React.useState<string>("");
   const [editPhone, setEditPhone] = React.useState<string>("");
+  const [editGender, setEditGender] = React.useState<Gender>("male");
   const [editGoal, setEditGoal] = React.useState<string>("");
   const [editAge, setEditAge] = React.useState<string>("");
   const [editStartWeight, setEditStartWeight] = React.useState<string>("");
@@ -369,6 +402,8 @@ export default function ClientProfile() {
   const profile = db.clientProfiles.find((client) => client.userId === user.id);
   const streak = db.streaks.find((item) => item.clientId === user.id);
 
+  const profileGender = getGenderSafe((profile as any)?.gender);
+
   const notif =
     db.notifications.find((item) => item.userId === user.id) ??
     getDefaultNotifications(user.id);
@@ -376,6 +411,7 @@ export default function ClientProfile() {
   const openEdit = () => {
     setEditName(user.name ?? "");
     setEditPhone(user.phone ? formatKazakhstanPhone(user.phone) : "");
+    setEditGender(profileGender);
     setEditGoal(getGoalValueForEdit(profile?.goal, (profile as any)?.goalType));
     setEditAge(profile?.age ? String(profile.age) : "");
     setEditStartWeight(profile?.startWeight ? String(profile.startWeight) : "");
@@ -490,6 +526,7 @@ export default function ClientProfile() {
       await apiPatch(
         "/users/me/client-profile",
         {
+          gender: editGender,
           goal: nextGoal,
           goal_type: nextGoalType,
           age: ageValue,
@@ -522,6 +559,7 @@ export default function ClientProfile() {
                 item.userId === user.id
                   ? {
                       ...item,
+                      gender: editGender,
                       goal: nextGoal,
                       goalType: nextGoalType as any,
                       age: ageValue,
@@ -536,7 +574,8 @@ export default function ClientProfile() {
                 ...data.clientProfiles,
                 {
                   userId: user.id,
-                  coachId: "",
+                  coachId: null,
+                  gender: editGender,
                   goal: nextGoal,
                   goalType: nextGoalType as any,
                   age: ageValue,
@@ -544,6 +583,7 @@ export default function ClientProfile() {
                   currentWeight: currentWeightValue,
                   height: heightValue,
                   fitnessLevel: editFitnessLevel,
+                  healthNotes: null,
                   createdAt: new Date().toISOString(),
                 } as any,
               ],
@@ -797,6 +837,11 @@ export default function ClientProfile() {
           />
 
           <Row
+            label={L.gender}
+            value={getGenderLabel((profile as any)?.gender, currentLang)}
+          />
+
+          <Row
             label={t("clients.age")}
             value={profile?.age ? String(profile.age) : "—"}
           />
@@ -812,9 +857,9 @@ export default function ClientProfile() {
           />
 
           <Row
-  label={t("clients.height")}
-  value={`${profile?.height ?? 0} ${t("common.cm")}`}
-/>
+            label={t("clients.height")}
+            value={`${profile?.height ?? 0} ${t("common.cm")}`}
+          />
 
           <Row
             label={t("clients.fitnessLevel")}
@@ -1023,6 +1068,8 @@ export default function ClientProfile() {
         setEditName={setEditName}
         editPhone={editPhone}
         setEditPhone={setEditPhone}
+        editGender={editGender}
+        setEditGender={setEditGender}
         editGoal={editGoal}
         setEditGoal={setEditGoal}
         editAge={editAge}
@@ -1060,6 +1107,8 @@ function EditProfileModal({
   setEditName,
   editPhone,
   setEditPhone,
+  editGender,
+  setEditGender,
   editGoal,
   setEditGoal,
   editAge,
@@ -1082,6 +1131,8 @@ function EditProfileModal({
   setEditName: (value: string) => void;
   editPhone: string;
   setEditPhone: (value: string) => void;
+  editGender: Gender;
+  setEditGender: (value: Gender) => void;
   editGoal: string;
   setEditGoal: (value: string) => void;
   editAge: string;
@@ -1097,7 +1148,10 @@ function EditProfileModal({
   goalPlaceholder: string;
 }) {
   const { theme } = useTheme();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+
+  const currentLang = getLangSafe(lang);
+  const L = CLIENT_PROFILE_TEXT[currentLang];
 
   const handleClose = () => {
     if (saving) return;
@@ -1179,6 +1233,92 @@ function EditProfileModal({
               returnKeyType="next"
               submitBehavior="submit"
             />
+
+            <View
+              style={{
+                padding: 14,
+                borderRadius: theme.radius.lg,
+                backgroundColor: theme.colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: theme.colors.borderSoft,
+                gap: 10,
+              }}
+            >
+              <View style={{ gap: 3 }}>
+                <AppText
+                  variant="caption"
+                  color={theme.colors.textMuted}
+                  style={{ textTransform: "uppercase" }}
+                >
+                  {L.gender}
+                </AppText>
+
+                <AppText variant="small" color={theme.colors.textMuted}>
+                  {L.genderSubtitle}
+                </AppText>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {GENDER_KEYS.map((item) => {
+                  const active = editGender === item.key;
+
+                  return (
+                    <Pressable
+                      key={item.key}
+                      onPress={() => setEditGender(item.key)}
+                      disabled={saving}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        minHeight: 54,
+                        borderRadius: theme.radius.lg,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor: active
+                          ? theme.colors.primary
+                          : theme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: active
+                          ? theme.colors.primary
+                          : theme.colors.borderSoft,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <AppText
+                        variant="bodyStrong"
+                        color={
+                          active
+                            ? theme.colors.primaryContrast
+                            : theme.colors.text
+                        }
+                      >
+                        {item.icon}
+                      </AppText>
+
+                      <AppText
+                        variant="small"
+                        color={
+                          active
+                            ? theme.colors.primaryContrast
+                            : theme.colors.text
+                        }
+                        style={{ fontWeight: "800" }}
+                        numberOfLines={1}
+                      >
+                        {currentLang === "ru"
+                          ? item.ru
+                          : currentLang === "kk"
+                            ? item.kk
+                            : item.en}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
             <AppInput
               label={t("profile.goal")}
@@ -1262,41 +1402,62 @@ function EditProfileModal({
               </View>
             </View>
 
-            <AppText variant="small" color={theme.colors.textMuted}>
-              {t("clients.fitnessLevel")}
-            </AppText>
+            <View
+              style={{
+                padding: 14,
+                borderRadius: theme.radius.lg,
+                backgroundColor: theme.colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: theme.colors.borderSoft,
+                gap: 10,
+              }}
+            >
+              <AppText
+                variant="caption"
+                color={theme.colors.textMuted}
+                style={{ textTransform: "uppercase" }}
+              >
+                {t("clients.fitnessLevel")}
+              </AppText>
 
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {FITNESS_LEVEL_KEYS.map((level) => {
-                const active = editFitnessLevel === level.key;
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {FITNESS_LEVEL_KEYS.map((level) => {
+                  const active = editFitnessLevel === level.key;
 
-                return (
-                  <Pressable
-                    key={level.key}
-                    onPress={() => setEditFitnessLevel(level.key)}
-                    style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 999,
-                      backgroundColor: active
-                        ? theme.colors.primary
-                        : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <AppText
-                      variant="small"
-                      color={
-                        active
-                          ? theme.colors.primaryContrast
-                          : theme.colors.text
-                      }
-                      style={{ fontWeight: "700" }}
+                  return (
+                    <Pressable
+                      key={level.key}
+                      onPress={() => setEditFitnessLevel(level.key)}
+                      disabled={saving}
+                      style={({ pressed }) => ({
+                        paddingVertical: 9,
+                        paddingHorizontal: 13,
+                        borderRadius: 999,
+                        backgroundColor: active
+                          ? theme.colors.primary
+                          : theme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: active
+                          ? theme.colors.primary
+                          : theme.colors.borderSoft,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
                     >
-                      {t(level.tKey as never)}
-                    </AppText>
-                  </Pressable>
-                );
-              })}
+                      <AppText
+                        variant="small"
+                        color={
+                          active
+                            ? theme.colors.primaryContrast
+                            : theme.colors.text
+                        }
+                        style={{ fontWeight: "800" }}
+                      >
+                        {t(level.tKey as never)}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             <View style={{ marginTop: 12 }}>

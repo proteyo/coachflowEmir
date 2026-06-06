@@ -26,7 +26,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useI18n } from "@/src/i18n/I18nContext";
 import { LANGUAGES } from "@/src/i18n/translations";
-import { FitnessLevel, GoalType, Role } from "@/src/types/models";
+import { FitnessLevel, Gender, GoalType, Role } from "@/src/types/models";
 
 const GOAL_KEYS: { key: GoalType; tKey: string }[] = [
   { key: "lose_weight", tKey: "auth.goalLose" },
@@ -40,6 +40,11 @@ const FITNESS_LEVEL_KEYS: { key: FitnessLevel; tKey: string }[] = [
   { key: "beginner", tKey: "auth.fitnessBeginner" },
   { key: "intermediate", tKey: "auth.fitnessIntermediate" },
   { key: "advanced", tKey: "auth.fitnessAdvanced" },
+];
+
+const GENDER_KEYS: { key: Gender; ru: string; en: string; kk: string }[] = [
+  { key: "male", ru: "Мужской", en: "Male", kk: "Ер" },
+  { key: "female", ru: "Женский", en: "Female", kk: "Әйел" },
 ];
 
 function getPasswordRules(password: string) {
@@ -80,6 +85,7 @@ export default function Register() {
   const [languageVisible, setLanguageVisible] = useState<boolean>(false);
   const [role, setRole] = useState<Role>("client");
 
+  const [gender, setGender] = useState<Gender>("male");
   const [age, setAge] = useState<string>("");
   const [height, setHeight] = useState<string>("");
   const [startWeight, setStartWeight] = useState<string>("");
@@ -207,6 +213,7 @@ export default function Register() {
         email: normalizedEmail,
         password,
         role,
+        gender: role === "client" ? gender : undefined,
         age: parsedAge,
         goalType: role === "client" ? (goalType ?? undefined) : undefined,
         goal: goalLabel || undefined,
@@ -755,6 +762,28 @@ export default function Register() {
 
         {role === "client" ? (
           <>
+            <AppText
+              variant="caption"
+              color={theme.colors.textMuted}
+              style={{ textTransform: "uppercase" }}
+            >
+              {getText("Пол", "Gender", "Жынысы")}
+            </AppText>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {GENDER_KEYS.map((item) => (
+                <AppChip
+                  key={item.key}
+                  label={getText(item.ru, item.en, item.kk)}
+                  active={gender === item.key}
+                  onPress={() => {
+                    clearError();
+                    setGender(item.key);
+                  }}
+                />
+              ))}
+            </View>
+
             <View style={{ flexDirection: "row", gap: 12 }}>
               <View style={{ flex: 1 }}>
                 <AppInput

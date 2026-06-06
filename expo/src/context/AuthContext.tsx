@@ -3,7 +3,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/src/services/api";
-import { FitnessLevel, GoalType, Role, User } from "@/src/types/models";
+import {
+  FitnessLevel,
+  Gender,
+  GoalType,
+  Role,
+  User,
+} from "@/src/types/models";
 
 const TOKEN_KEY = "coachflow:token";
 const REFRESH_TOKEN_KEY = "coachflow:refresh_token";
@@ -16,6 +22,7 @@ type RegisterInput = {
   password: string;
   role: Role;
 
+  gender?: Gender;
   age?: number;
   goalType?: GoalType;
   goal?: string;
@@ -28,6 +35,7 @@ type RegisterInput = {
 
 type PendingClientProfilePatch = {
   role: Role;
+  gender?: Gender;
   goal?: string;
   goalType?: GoalType;
   age?: number;
@@ -56,6 +64,8 @@ function normalizeUser(apiUser: any): User {
     clientCode: apiUser.clientCode ?? apiUser.client_code ?? undefined,
     createdAt:
       apiUser.createdAt ?? apiUser.created_at ?? new Date().toISOString(),
+    lastSeenAt: apiUser.lastSeenAt ?? apiUser.last_seen_at ?? undefined,
+    isOnline: Boolean(apiUser.isOnline ?? apiUser.is_online ?? false),
   };
 }
 
@@ -103,6 +113,10 @@ function cleanEmail(email: string): string {
 
 function cleanVerificationCode(code: string): string {
   return code.replace(/\D/g, "").slice(0, 6);
+}
+
+function normalizeGender(value?: Gender): Gender {
+  return value === "female" ? "female" : "male";
 }
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
@@ -156,6 +170,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         await apiPatch(
           "/users/me/client-profile",
           {
+            gender: normalizeGender(pending.gender),
             goal: pending.goal,
             goal_type: pending.goalType,
             age: pending.age,
@@ -296,12 +311,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       try {
         const normalizedGoal = getNormalizedGoalForStorage(input);
         const email = cleanEmail(input.email);
+        const gender = normalizeGender(input.gender);
 
         const res = await apiPost("/auth/register", {
           name: input.name.trim(),
           email,
           password: input.password,
           role: input.role,
+          gender: input.role === "client" ? gender : undefined,
           age: input.age,
           goal: normalizedGoal.goal,
           goal_type: normalizedGoal.goalType,
@@ -310,6 +327,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (input.role === "client") {
           const pendingPatch: PendingClientProfilePatch = {
             role: input.role,
+            gender,
             goal: normalizedGoal.goal,
             goalType: normalizedGoal.goalType,
             age: input.age,

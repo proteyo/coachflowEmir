@@ -1,5 +1,7 @@
 export type Role = "coach" | "client";
 
+export type Gender = "male" | "female";
+
 export interface User {
   id: string;
   email: string;
@@ -45,8 +47,11 @@ export type GoalType =
 export interface ClientProfile {
   userId: string;
 
-  /** Empty string when the client has not yet been linked to a coach. */
-  coachId: string;
+  /** null when the client has not yet been linked to a coach. */
+  coachId?: string | null;
+
+  /** Used for gender-based fitness analytics and 3D muscle model selection. */
+  gender: Gender;
 
   goal: string;
   goalType?: GoalType;
