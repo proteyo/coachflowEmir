@@ -33,52 +33,66 @@ type AppTextVariant =
   | "small"
   | "caption";
 
+type ScreenEdge = "top" | "bottom" | "left" | "right";
+
 export function ScreenContainer({
   children,
   scroll,
   refreshControl,
   padded = true,
   edges,
+  contentTopPadding = 50,
 }: {
   children: ReactNode;
   scroll?: boolean;
   refreshControl?: React.ReactElement<RefreshControlProps>;
   padded?: boolean;
   edges?: ("top" | "bottom" | "left" | "right")[];
+  contentTopPadding?: number;
 }) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const inner = (
-    <View
-      style={{
-        flex: 1,
-        paddingHorizontal: padded ? theme.spacing.lg : 0,
-      }}
-    >
-      {children}
-    </View>
-  );
+  /*
+    ВАЖНО:
+    По умолчанию НЕ добавляем "top" в SafeAreaView.
 
-  return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: theme.colors.bg,
-      }}
-      edges={edges ?? ["top", "left", "right"]}
-    >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    Страницы внутри Tabs/Stack уже имеют native header.
+    Если добавить top через SafeAreaView, экран может сначала открыться без отступа,
+    а потом сдвинуться вниз после расчёта safe-area.
+
+    Поэтому красивый верхний отступ делаем обычным paddingTop.
+    Он фиксированный и появляется сразу, без прыжка.
+  */
+  const safeEdges = edges ?? ["left", "right"];
+
+  const horizontalPadding = padded ? theme.spacing.lg : 0;
+  const bottomScrollPadding = Math.max(132, insets.bottom + 112);
+
+  if (scroll) {
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: theme.colors.bg,
+        }}
+        edges={safeEdges}
       >
-        {scroll ? (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
+        >
           <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.bg }}
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.bg,
+            }}
             contentContainerStyle={{
               flexGrow: 1,
-              paddingBottom: Math.max(96, insets.bottom + 72),
+              paddingTop: contentTopPadding,
+              paddingHorizontal: horizontalPadding,
+              paddingBottom: bottomScrollPadding,
             }}
             showsVerticalScrollIndicator={false}
             refreshControl={refreshControl}
@@ -89,21 +103,44 @@ export function ScreenContainer({
             automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
             scrollIndicatorInsets={{
               top: 0,
-              bottom: Math.max(24, insets.bottom),
+              bottom: Math.max(32, insets.bottom + 24),
               left: 0,
               right: 0,
             }}
           >
-            {inner}
+            {children}
           </ScrollView>
-        ) : (
-          inner
-        )}
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView
+      style={{
+        flex: 1,
+        backgroundColor: theme.colors.bg,
+      }}
+      edges={safeEdges}
+    >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+      >
+        <View
+          style={{
+            flex: 1,
+            paddingTop: contentTopPadding,
+            paddingHorizontal: horizontalPadding,
+          }}
+        >
+          {children}
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
 export function AppText({
   variant = "body",
   color,

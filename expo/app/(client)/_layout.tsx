@@ -18,8 +18,18 @@ export default function ClientLayout() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
-  const bottomSafePadding = Math.max(insets.bottom, 16);
-  const tabBarHeight = 68 + bottomSafePadding;
+  /*
+    Универсальная логика для всех устройств:
+    - Android с кнопками навигации внутри экрана
+    - Android с жестами
+    - iPhone с нижней полоской
+    - iPhone без большой нижней safe-area зоны
+
+    Navbar становится чуть выше от нижнего края,
+    но высота остаётся аккуратной.
+  */
+  const bottomSafePadding = Math.max(insets.bottom, 26);
+  const tabBarHeight = 74 + bottomSafePadding;
 
   return (
     <Tabs
@@ -35,38 +45,38 @@ export default function ClientLayout() {
           borderTopWidth: 1,
 
           height: tabBarHeight,
-          paddingTop: 8,
+          paddingTop: 9,
           paddingBottom: bottomSafePadding,
 
-          elevation: 12,
+          elevation: 14,
           shadowColor: "#000",
           shadowOpacity: 0.08,
-          shadowRadius: 10,
+          shadowRadius: 12,
           shadowOffset: {
             width: 0,
             height: -2,
           },
         },
 
-        tabBarItemStyle: {
-          paddingTop: 4,
-          paddingBottom: 4,
-          justifyContent: "center",
-          alignItems: "center",
-        },
+       tabBarItemStyle: {
+  paddingTop: 0,
+  paddingBottom: 12,
+  justifyContent: "center",
+  alignItems: "center",
+},
 
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: "800",
-          marginTop: 2,
-          marginBottom: 0,
-          includeFontPadding: false,
-        },
+tabBarLabelStyle: {
+  fontSize: 11,
+  fontWeight: "700",
+  marginTop: 0,
+  marginBottom: 0,
+  includeFontPadding: false,
+},
 
-        tabBarIconStyle: {
-          marginTop: 2,
-          marginBottom: 0,
-        },
+tabBarIconStyle: {
+  marginTop: -5,
+  marginBottom: 0,
+},
 
         headerStyle: {
           backgroundColor: theme.colors.bg,

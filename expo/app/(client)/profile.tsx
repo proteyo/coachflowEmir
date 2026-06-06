@@ -812,9 +812,9 @@ export default function ClientProfile() {
           />
 
           <Row
-            label={t("clients.height")}
-            value={`${profile?.height ?? 0} cm`}
-          />
+  label={t("clients.height")}
+  value={`${profile?.height ?? 0} ${t("common.cm")}`}
+/>
 
           <Row
             label={t("clients.fitnessLevel")}

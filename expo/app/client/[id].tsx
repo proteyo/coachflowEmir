@@ -2771,7 +2771,7 @@ router.replace("/(coach)/clients");
                   ) : null}
 
                   <AppText variant="small" color={theme.colors.textMuted}>
-                    {t("clients.height")}: {data.profile.height || "—"}cm ·{" "}
+                    {t("clients.height")}: {data.profile.height || "—"} {t("common.cm")} ·{" "}
                     {t("clients.age")}: {data.profile.age ?? "—"}
                   </AppText>
 
