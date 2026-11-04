@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: str | None = None
 
     # ── Email / SMTP ──────────────────────────────────────────────────────────
+    EMAIL_PROVIDER: Literal["smtp", "resend"] = "smtp"
+    RESEND_API_KEY: str | None = None
+    EMAIL_FROM: str | None = None
+    EMAIL_TIMEOUT_SECONDS: int = 20
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
@@ -229,6 +233,10 @@ class Settings(BaseSettings):
             )
 
     def _validate_smtp_settings(self) -> None:
+        if self.EMAIL_PROVIDER == "resend":
+            if not self.RESEND_API_KEY or not (self.EMAIL_FROM or self.SMTP_FROM):
+                raise RuntimeError("Resend requires RESEND_API_KEY and EMAIL_FROM.")
+            return
         if self.SMTP_USE_TLS and self.SMTP_USE_SSL:
             raise RuntimeError(
                 "SMTP_USE_TLS and SMTP_USE_SSL cannot both be true. "

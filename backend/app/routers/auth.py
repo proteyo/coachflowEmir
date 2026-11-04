@@ -489,7 +489,7 @@ async def verify_email(
         )
 
     if bool(getattr(user, "email_verified", False)):
-        return build_auth_response(user)
+        raise HTTPException(status_code=400, detail="Email is already verified. Please log in.")
 
     if not user.email_verification_code_hash:
         raise HTTPException(
