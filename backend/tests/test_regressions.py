@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 
 # Override deployment configuration before importing the application.
 os.environ.update({
+    "EMAIL_ENABLED": "true",
     "ENVIRONMENT": "development", "SECRET_KEY": "regression-tests-only-" + "x" * 48,
     "DATABASE_URL": "postgresql+asyncpg://test:test@127.0.0.1:1/test",
     "STORAGE_PROVIDER": "local", "AUTO_CREATE_TABLES": "false",
@@ -514,12 +515,25 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failure.exception.status_code, 400)
         oversized.verify.assert_not_called()
 
-    async def test_reset_recipient_restriction_is_reported_safely(self):
-        from app.services.email_service import EmailRecipientRestrictionError
-        with patch.object(auth, "send_password_reset_email", AsyncMock(side_effect=EmailRecipientRestrictionError("test sender"))):
+    async def test_reset_disabled_delivery_is_reported_safely(self):
+        from app.services.email_service import EmailDisabledError
+        with patch.object(auth, "send_password_reset_email", AsyncMock(side_effect=EmailDisabledError("test sender"))):
             status, body = await self.request("POST", "/api/v1/auth/forgot-password", {"email": self.client.email})
         self.assertEqual(status, 503)
-        self.assertEqual(body["detail"], "Email test sender is restricted to the account owner")
+        self.assertEqual(body["detail"], "Email delivery is disabled while testing.")
+
+    async def test_disabled_delivery_does_not_create_accounts_or_reveal_existing_email(self):
+        with patch.dict(os.environ, {"EMAIL_ENABLED": "false"}):
+            status, _ = await self.request("POST", "/api/v1/auth/register", {
+                "name": "Pending", "email": "disabled@example.com", "password": "Original123!", "role": "coach",
+            })
+            self.assertEqual(status, 503)
+            self.assertIsNone(self.session.scalar(select(User.id).where(User.email == "disabled@example.com")))
+            for endpoint in ["forgot-password", "resend-verification-code"]:
+                for email in [self.client.email, "unknown@example.com"]:
+                    status, body = await self.request("POST", "/api/v1/auth/" + endpoint, {"email": email})
+                    self.assertEqual(status, 503)
+                    self.assertEqual(body["detail"], "Email delivery is disabled while testing.")
 
     async def test_new_database_bootstrap_refuses_existing_tables(self):
         from app.db.bootstrap import initialize

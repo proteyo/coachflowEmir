@@ -56,7 +56,8 @@ from app.schemas.auth import (
 from app.schemas.password_reset import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.email_service import (
     EmailDeliveryError,
-    EmailRecipientRestrictionError,
+    EmailDisabledError,
+    ensure_email_delivery_enabled,
     send_email_verification_code,
     send_password_reset_email,
 )
@@ -277,6 +278,13 @@ def attach_new_email_verification_code(user: User) -> str:
     return code
 
 
+def require_email_available() -> None:
+    try:
+        ensure_email_delivery_enabled()
+    except EmailDisabledError:
+        raise HTTPException(503, "Email delivery is disabled while testing.") from None
+
+
 async def send_verification_code_or_503(user: User, raw_code: str) -> None:
     try:
         await send_email_verification_code(
@@ -284,8 +292,8 @@ async def send_verification_code_or_503(user: User, raw_code: str) -> None:
             name=user.name,
             code=raw_code,
         )
-    except EmailRecipientRestrictionError:
-        raise HTTPException(503, "Email test sender is restricted to the account owner")
+    except EmailDisabledError:
+        raise HTTPException(503, "Email delivery is disabled while testing.")
     except EmailDeliveryError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -359,6 +367,7 @@ async def register(
     data: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterPendingResponse:
+    require_email_available()
     email = clean_email(data.email)
     name = clean_name(data.name)
     role = data.role.strip().lower()
@@ -546,6 +555,7 @@ async def resend_verification_code(
     data: ResendEmailVerificationRequest,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterPendingResponse:
+    require_email_available()
     email = clean_email(data.email)
 
     result = await db.execute(
@@ -703,6 +713,7 @@ async def forgot_password(
     The response is always the same, even if email does not exist.
     This prevents checking which emails are registered.
     """
+    require_email_available()
     email = clean_email(data.email)
 
     result = await db.execute(
@@ -730,8 +741,8 @@ async def forgot_password(
             token=raw_token,
         )
 
-    except EmailRecipientRestrictionError:
-        raise HTTPException(503, "Email test sender is restricted to the account owner")
+    except EmailDisabledError:
+        raise HTTPException(503, "Email delivery is disabled while testing.")
     except EmailDeliveryError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

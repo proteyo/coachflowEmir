@@ -1,6 +1,5 @@
 import asyncio
 import html
-import json
 import logging
 import os
 import smtplib
@@ -8,8 +7,6 @@ import ssl
 from email.message import EmailMessage
 from email.utils import parseaddr
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 
 logger = logging.getLogger(__name__)
@@ -23,8 +20,8 @@ class EmailConfigurationError(EmailDeliveryError):
     pass
 
 
-class EmailRecipientRestrictionError(EmailDeliveryError):
-    """Resend's test sender cannot send to this recipient."""
+class EmailDisabledError(EmailDeliveryError):
+    pass
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
@@ -74,47 +71,9 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
-def _send_resend_email_sync(*, to_email: str, subject: str, plain_body: str, html_body: str) -> None:
-    """Use HTTPS on hosts that block SMTP. Credentials never leave the backend."""
-    api_key = _get_required_env("RESEND_API_KEY")
-    sender = _get_env("EMAIL_FROM") or _get_env("SMTP_FROM")
-    if not sender or not _is_valid_email_address(sender):
-        raise EmailConfigurationError("EMAIL_FROM must contain a verified sender address")
-    payload = json.dumps({
-        "from": sender, "to": [to_email], "subject": subject,
-        "text": plain_body, "html": html_body,
-    }).encode("utf-8")
-    request = Request(
-        "https://api.resend.com/emails", data=payload, method="POST",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "CoachFlow/1.0"},
-    )
-    try:
-        with urlopen(request, timeout=_get_int_env("EMAIL_TIMEOUT_SECONDS", 20)) as response:
-            result = json.loads(response.read())
-            if not isinstance(result, dict) or not result.get("id"):
-                raise EmailDeliveryError("Email provider returned no message ID")
-    except HTTPError as exc:
-        # Do not log the request, API key, confirmation code, or provider response body.
-        logger.error("Email provider rejected request (HTTP %s)", exc.code)
-        try:
-            # Inspect only to classify the failure. Never expose/log provider text.
-            failure = json.loads(exc.read(8192))
-            message = str(failure.get("message", "")).lower()
-        except (ValueError, TypeError, AttributeError, OSError):
-            message = ""
-        if exc.code == 403 and ("testing emails" in message or "own email address" in message):
-            raise EmailRecipientRestrictionError("Email test sender is restricted to the account owner") from None
-        raise EmailDeliveryError("Email provider rejected the message") from None
-    except (URLError, TimeoutError, OSError, ValueError) as exc:
-        logger.error("Email provider is unavailable (%s)", type(exc).__name__)
-        raise EmailDeliveryError("Email provider is unavailable") from None
-
-
-def _uses_https_email() -> bool:
-    provider = _get_env("EMAIL_PROVIDER", "smtp")
-    if provider not in {"smtp", "resend"}:
-        raise EmailConfigurationError("EMAIL_PROVIDER must be smtp or resend")
-    return provider == "resend"
+def ensure_email_delivery_enabled() -> None:
+    if not _get_bool_env("EMAIL_ENABLED", False):
+        raise EmailDisabledError("Email delivery is disabled while testing.")
 
 
 def _is_valid_email_address(email: str) -> bool:
@@ -554,14 +513,7 @@ async def send_password_reset_email(
 
     reset_link = _build_reset_link(clean_token)
 
-    if _uses_https_email():
-        await asyncio.to_thread(
-            _send_resend_email_sync, to_email=to_email,
-            subject="CoachFlow password reset / Сброс пароля / Құпиясөзді қалпына келтіру",
-            plain_body=_build_reset_plain_text_email(name, reset_link, clean_token),
-            html_body=_build_reset_html_email(name, reset_link, clean_token),
-        )
-        return
+    ensure_email_delivery_enabled()
 
     smtp_host = _get_env("SMTP_HOST")
     smtp_port = _get_int_env("SMTP_PORT", 587)
@@ -650,14 +602,7 @@ async def send_email_verification_code(
     if len(clean_code) != 6:
         raise ValueError("Email verification code must contain 6 digits")
 
-    if _uses_https_email():
-        await asyncio.to_thread(
-            _send_resend_email_sync, to_email=to_email,
-            subject="CoachFlow email verification code / Код подтверждения / Растау коды",
-            plain_body=_build_verification_plain_text_email(name, clean_code),
-            html_body=_build_verification_html_email(name, clean_code),
-        )
-        return
+    ensure_email_delivery_enabled()
 
     smtp_host = _get_env("SMTP_HOST")
     smtp_port = _get_int_env("SMTP_PORT", 587)
