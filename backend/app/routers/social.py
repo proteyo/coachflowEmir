@@ -247,7 +247,7 @@ async def get_group(group_id: str, user: User = Depends(get_current_user), db: A
     m = await member(group_id, user, db)
     group = await db.get(ChatGroup, group_id)
     users = (await db.execute(select(User).join(ChatMember, ChatMember.user_id == User.id).where(ChatMember.group_id == group_id))).scalars().all()
-    return {"id": group.id, "name": group.name, "ownerId": group.owner_id, "theme": group.theme, "members": [person(p) for p in users], "pinned": m.pinned, "muted": m.muted}
+    return {"id": group.id, "name": group.name, "ownerId": group.owner_id, "theme": group.theme, "members": [person(p) for p in users], "pinned": m.pinned, "muted": m.muted, "hidden": m.hidden}
 
 
 @router.patch("/groups/{group_id}/settings")
@@ -368,6 +368,9 @@ async def delete_group_chat(group_id: str, data: DeleteIn, user: User = Depends(
     if notify_ids:
         from app.routers.messages import ws_manager
         await ws_manager.send_to_users(notify_ids, {"type": "group.deleted", "groupId": group_id})
+    else:
+        from app.routers.messages import ws_manager
+        await ws_manager.send_to_user(user.id, {"type": "group.cleared", "groupId": group_id})
     return {"ok": True}
 
 
