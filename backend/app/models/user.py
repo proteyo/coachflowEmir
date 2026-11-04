@@ -92,6 +92,8 @@ class User(Base):
         nullable=True,
     )
 
+    trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     coach_profile: Mapped["CoachProfile"] = relationship(
         back_populates="user",
         uselist=False,

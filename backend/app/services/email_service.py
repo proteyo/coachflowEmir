@@ -23,6 +23,10 @@ class EmailConfigurationError(EmailDeliveryError):
     pass
 
 
+class EmailRecipientRestrictionError(EmailDeliveryError):
+    """Resend's test sender cannot send to this recipient."""
+
+
 def _get_env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
     if value is None:
@@ -92,6 +96,14 @@ def _send_resend_email_sync(*, to_email: str, subject: str, plain_body: str, htm
     except HTTPError as exc:
         # Do not log the request, API key, confirmation code, or provider response body.
         logger.error("Email provider rejected request (HTTP %s)", exc.code)
+        try:
+            # Inspect only to classify the failure. Never expose/log provider text.
+            failure = json.loads(exc.read(8192))
+            message = str(failure.get("message", "")).lower()
+        except (ValueError, TypeError, AttributeError, OSError):
+            message = ""
+        if exc.code == 403 and ("testing emails" in message or "own email address" in message):
+            raise EmailRecipientRestrictionError("Email test sender is restricted to the account owner") from None
         raise EmailDeliveryError("Email provider rejected the message") from None
     except (URLError, TimeoutError, OSError, ValueError) as exc:
         logger.error("Email provider is unavailable (%s)", type(exc).__name__)

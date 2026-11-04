@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from datetime import date as calendar_date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -6,9 +7,19 @@ from pydantic import BaseModel, Field, field_validator
 # ── Progress ──────────────────────────────────────────────────────────────────
 
 class ProgressEntryIn(BaseModel):
-    weight: float
+    weight: float = Field(ge=20, le=350, allow_inf_nan=False)
     date: str
     notes: Optional[str] = None
+
+    @field_validator("date")
+    @classmethod
+    def valid_progress_date(cls, value: str) -> str:
+        if "T" in value:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
+        parsed = calendar_date.fromisoformat(value)
+        if parsed.isoformat() != value:
+            raise ValueError("Date must use YYYY-MM-DD format")
+        return value
 
 
 class ProgressEntryOut(BaseModel):
@@ -18,6 +29,7 @@ class ProgressEntryOut(BaseModel):
     date: str
     notes: Optional[str] = None
     addedBy: str
+    createdAt: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

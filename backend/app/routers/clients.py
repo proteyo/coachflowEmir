@@ -113,6 +113,8 @@ async def _ensure_client_limit(coach_id: str, db: AsyncSession):
     Pro       -> 30 clients
     Unlimited -> 999999 clients
     """
+    # Serialize quota checks and assignment until the caller commits.
+    await db.execute(select(User.id).where(User.id == coach_id).with_for_update())
     sub_res = await db.execute(
         select(Subscription).where(Subscription.coach_id == coach_id)
     )
@@ -509,7 +511,7 @@ async def accept_invite(
         raise HTTPException(status_code=400, detail="Invite expired")
 
     profile_res = await db.execute(
-        select(ClientProfile).where(ClientProfile.user_id == current_user.id)
+        select(ClientProfile).where(ClientProfile.user_id == current_user.id).with_for_update()
     )
 
     profile = profile_res.scalar_one_or_none()

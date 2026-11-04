@@ -3,6 +3,7 @@ Convert ORM models → Pydantic response schemas.
 """
 
 import json
+from app.services.media_access import canonical_avatar_url, canonical_media_url
 from datetime import datetime, timezone
 from typing import Any
 
@@ -192,11 +193,12 @@ def user_out(user: User) -> UserOut:
         name=user.name,
         role=user.role,
         phone=user.phone,
-        avatarUrl=user.avatar_url,
+        avatarUrl=canonical_avatar_url(user.avatar_url),
         clientCode=user.client_code,
         createdAt=to_iso_required(user.created_at),
         lastSeenAt=to_iso(getattr(user, "last_seen_at", None)),
         isOnline=is_user_online(user),
+        trialStartedAt=to_iso(user.trial_started_at),
     )
 
 
@@ -209,8 +211,8 @@ def coach_profile_out(profile: CoachProfile) -> CoachProfileOut:
         achievements=parse_list(profile.achievements),
         certificates=parse_list(profile.certificates),
         rating=profile.rating,
-        profileImageUrl=profile.profile_image_url,
-        coverImageUrl=profile.cover_image_url,
+        profileImageUrl=canonical_avatar_url(profile.profile_image_url),
+        coverImageUrl=canonical_avatar_url(profile.cover_image_url),
     )
 
 
@@ -236,7 +238,7 @@ def client_with_profile_out(user: User) -> ClientWithProfileOut:
         email=user.email,
         name=user.name,
         phone=user.phone,
-        avatarUrl=user.avatar_url,
+        avatarUrl=canonical_avatar_url(user.avatar_url),
         clientCode=user.client_code,
         lastSeenAt=to_iso(getattr(user, "last_seen_at", None)),
         isOnline=is_user_online(user),
@@ -381,6 +383,7 @@ def progress_out(entry: ProgressEntry) -> ProgressEntryOut:
         date=entry.date,
         notes=entry.notes,
         addedBy=entry.added_by,
+        createdAt=to_iso(entry.created_at),
     )
 
 
@@ -396,11 +399,11 @@ def build_message_reply_preview(message: Message) -> dict[str, Any] | None:
         "receiverId": getattr(reply_to, "receiver_id", None),
         "content": reply_to.content,
         "messageType": reply_to.message_type,
-        "voiceUrl": getattr(reply_to, "voice_url", None),
+        "voiceUrl": canonical_media_url(getattr(reply_to, "voice_url", None)),
         "voiceDurationMs": getattr(reply_to, "voice_duration_ms", None),
-        "mediaUrl": getattr(reply_to, "media_url", None),
+        "mediaUrl": canonical_media_url(getattr(reply_to, "media_url", None)),
         "mediaType": getattr(reply_to, "media_type", None),
-        "mediaThumbnailUrl": getattr(reply_to, "media_thumbnail_url", None),
+        "mediaThumbnailUrl": canonical_media_url(getattr(reply_to, "media_thumbnail_url", None)),
         "deletedAt": to_iso(getattr(reply_to, "deleted_at", None)),
         "deletedForEveryone": bool(
             getattr(reply_to, "deleted_for_everyone", False)
@@ -419,11 +422,11 @@ def message_out(message: Message) -> MessageOut:
         replyPreview=build_message_reply_preview(message),
         content=message.content,
         messageType=message.message_type,
-        voiceUrl=message.voice_url,
+        voiceUrl=canonical_media_url(message.voice_url),
         voiceDurationMs=message.voice_duration_ms,
-        mediaUrl=getattr(message, "media_url", None),
+        mediaUrl=canonical_media_url(getattr(message, "media_url", None)),
         mediaType=getattr(message, "media_type", None),
-        mediaThumbnailUrl=getattr(message, "media_thumbnail_url", None),
+        mediaThumbnailUrl=canonical_media_url(getattr(message, "media_thumbnail_url", None)),
         reactions=safe_dict(getattr(message, "reactions", None)),
         read=bool(message.read),
         pinned=bool(getattr(message, "pinned", False)),

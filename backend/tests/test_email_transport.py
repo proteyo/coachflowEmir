@@ -1,5 +1,6 @@
 """HTTPS email transport tests: no real messages are sent."""
 import json
+import io
 import os
 import unittest
 from unittest.mock import Mock, patch
@@ -52,6 +53,15 @@ class EmailTransportTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"RESEND_API_KEY": ""}):
             with self.assertRaises(email.EmailDeliveryError):
                 await email.send_email_verification_code("person@example.com", "Person", "123456")
+
+    async def test_test_sender_restriction_is_classified_without_exposing_provider_text(self):
+        failure = io.BytesIO(json.dumps({"message": "You can only send testing emails to your own email address (private@example.com)."}).encode())
+        error = HTTPError("https://api.resend.com/emails", 403, "Denied", {}, failure)
+        with patch.object(email, "urlopen", side_effect=error):
+            with self.assertRaises(email.EmailRecipientRestrictionError) as raised:
+                await email.send_password_reset_email("person@example.com", "Person", "private-reset-token")
+        self.assertNotIn("private@example.com", str(raised.exception))
+        self.assertNotIn("private-reset-token", str(raised.exception))
 
     async def test_dotenv_settings_are_used_when_environment_variable_is_absent(self):
         from types import SimpleNamespace

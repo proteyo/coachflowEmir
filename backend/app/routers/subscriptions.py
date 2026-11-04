@@ -39,6 +39,7 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.other import SubscriptionOut, UpdateSubscriptionRequest
 from app.services.mappers import subscription_out
+from app.services.purchase_claims import claim_purchase
 
 
 logger = logging.getLogger(__name__)
@@ -286,6 +287,7 @@ async def get_or_create_subscription(
     coach: User,
     db: AsyncSession,
 ) -> Subscription:
+    await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
     result = await db.execute(
         select(Subscription).where(Subscription.coach_id == coach.id)
     )
@@ -661,10 +663,17 @@ async def activate_my_subscription(
         if is_active_free_trial(subscription):
             return subscription_out(subscription)
 
+        # Serialize trial activation on the user, including simultaneous requests.
+        result = await db.execute(select(User).where(User.id == coach.id).with_for_update())
+        locked_coach = result.scalar_one()
+        if locked_coach.trial_started_at is not None:
+            raise HTTPException(status_code=403, detail="Free trial has already been used.")
+
         apply_plan(subscription, "free")
         clear_google_play_fields(subscription)
 
         start_date = now_utc()
+        locked_coach.trial_started_at = start_date
         end_date = start_date + timedelta(days=FREE_TRIAL_DAYS)
 
         subscription.status = "active"
@@ -737,8 +746,13 @@ async def verify_google_play_purchase(
     )
 
     ensure_google_subscription_is_active(verification)
+    external_id = (verification.raw.get("externalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId")
+    expected_account = hashlib.sha256(coach.id.encode()).hexdigest()
+    if external_id and external_id != expected_account:
+        raise HTTPException(409, "This purchase belongs to another account")
 
     subscription = await get_or_create_subscription(coach, db)
+    await claim_purchase(db, hash_purchase_token(purchase_token), coach.id)
 
     apply_plan(subscription, plan_code)
 

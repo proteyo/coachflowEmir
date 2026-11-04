@@ -21,16 +21,20 @@ from hashlib import sha256
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
+from app.core.rate_limit import enforce_auth_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
     hash_password,
     verify_password,
+    token_matches_password,
+    verify_token_payload,
 )
 from app.db.database import get_db
 from app.models.notification import NotificationSetting
@@ -39,6 +43,7 @@ from app.models.profile import ClientProfile, CoachProfile
 from app.models.streak import Streak
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.models.auth_session import AuthSession
 from app.schemas.auth import (
     AuthResponse,
     LoginRequest,
@@ -51,13 +56,14 @@ from app.schemas.auth import (
 from app.schemas.password_reset import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.email_service import (
     EmailDeliveryError,
+    EmailRecipientRestrictionError,
     send_email_verification_code,
     send_password_reset_email,
 )
 from app.services.mappers import user_out
 
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"], dependencies=[Depends(enforce_auth_rate_limit)])
 
 CLIENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PASSWORD_RESET_TOKEN_TTL_MINUTES = 30
@@ -157,6 +163,8 @@ def ensure_aware_datetime(value: datetime | None) -> datetime | None:
 
 
 def validate_password_strength(password: str) -> None:
+    if len(password.encode("utf-8")) > 1024:
+        raise HTTPException(status_code=422, detail="Password must not exceed 1024 UTF-8 bytes")
     """
     Production password policy.
 
@@ -239,12 +247,20 @@ def build_user_payload(user: User):
     return payload
 
 
-def build_auth_response(user: User) -> AuthResponse:
-    return AuthResponse(
-        token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-        user=build_user_payload(user),
-    )
+async def build_auth_response(user: User, db: AsyncSession, session: AuthSession | None = None) -> AuthResponse:
+    session_id = session.id if session else uuid.uuid4().hex
+    refresh_token = create_refresh_token(user.id, user.password_hash, session_id)
+    payload = verify_token_payload(refresh_token, "refresh")
+    expiry = datetime.fromtimestamp(payload["exp"], timezone.utc)
+    if session is None:
+        session = AuthSession(id=session_id, user_id=user.id, refresh_hash="", expires_at=expiry)
+    session.refresh_hash = sha256(refresh_token.encode()).hexdigest()
+    session.expires_at = expiry
+    db.add(session)
+    await db.execute(delete(AuthSession).where(AuthSession.expires_at < now_utc()))
+    await db.commit()
+    return AuthResponse(token=create_access_token(user.id, user.password_hash, session_id),
+                        refresh_token=refresh_token, user=build_user_payload(user))
 
 
 def attach_new_email_verification_code(user: User) -> str:
@@ -268,6 +284,8 @@ async def send_verification_code_or_503(user: User, raw_code: str) -> None:
             name=user.name,
             code=raw_code,
         )
+    except EmailRecipientRestrictionError:
+        raise HTTPException(503, "Email test sender is restricted to the account owner")
     except EmailDeliveryError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -354,7 +372,7 @@ async def register(
     validate_password_strength(data.password)
 
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == email).with_for_update()
     )
 
     existing_user = result.scalar_one_or_none()
@@ -366,20 +384,12 @@ async def register(
                 detail="Email already registered",
             )
 
-        raw_code = attach_new_email_verification_code(existing_user)
-        existing_user.password_hash = hash_password(data.password)
-        existing_user.name = name
-
-        db.add(existing_user)
-        await db.commit()
-        await db.refresh(existing_user)
-
-        await send_verification_code_or_503(existing_user, raw_code)
-
+        # Registration cannot replace credentials of an existing account.
+        # Resending is a separate, throttled operation.
         return RegisterPendingResponse(
             email=existing_user.email,
             emailVerificationRequired=True,
-            message="Verification code has been sent to your email.",
+            message="Please verify your email before logging in.",
         )
 
     current_time = now_utc()
@@ -456,7 +466,11 @@ async def register(
             )
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Email already registered") from None
     await db.refresh(user)
 
     await send_verification_code_or_503(user, raw_code)
@@ -477,7 +491,7 @@ async def verify_email(
     code = "".join(ch for ch in data.code.strip() if ch.isdigit())
 
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == email).with_for_update()
     )
 
     user = result.scalar_one_or_none()
@@ -513,6 +527,8 @@ async def verify_email(
             detail="Invalid verification code",
         )
 
+    validate_password_strength(data.password)
+    user.password_hash = hash_password(data.password)
     user.email_verified = True
     user.email_verification_code_hash = None
     user.email_verification_expires_at = None
@@ -522,7 +538,7 @@ async def verify_email(
     await db.commit()
     await db.refresh(user)
 
-    return build_auth_response(user)
+    return await build_auth_response(user, db)
 
 
 @router.post("/resend-verification-code", response_model=RegisterPendingResponse)
@@ -533,7 +549,7 @@ async def resend_verification_code(
     email = clean_email(data.email)
 
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == email).with_for_update()
     )
 
     user = result.scalar_one_or_none()
@@ -590,7 +606,7 @@ async def login(
     email = clean_email(data.email)
 
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == email).with_for_update()
     )
 
     user = result.scalar_one_or_none()
@@ -607,7 +623,7 @@ async def login(
             detail="Please verify your email before logging in.",
         )
 
-    return build_auth_response(user)
+    return await build_auth_response(user, db)
 
 
 @router.post("/refresh", response_model=AuthResponse)
@@ -632,7 +648,7 @@ async def refresh(
 
     user = result.scalar_one_or_none()
 
-    if not user:
+    if not user or not token_matches_password(data.refresh_token, user.password_hash, "refresh"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -644,7 +660,28 @@ async def refresh(
             detail="Please verify your email before continuing.",
         )
 
-    return build_auth_response(user)
+    payload = verify_token_payload(data.refresh_token, "refresh")
+    result = await db.execute(select(AuthSession).where(
+        AuthSession.id == payload.get("sid"), AuthSession.user_id == user.id,
+        AuthSession.refresh_hash == sha256(data.refresh_token.encode()).hexdigest(),
+        AuthSession.expires_at > now_utc(),
+    ).with_for_update())
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(401, "Invalid or expired refresh token")
+    return await build_auth_response(user, db, session)
+
+
+@router.post("/logout", status_code=204)
+async def logout(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    payload = verify_token_payload(data.refresh_token, "refresh")
+    if payload:
+        # Any valid token from the session may revoke it, including one rotated
+        # during an in-flight refresh while the user was signing out.
+        await db.execute(delete(AuthSession).where(
+            AuthSession.id == payload.get("sid"), AuthSession.user_id == payload.get("sub"),
+        ))
+        await db.commit()
 
 
 @router.get("/me")
@@ -669,7 +706,7 @@ async def forgot_password(
     email = clean_email(data.email)
 
     result = await db.execute(
-        select(User).where(User.email == email)
+        select(User).where(User.email == email).with_for_update()
     )
 
     user = result.scalar_one_or_none()
@@ -693,6 +730,8 @@ async def forgot_password(
             token=raw_token,
         )
 
+    except EmailRecipientRestrictionError:
+        raise HTTPException(503, "Email test sender is restricted to the account owner")
     except EmailDeliveryError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -720,7 +759,7 @@ async def reset_password(
     result = await db.execute(
         select(PasswordResetToken).where(
             PasswordResetToken.token_hash == token_hash,
-        )
+        ).with_for_update()
     )
 
     reset_token = result.scalar_one_or_none()
@@ -761,7 +800,12 @@ async def reset_password(
         )
 
     user.password_hash = hash_password(data.new_password)
+    # A valid recovery link also proves ownership of a pending email account.
+    user.email_verified = True
+    user.email_verification_code_hash = None
+    user.email_verification_expires_at = None
     reset_token.used_at = now_utc()
+    await db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
 
     db.add(user)
     db.add(reset_token)

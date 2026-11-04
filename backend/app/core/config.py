@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     # Folder names inside storage bucket.
     STORAGE_AVATAR_PREFIX: str = "avatars"
     STORAGE_VOICE_PREFIX: str = "voice"
+    STORAGE_IMAGE_PREFIX: str = "images"
+    STORAGE_VIDEO_PREFIX: str = "videos"
+    STORAGE_VIDEO_THUMBNAIL_PREFIX: str = "video-thumbnails"
 
     @property
     def is_production(self) -> bool:

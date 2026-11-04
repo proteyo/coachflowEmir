@@ -1,3 +1,6 @@
+from app.models.purchase_claim import PurchaseClaim
+from app.models.auth_session import AuthSession
+from app.models.auth_limit import AuthRateLimit
 from app.models.attendance import Attendance
 from app.models.client_invite import ClientInvite
 from app.models.exercise_result import ExerciseResult

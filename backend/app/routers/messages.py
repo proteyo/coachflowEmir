@@ -44,10 +44,11 @@ from app.core.deps import (
     require_active_coach_subscription,
     update_user_last_seen,
 )
-from app.core.security import decode_token
-from app.db.database import get_db
+from app.core.security import decode_token, token_matches_password
+from app.db.database import AsyncSessionLocal, get_db
 from app.models.message import Message
 from app.models.user import User
+from app.models.profile import ClientProfile
 from app.schemas.other import (
     MessageForwardIn,
     MessageIn,
@@ -57,6 +58,8 @@ from app.schemas.other import (
     MessageUpdateIn,
 )
 from app.services.mappers import message_out
+from app.services.media_access import validate_message_media
+from app.services.auth_sessions import session_is_active
 
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
@@ -69,16 +72,19 @@ DELETE_MODES = {"me", "everyone"}
 class WebSocketConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[str, list[WebSocket]] = {}
+        self.connection_tokens: dict[WebSocket, str] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket) -> None:
+    async def connect(self, user_id: str, websocket: WebSocket, token: str) -> None:
         await websocket.accept()
 
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
 
         self.active_connections[user_id].append(websocket)
+        self.connection_tokens[websocket] = token
 
     def disconnect(self, user_id: str, websocket: WebSocket) -> None:
+        self.connection_tokens.pop(websocket, None)
         connections = self.active_connections.get(user_id)
 
         if not connections:
@@ -105,8 +111,14 @@ class WebSocketConnectionManager:
 
         dead_connections: list[WebSocket] = []
 
-        for websocket in connections:
+        for websocket in list(connections):
             try:
+                async with AsyncSessionLocal() as db:
+                    valid_user = await _get_user_by_token(self.connection_tokens.get(websocket, ""), db)
+                if not valid_user:
+                    dead_connections.append(websocket)
+                    await websocket.close(code=1008)
+                    continue
                 await websocket.send_json(payload)
             except Exception:
                 dead_connections.append(websocket)
@@ -186,13 +198,27 @@ async def _ensure_coach_subscription_if_needed(
 
 
 async def _ensure_user_exists(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).execution_options(populate_existing=True))
     user = result.scalar_one_or_none()
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return user
+
+
+async def _ensure_chat_relationship(sender: User, receiver: User, db: AsyncSession) -> None:
+    if sender.role == "coach" and receiver.role == "client":
+        coach_id, client_id = sender.id, receiver.id
+    elif sender.role == "client" and receiver.role == "coach":
+        coach_id, client_id = receiver.id, sender.id
+    else:
+        raise HTTPException(status_code=403, detail="Chat is available only between a client and their coach")
+    result = await db.execute(select(ClientProfile.user_id).where(
+        ClientProfile.user_id == client_id, ClientProfile.coach_id == coach_id,
+    ))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=403, detail="Chat is available only between a client and their coach")
 
 
 async def _get_user_by_token(token: str, db: AsyncSession) -> User | None:
@@ -209,9 +235,14 @@ async def _get_user_by_token(token: str, db: AsyncSession) -> User | None:
     if not user_id:
         return None
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).execution_options(populate_existing=True))
     user = result.scalar_one_or_none()
 
+    if not user or not user.email_verified or not token_matches_password(cleaned_token, user.password_hash):
+        return None
+
+    if not await session_is_active(cleaned_token, db):
+        return None
     return user
 
 
@@ -505,6 +536,8 @@ async def _create_message(
     - created_now
     """
 
+    await _ensure_chat_relationship(current_user, receiver, db)
+
     existing = await _find_existing_by_client_temp_id(
         client_temp_id=data.client_temp_id,
         current_user_id=current_user.id,
@@ -565,6 +598,12 @@ async def _create_message(
         "video": "Video",
     }.get(message_type, "")
 
+    voice_url = await validate_message_media(data.voice_url, "voice", current_user, db)
+    media_url = await validate_message_media(
+        data.media_url, "videos" if message_type == "video" else "images", current_user, db,
+    )
+    thumbnail_url = await validate_message_media(data.media_thumbnail_url, "video-thumbnails", current_user, db)
+
     message = Message(
         id=f"msg_{uuid.uuid4().hex[:12]}",
         client_temp_id=data.client_temp_id,
@@ -573,9 +612,9 @@ async def _create_message(
         reply_to_id=data.reply_to_id,
         content=content or fallback_content,
         message_type=message_type,
-        voice_url=data.voice_url,
+        voice_url=voice_url,
         voice_duration_ms=data.voice_duration_ms,
-        media_url=data.media_url,
+        media_url=media_url,
         media_type=data.media_type
         or (
             "image"
@@ -584,7 +623,7 @@ async def _create_message(
             if message_type == "video"
             else None
         ),
-        media_thumbnail_url=data.media_thumbnail_url,
+        media_thumbnail_url=thumbnail_url,
         reactions={},
         read=False,
         pinned=False,
@@ -1074,6 +1113,7 @@ async def messages_ws(
 
     try:
         partner = await _ensure_user_exists(partner_id, db)
+        await _ensure_chat_relationship(current_user, partner, db)
     except HTTPException:
         await websocket.close(code=1008)
         return
@@ -1082,7 +1122,7 @@ async def messages_ws(
         await websocket.close(code=1008)
         return
 
-    await ws_manager.connect(current_user.id, websocket)
+    await ws_manager.connect(current_user.id, websocket, token)
 
     try:
         await update_user_last_seen(
@@ -1125,6 +1165,12 @@ async def messages_ws(
 
         while True:
             raw = await websocket.receive_text()
+            authenticated_user = await _get_user_by_token(token, db)
+            if not authenticated_user:
+                ws_manager.disconnect(current_user.id, websocket)
+                await websocket.close(code=1008)
+                return
+            current_user = authenticated_user
 
             try:
                 data = json.loads(raw)

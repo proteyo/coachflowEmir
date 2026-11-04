@@ -9,10 +9,13 @@ Includes:
 """
 
 import uuid
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
@@ -21,7 +24,7 @@ from app.core.config import get_settings
 settings = get_settings()
 
 pwd_context = CryptContext(
-    schemes=["bcrypt"],
+    schemes=["bcrypt_sha256", "bcrypt"],
     deprecated="auto",
 )
 
@@ -36,6 +39,8 @@ def hash_password(password: str) -> str:
     if not password or not password.strip():
         raise ValueError("Password cannot be empty")
 
+    if len(password.encode("utf-8")) > 1024:
+        raise ValueError("Password must not exceed 1024 UTF-8 bytes")
     return pwd_context.hash(password)
 
 
@@ -45,6 +50,11 @@ def verify_password(plain: str, hashed: str) -> bool:
     """
 
     if not plain or not hashed:
+        return False
+
+    # Legacy bcrypt hashes cannot distinguish suffixes beyond 72 bytes.
+    # Such accounts must use recovery to get a new, non-truncating hash.
+    if hashed.startswith(("$2a$", "$2b$", "$2y$")) and len(plain.encode("utf-8")) > 72:
         return False
 
     try:
@@ -64,6 +74,9 @@ def _create_token(
     user_id: str,
     token_type: str,
     expires_delta: timedelta,
+    password_hash: str,
+    resource: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """
     Creates a signed JWT token.
@@ -82,7 +95,12 @@ def _create_token(
         "nbf": issued_at,
         "exp": expires_at,
         "jti": uuid.uuid4().hex,
+        "session": password_session_key(password_hash),
     }
+    if session_id is not None:
+        payload["sid"] = session_id
+    if resource is not None:
+        payload["resource"] = resource
 
     return jwt.encode(
         payload,
@@ -91,7 +109,17 @@ def _create_token(
     )
 
 
-def create_access_token(user_id: str) -> str:
+def password_session_key(password_hash: str) -> str:
+    return hmac.new(settings.SECRET_KEY.encode(), password_hash.encode(), hashlib.sha256).hexdigest()
+
+
+def token_matches_password(token: str, password_hash: str, token_type: str = "access") -> bool:
+    payload = verify_token_payload(token, token_type)
+    session = payload.get("session") if payload else None
+    return isinstance(session, str) and hmac.compare_digest(session, password_session_key(password_hash))
+
+
+def create_access_token(user_id: str, password_hash: str, session_id: str | None = None) -> str:
     """
     Creates short-lived access token.
     """
@@ -100,10 +128,12 @@ def create_access_token(user_id: str) -> str:
         user_id=user_id,
         token_type="access",
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        password_hash=password_hash,
+        session_id=session_id,
     )
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, password_hash: str, session_id: str | None = None) -> str:
     """
     Creates long-lived refresh token.
     """
@@ -112,6 +142,15 @@ def create_refresh_token(user_id: str) -> str:
         user_id=user_id,
         token_type="refresh",
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        password_hash=password_hash,
+        session_id=session_id,
+    )
+
+
+def create_media_token(user_id: str, password_hash: str, resource: str, session_id: str | None = None) -> str:
+    return _create_token(
+        user_id=user_id, token_type="media", password_hash=password_hash,
+        expires_delta=timedelta(minutes=10), resource=resource, session_id=session_id,
     )
 
 
@@ -143,9 +182,7 @@ def verify_token_payload(
                 "verify_exp": True,
                 "verify_nbf": True,
                 "verify_iat": True,
-                "require_exp": True,
-                "require_iat": True,
-                "require_nbf": True,
+                "require": ["exp", "iat", "nbf", "sub", "type", "jti"],
             },
         )
 

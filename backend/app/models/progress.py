@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import Float, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -15,6 +16,9 @@ class ProgressEntry(Base):
     date: Mapped[str] = mapped_column(String, nullable=False)  # YYYY-MM-DD
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_by: Mapped[str] = mapped_column(String, nullable=False)  # user_id
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc),
+    )
 
     client: Mapped["ClientProfile"] = relationship(back_populates="progress_entries")
 

@@ -75,6 +75,7 @@ class RegisterPendingResponse(BaseModel):
 class VerifyEmailRequest(BaseModel):
     email: EmailStr
     code: str
+    password: str
 
     @field_validator("code")
     @classmethod
@@ -111,6 +112,7 @@ class UserOut(BaseModel):
     createdAt: str
 
     emailVerified: bool = False
+    trialStartedAt: Optional[str] = None
 
     lastSeenAt: Optional[str] = None
     isOnline: bool = False

@@ -35,7 +35,7 @@ async def _verify_coach_client(
         select(ClientProfile).where(
             ClientProfile.user_id == client_id,
             ClientProfile.coach_id == coach_id,
-        )
+        ).with_for_update()
     )
 
     profile = res.scalar_one_or_none()
@@ -51,10 +51,22 @@ async def _get_client_profile(
     db: AsyncSession,
 ) -> ClientProfile | None:
     res = await db.execute(
-        select(ClientProfile).where(ClientProfile.user_id == client_id)
+        select(ClientProfile).where(ClientProfile.user_id == client_id).with_for_update()
     )
 
     return res.scalar_one_or_none()
+
+
+async def sync_current_weight(profile: ClientProfile, db: AsyncSession) -> None:
+    await db.flush()
+    result = await db.execute(
+        select(ProgressEntry)
+        .where(ProgressEntry.client_id == profile.user_id)
+        .order_by(ProgressEntry.date.desc(), ProgressEntry.created_at.desc(), ProgressEntry.id.desc())
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+    profile.current_weight = latest.weight if latest else profile.start_weight
 
 
 async def _read_json_body(request: Request) -> dict[str, Any]:
@@ -104,7 +116,7 @@ async def list_progress(
     else:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    query = query.order_by(ProgressEntry.date.desc())
+    query = query.order_by(ProgressEntry.date.desc(), ProgressEntry.created_at.desc(), ProgressEntry.id.desc())
 
     res = await db.execute(query)
 
@@ -171,18 +183,14 @@ async def add_progress(
         )
 
     entry = ProgressEntry(
-        id=f"pe_{uuid.uuid4().hex[:12]}",
-        client_id=target_client_id,
-        weight=data.weight,
-        date=data.date,
-        notes=data.notes,
-        added_by=added_by,
+        id=f"pe_{uuid.uuid4().hex[:12]}", client_id=target_client_id,
+        date=data.date, weight=data.weight, notes=data.notes, added_by=added_by,
     )
 
     db.add(entry)
 
     if client_profile is not None:
-        client_profile.current_weight = data.weight
+        await sync_current_weight(client_profile, db)
 
     await db.commit()
     await db.refresh(entry)
@@ -205,13 +213,16 @@ async def delete_progress(
     if current_user.role == "client":
         if entry.client_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied")
+        profile = await _get_client_profile(entry.client_id, db)
 
     elif current_user.role == "coach":
         await require_active_coach_subscription(current_user, db)
-        await _verify_coach_client(current_user.id, entry.client_id, db)
+        profile = await _verify_coach_client(current_user.id, entry.client_id, db)
 
     else:
         raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(entry)
+    if profile is not None:
+        await sync_current_weight(profile, db)
     await db.commit()

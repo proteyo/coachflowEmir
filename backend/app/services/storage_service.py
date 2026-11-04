@@ -23,12 +23,10 @@ Important:
 
 import json
 import logging
+from datetime import timedelta
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
-
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
-from google.cloud import storage
-from google.oauth2 import service_account
 
 from app.core.config import get_settings
 
@@ -46,6 +44,31 @@ class UploadedFileResult:
     public_url: str
     content_type: str
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class MediaDownload:
+    chunks: Iterator[bytes]
+    content_type: str
+    size_bytes: int
+    content_range: str | None = None
+
+
+def byte_range(value: str | None, size: int) -> tuple[int, int, bool]:
+    if not value:
+        return 0, max(0, size - 1), False
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", value.strip())
+    if not match or not any(match.groups()) or size <= 0:
+        raise ValueError("Invalid byte range")
+    first, last = match.groups()
+    if first:
+        start = int(first)
+        end = min(int(last), size - 1) if last else size - 1
+    else:
+        start, end = max(0, size - int(last)), size - 1
+    if start > end or start >= size:
+        raise ValueError("Unsatisfiable byte range")
+    return start, end, True
 
 
 class StorageService:
@@ -66,6 +89,7 @@ class StorageService:
         self._gcs_bucket = None
 
         if self.settings.uses_s3_storage:
+            import boto3
             self._s3_client = boto3.client(
                 "s3",
                 endpoint_url=self.settings.STORAGE_ENDPOINT_URL,
@@ -85,6 +109,8 @@ class StorageService:
         """
         Initializes Google Cloud Storage client from service account JSON.
         """
+        from google.cloud import storage
+        from google.oauth2 import service_account
 
         if not self.settings.GCS_SERVICE_ACCOUNT_JSON:
             raise RuntimeError("GCS_SERVICE_ACCOUNT_JSON is not configured.")
@@ -129,6 +155,61 @@ class StorageService:
             raise RuntimeError("STORAGE_PUBLIC_BASE_URL is not configured.")
 
         return f"{self.settings.STORAGE_PUBLIC_BASE_URL.rstrip('/')}/{clean_key}"
+
+    def signed_read_url(self, key: str) -> str:
+        """Short-lived object access; the bucket must disallow public reads."""
+        if self.settings.uses_gcs_storage:
+            return self._gcs_bucket.blob(key).generate_signed_url(
+                version="v4", expiration=timedelta(seconds=60), method="GET",
+            )
+        if self.settings.uses_s3_storage:
+            return self._s3_client.generate_presigned_url(
+                "get_object", Params={"Bucket": self.settings.STORAGE_BUCKET_NAME, "Key": key},
+                ExpiresIn=60,
+            )
+        raise RuntimeError("Cloud storage is not enabled")
+
+    def open_media(self, key: str, requested_range: str | None = None) -> MediaDownload:
+        """Stream private objects through the API, keeping Range requests authorized."""
+        if self.settings.uses_s3_storage:
+            bucket = self.settings.STORAGE_BUCKET_NAME
+            metadata = self._s3_client.head_object(Bucket=bucket, Key=key)
+            total = int(metadata["ContentLength"])
+            start, end, partial = byte_range(requested_range, total)
+            params = {"Range": f"bytes={start}-{end}"} if partial else {}
+            result = self._s3_client.get_object(Bucket=bucket, Key=key, **params)
+            body = result["Body"]
+            def chunks():
+                try:
+                    yield from body.iter_chunks(chunk_size=1024 * 1024)
+                finally:
+                    body.close()
+            content_type = metadata.get("ContentType") or "application/octet-stream"
+        elif self.settings.uses_gcs_storage:
+            blob = self._gcs_bucket.blob(key)
+            blob.reload()
+            total = int(blob.size)
+            start, end, partial = byte_range(requested_range, total)
+            reader = blob.open("rb")
+            def chunks():
+                try:
+                    reader.seek(start)
+                    remaining = end - start + 1 if total else 0
+                    while remaining:
+                        chunk = reader.read(min(remaining, 1024 * 1024))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+                finally:
+                    reader.close()
+            content_type = blob.content_type or "application/octet-stream"
+        else:
+            raise RuntimeError("Cloud storage is not enabled")
+        return MediaDownload(
+            chunks(), content_type, end - start + 1 if total else 0,
+            f"bytes {start}-{end}/{total}" if partial else None,
+        )
 
     def upload_bytes(
         self,
@@ -176,6 +257,7 @@ class StorageService:
         """
         Uploads bytes to S3-compatible storage.
         """
+        from botocore.exceptions import BotoCoreError, ClientError
 
         if self._s3_client is None:
             raise RuntimeError("S3 storage client is not initialized.")

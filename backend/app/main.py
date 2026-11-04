@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -109,14 +110,17 @@ async def validation_exception_handler(
         "Validation error on %s %s: %s",
         request.method,
         request.url.path,
-        exc.errors(),
+        [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()],
     )
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "detail": "Validation error",
-            "errors": exc.errors(),
+            "errors": jsonable_encoder([
+                {key: error[key] for key in ("loc", "msg", "type") if key in error}
+                for error in exc.errors()
+            ]),
         },
     )
 
@@ -175,6 +179,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "CoachFlow API",
+        "revision": os.getenv("RENDER_GIT_COMMIT", "local"),
     }
 
 

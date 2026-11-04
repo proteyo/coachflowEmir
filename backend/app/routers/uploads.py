@@ -26,16 +26,18 @@ Production notes:
 """
 
 import logging
+import asyncio
 import os
 import re
 import uuid
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.deps import (
@@ -45,7 +47,10 @@ from app.core.deps import (
 )
 from app.db.database import get_db
 from app.models.user import User
+from app.services.auth_sessions import session_is_active
 from app.services.storage_service import get_storage_service
+from app.core.security import create_media_token, token_matches_password, verify_token_payload
+from app.services.media_access import MEDIA_PREFIXES, media_reference, require_media_access
 
 
 logger = logging.getLogger(__name__)
@@ -268,6 +273,8 @@ def prepare_jpeg_image(
 ) -> tuple[str, bytes]:
     try:
         image = Image.open(BytesIO(content))
+        if image.width * image.height > 20_000_000:
+            raise HTTPException(400, "Image dimensions are too large")
         image.verify()
 
         image = Image.open(BytesIO(content))
@@ -290,6 +297,8 @@ def prepare_jpeg_image(
 
         return filename, output.getvalue()
 
+    except HTTPException:
+        raise
     except UnidentifiedImageError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -359,7 +368,8 @@ def upload_bytes_to_storage_or_local(
                 detail="Could not upload file to cloud storage",
             ) from exc
 
-        return result.public_url, result.public_url
+        relative_url = f"{local_api_path.rstrip('/')}/{filename}"
+        return relative_url, build_public_url(relative_url)
 
     ensure_upload_dirs()
 
@@ -461,7 +471,7 @@ async def upload_voice(
             cloud_prefix=get_storage_prefix("STORAGE_VOICE_PREFIX", "voice"),
             local_dir=VOICE_DIR,
             local_api_path="/api/v1/uploads/voice",
-            cache_control="public, max-age=86400",
+            cache_control="private, no-store",
         )
 
     finally:
@@ -521,7 +531,7 @@ async def upload_chat_image(
             cloud_prefix=get_storage_prefix("STORAGE_IMAGE_PREFIX", "images"),
             local_dir=IMAGE_DIR,
             local_api_path="/api/v1/uploads/images",
-            cache_control="public, max-age=31536000, immutable",
+            cache_control="private, no-store",
         )
 
     finally:
@@ -578,7 +588,7 @@ async def upload_chat_video(
             cloud_prefix=get_storage_prefix("STORAGE_VIDEO_PREFIX", "videos"),
             local_dir=VIDEO_DIR,
             local_api_path="/api/v1/uploads/videos",
-            cache_control="public, max-age=604800",
+            cache_control="private, no-store",
         )
 
     finally:
@@ -643,7 +653,7 @@ async def upload_video_thumbnail(
             ),
             local_dir=VIDEO_THUMBNAIL_DIR,
             local_api_path="/api/v1/uploads/video-thumbnails",
-            cache_control="public, max-age=31536000, immutable",
+            cache_control="private, no-store",
         )
 
     finally:
@@ -667,6 +677,14 @@ async def get_avatar(filename: str):
     ensure_upload_dirs()
 
     safe_name = validate_safe_filename(filename)
+    if settings.uses_cloud_storage:
+        key = f"{settings.STORAGE_AVATAR_PREFIX.strip('/')}/{safe_name}"
+        try:
+            location = await asyncio.to_thread(get_storage_service().signed_read_url, key)
+        except Exception as exc:
+            logger.exception("Could not sign avatar URL")
+            raise HTTPException(status_code=503, detail="Avatar storage is unavailable") from exc
+        return RedirectResponse(location, status_code=307, headers={"Cache-Control": "no-store"})
     filepath = AVATAR_DIR / safe_name
 
     if not filepath.is_file():
@@ -685,101 +703,78 @@ async def get_avatar(filename: str):
     )
 
 
-@router.get("/voice/{filename}")
-async def get_voice(filename: str):
-    ensure_upload_dirs()
+@router.get("/access")
+async def get_media_access_url(
+    request: Request,
+    url: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    kind, filename = media_reference(url)
+    await require_media_access(kind, filename, current_user, db)
+    resource = f"{kind}/{filename}"
+    access = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    payload = verify_token_payload(access, "access")
+    if not payload or not payload.get("sid"):
+        raise HTTPException(401, "Valid session required")
+    token = create_media_token(current_user.id, current_user.password_hash, resource, payload["sid"])
+    return {"url": build_public_url(f"/api/v1/uploads/{resource}?media_token={token}")}
 
+
+async def get_media_user(
+    request: Request,
+    media_token: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    payload = verify_token_payload(media_token or "", "media")
+    resource = f"{request.path_params['kind']}/{request.path_params['filename']}"
+    if not payload or payload.get("resource") != resource:
+        raise HTTPException(status_code=401, detail="Valid media access token required")
+    result = await db.execute(select(User).where(User.id == payload["sub"]))
+    user = result.scalar_one_or_none()
+    if not user or not user.email_verified or not token_matches_password(media_token, user.password_hash, "media"):
+        raise HTTPException(status_code=401, detail="Invalid media session")
+    if not await session_is_active(media_token, db, "media"):
+        raise HTTPException(401, "Invalid media session")
+    return user
+
+
+@router.get("/{kind}/{filename}")
+async def get_chat_media(
+    request: Request,
+    kind: str,
+    filename: str,
+    current_user: User = Depends(get_media_user),
+    db: AsyncSession = Depends(get_db),
+):
     safe_name = validate_safe_filename(filename)
-    filepath = VOICE_DIR / safe_name
-
-    if not filepath.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Voice file not found",
+    await require_media_access(kind, safe_name, current_user, db)
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if settings.uses_cloud_storage:
+        setting, default = MEDIA_PREFIXES[kind]
+        key = f"{get_storage_prefix(setting, default)}/{safe_name}"
+        try:
+            download = await asyncio.to_thread(get_storage_service().open_media, key, request.headers.get("range"))
+        except ValueError as exc:
+            raise HTTPException(status_code=416, detail="Invalid media byte range") from exc
+        except Exception as exc:
+            logger.exception("Could not open private media")
+            raise HTTPException(status_code=503, detail="Media storage is unavailable") from exc
+        headers.update({"Accept-Ranges": "bytes", "Content-Length": str(download.size_bytes)})
+        if download.content_range:
+            headers["Content-Range"] = download.content_range
+        return StreamingResponse(
+            download.chunks, media_type=download.content_type,
+            status_code=206 if download.content_range else 200, headers=headers,
         )
 
+    directory = {"voice": VOICE_DIR, "images": IMAGE_DIR, "videos": VIDEO_DIR,
+                 "video-thumbnails": VIDEO_THUMBNAIL_DIR}[kind]
+    filepath = directory / safe_name
+    if not filepath.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found")
     extension = filepath.suffix.lower()
-    media_type = VOICE_MEDIA_TYPES.get(extension, "application/octet-stream")
-
-    return FileResponse(
-        filepath,
-        media_type=media_type,
-        headers={
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=86400",
-            "X-Content-Type-Options": "nosniff",
-        },
+    media_type = VOICE_MEDIA_TYPES.get(extension, "application/octet-stream") if kind == "voice" else (
+        VIDEO_MEDIA_TYPES.get(extension, "application/octet-stream") if kind == "videos" else "image/jpeg"
     )
-
-
-@router.get("/images/{filename}")
-async def get_chat_image(filename: str):
-    ensure_upload_dirs()
-
-    safe_name = validate_safe_filename(filename)
-    filepath = IMAGE_DIR / safe_name
-
-    if not filepath.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Image file not found",
-        )
-
-    return FileResponse(
-        filepath,
-        media_type="image/jpeg",
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-
-
-@router.get("/videos/{filename}")
-async def get_chat_video(filename: str):
-    ensure_upload_dirs()
-
-    safe_name = validate_safe_filename(filename)
-    filepath = VIDEO_DIR / safe_name
-
-    if not filepath.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video file not found",
-        )
-
-    extension = filepath.suffix.lower()
-    media_type = VIDEO_MEDIA_TYPES.get(extension, "application/octet-stream")
-
-    return FileResponse(
-        filepath,
-        media_type=media_type,
-        headers={
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=604800",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-
-
-@router.get("/video-thumbnails/{filename}")
-async def get_video_thumbnail(filename: str):
-    ensure_upload_dirs()
-
-    safe_name = validate_safe_filename(filename)
-    filepath = VIDEO_THUMBNAIL_DIR / safe_name
-
-    if not filepath.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video thumbnail not found",
-        )
-
-    return FileResponse(
-        filepath,
-        media_type="image/jpeg",
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
+    return FileResponse(filepath, media_type=media_type, headers=headers)

@@ -1,3 +1,4 @@
+from app.services.auth_sessions import session_is_active
 """
 FastAPI dependencies for authentication, role checks and subscription checks.
 """
@@ -9,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_token
+from app.core.security import decode_token, token_matches_password
 from app.db.database import get_db
 from app.models.profile import ClientProfile
 from app.models.subscription import Subscription
@@ -125,8 +126,11 @@ async def get_current_user(
 
     user = result.scalar_one_or_none()
 
-    if not user:
+    if not user or not user.email_verified or not token_matches_password(token, user.password_hash):
         raise unauthorized("Invalid or expired token")
+
+    if not await session_is_active(token, db):
+        raise unauthorized("Session has ended. Please log in again.")
 
     await update_user_last_seen(user=user, db=db)
 
