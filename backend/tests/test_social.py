@@ -156,6 +156,52 @@ class SocialTests(unittest.IsolatedAsyncioTestCase):
         self.current = self.coach
         self.assertEqual((await self.http.patch(f"/api/v1/social/stories/{story.id}/view", json={})).status_code, 404)
 
+    async def test_story_like_can_be_toggled_but_owner_cannot_like_their_own(self):
+        response = await self.http.post("/api/v1/social/stories", json={"media_url": "/api/v1/uploads/images/u_client_photo.jpg", "media_type": "image"})
+        sid = response.json()["id"]
+        self.assertEqual((await self.http.patch(f"/api/v1/social/stories/{sid}/view", json={"liked": True})).status_code, 403)
+        self.assertEqual((await self.http.patch(f"/api/v1/social/stories/{sid}/view", json={})).status_code, 200)
+        self.assertEqual((await self.http.get(f"/api/v1/social/stories/{sid}/viewers")).json(), [])
+        self.current = self.coach
+        for liked in (True, False, True, False):
+            result = await self.http.patch(f"/api/v1/social/stories/{sid}/view", json={"liked": liked})
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()["liked"], liked)
+        self.current = self.client
+        result = (await self.http.get(f"/api/v1/social/stories/{sid}/viewers")).json()
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0]["liked"])
+
+    async def test_feed_includes_public_stories_without_leaking_private_or_blocked_ones(self):
+        self.session.add_all([Story(user_id=self.stranger.id, media_url="/api/v1/uploads/images/u_stranger_public.jpg", media_type="image", visibility="public"), Story(user_id=self.stranger.id, media_url="/api/v1/uploads/images/u_stranger_private.jpg", media_type="image", visibility="contacts")]); self.session.commit()
+        feed = (await self.http.get("/api/v1/social/stories")).json()
+        self.assertEqual(len(feed), 1)
+        self.assertIn("public", feed[0]["mediaUrl"])
+        await self.http.patch(f"/api/v1/social/blocks/{self.stranger.id}", json={"blocked": True})
+        self.assertEqual((await self.http.get("/api/v1/social/stories")).json(), [])
+
+    async def test_inbox_read_receipts_belong_to_the_message_sender(self):
+        item = Message(sender_id=self.client.id, receiver_id=self.coach.id, content="Hello", read=False)
+        self.session.add(item); self.session.commit()
+        row = next(row for row in (await self.http.get("/api/v1/social/inbox")).json() if row["id"] == self.coach.id)
+        self.assertTrue(row["outgoing"]); self.assertEqual(row["delivery"], "sent")
+        item.read = True; self.session.commit()
+        row = next(row for row in (await self.http.get("/api/v1/social/inbox")).json() if row["id"] == self.coach.id)
+        self.assertEqual(row["delivery"], "read")
+        item.sender_id = self.coach.id; item.receiver_id = self.client.id; self.session.commit()
+        row = next(row for row in (await self.http.get("/api/v1/social/inbox")).json() if row["id"] == self.coach.id)
+        self.assertFalse(row["outgoing"]); self.assertIsNone(row["delivery"])
+
+    async def test_group_read_receipt_requires_other_members_to_read(self):
+        gid = await self.group()
+        message = GroupMessage(group_id=gid, sender_id=self.client.id, content="Team message", client_id="receipt-test")
+        self.session.add(message); self.session.commit()
+        row = next(row for row in (await self.http.get("/api/v1/social/inbox")).json() if row["id"] == gid)
+        self.assertEqual(row["delivery"], "sent")
+        member = self.session.get(ChatMember, (gid, self.coach.id)); member.read_at = datetime.now(timezone.utc) + timedelta(seconds=1); self.session.commit()
+        row = next(row for row in (await self.http.get("/api/v1/social/inbox")).json() if row["id"] == gid)
+        self.assertEqual(row["delivery"], "read")
+
     async def test_unlinking_does_not_erase_old_chat_access(self):
         self.session.add(Message(sender_id=self.client.id, receiver_id=self.coach.id, content="History"))
         profile = self.session.get(ClientProfile, self.client.id); profile.coach_id = None

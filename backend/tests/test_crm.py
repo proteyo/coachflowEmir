@@ -109,7 +109,7 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.current = self.stranger
         profile = (await self.http.get(f"/api/v1/social/profile/{self.client.id}")).json()
         self.assertFalse(profile["isOwn"]); self.assertFalse(profile["canAssess"]); self.assertFalse(profile["canManageClient"])
-        self.assertIsNone(profile["attendance"]); self.assertEqual(profile["assessments"], [])
+        self.assertIsNone(profile["attendance"]); self.assertEqual(len(profile["assessments"]), 1)
         coach = (await self.http.get(f"/api/v1/social/profile/{self.coach.id}")).json()
         self.assertEqual(coach["coach"]["certificates"], ["Certified"])
         self.assertIn("cover", coach["coach"]["coverImageUrl"])
@@ -132,3 +132,8 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(public["coach"]["coverImageUrl"], cover)
         denied = await self.http.patch("/api/v1/users/me/coach-profile", json={"cover_image_url": cover})
         self.assertEqual(denied.status_code, 403)
+
+    async def test_editing_public_goal_does_not_erase_coach_bio(self):
+        response = await self.http.patch("/api/v1/social/profile", json={"goal": "New goal", "birth_year": "1995"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.session.get(CoachProfile, self.coach.id).bio, "About me")

@@ -210,14 +210,15 @@ async def inbox(user: User = Depends(get_current_user), db: AsyncSession = Depen
         message = by_partner.get(p["id"])
         if setting and setting.hidden and not message:
             continue
-        rows.append({**p, "kind": "direct", "pinned": bool(setting and setting.pinned), "muted": bool(setting and setting.muted), "unread": unread.get(p["id"], 0), "preview": message.content if message and message.message_type == "text" else "", "messageType": message.message_type if message else None, "updatedAt": message.created_at.isoformat() if message else "", "canDeleteEveryone": True})
+        rows.append({**p, "kind": "direct", "pinned": bool(setting and setting.pinned), "muted": bool(setting and setting.muted), "unread": unread.get(p["id"], 0), "preview": message.content if message and message.message_type == "text" else "", "messageType": message.message_type if message else None, "updatedAt": message.created_at.isoformat() if message else "", "canDeleteEveryone": True, "outgoing": bool(message and message.sender_id == user.id), "delivery": ("read" if message.read else "sent") if message and message.sender_id == user.id else None})
     memberships = (await db.execute(select(ChatMember, ChatGroup).join(ChatGroup, ChatGroup.id == ChatMember.group_id).where(ChatMember.user_id == user.id))).all()
     for membership, group in memberships:
         last = (await db.execute(select(GroupMessage).where(GroupMessage.group_id == group.id).order_by(GroupMessage.created_at.desc()).limit(1))).scalar_one_or_none()
         if membership.hidden and (not last or user.id in last.hidden_for):
             continue
         count = (await db.execute(select(func.count()).select_from(GroupMessage).where(GroupMessage.group_id == group.id, GroupMessage.sender_id != user.id, GroupMessage.created_at > membership.read_at if membership.read_at else True))).scalar_one()
-        rows.append({"id": group.id, "name": group.name, "kind": "group", "pinned": membership.pinned, "muted": membership.muted, "unread": count, "preview": last.content if last and user.id not in last.hidden_for else "", "messageType": last.media_type if last else None, "updatedAt": last.created_at.isoformat() if last else group.created_at.isoformat(), "canDeleteEveryone": group.owner_id == user.id})
+        pending_reader = (await db.execute(select(ChatMember.user_id).where(ChatMember.group_id == group.id, ChatMember.user_id != user.id, or_(ChatMember.read_at.is_(None), ChatMember.read_at < last.created_at)).limit(1))).first() if last and last.sender_id == user.id else None
+        rows.append({"id": group.id, "name": group.name, "kind": "group", "pinned": membership.pinned, "muted": membership.muted, "unread": count, "preview": last.content if last and user.id not in last.hidden_for else "", "messageType": last.media_type if last else None, "updatedAt": last.created_at.isoformat() if last else group.created_at.isoformat(), "canDeleteEveryone": group.owner_id == user.id, "outgoing": bool(last and last.sender_id == user.id and user.id not in last.hidden_for), "delivery": ("sent" if pending_reader else "read") if last and last.sender_id == user.id and user.id not in last.hidden_for else None})
     return sorted(rows, key=lambda row: (row["pinned"], row["updatedAt"]), reverse=True)
 
 
@@ -394,9 +395,9 @@ async def save_profile(data: ProfileIn, user: User = Depends(get_current_user), 
     if not item:
         item = SocialProfile(user_id=user.id)
         db.add(item)
-    for key, value in data.model_dump().items():
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
-    if user.role == "coach":
+    if user.role == "coach" and "bio" in data.model_fields_set:
         coach_profile = (await db.execute(select(CoachProfile).where(CoachProfile.user_id == user.id))).scalar_one_or_none()
         if coach_profile:
             coach_profile.bio = data.bio
@@ -428,9 +429,9 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
     own = user.id == user_id
     is_blocked = await blocked(user.id, user_id, db)
     assessments = []
-    if not is_blocked and (own or own_coach or former or (profile and profile.show_rating)):
+    if not is_blocked:
         rows = (await db.execute(select(ClientAssessment, User, CoachProfile).join(User, User.id == ClientAssessment.coach_id).outerjoin(CoachProfile, CoachProfile.user_id == User.id).where(ClientAssessment.client_id == user_id).order_by(ClientAssessment.updated_at.desc()))).all()
-        assessments = [{"id": a.id, "author": {**person(coach), "experienceYears": cp.experience_years if cp else 0}, "rating": round((a.discipline_rating + a.progress_rating + a.communication_rating) / 3, 1), "disciplineRating": a.discipline_rating, "progressRating": a.progress_rating, "communicationRating": a.communication_rating, "comment": a.comment, "createdAt": a.updated_at.isoformat()} for a, coach, cp in rows if own or own_coach or (profile and profile.show_rating) or a.coach_id == user.id]
+        assessments = [{"id": a.id, "author": {**person(coach), "experienceYears": cp.experience_years if cp else 0}, "rating": round((a.discipline_rating + a.progress_rating + a.communication_rating) / 3, 1), "disciplineRating": a.discipline_rating, "progressRating": a.progress_rating, "communicationRating": a.communication_rating, "comment": a.comment, "createdAt": a.updated_at.isoformat()} for a, coach, cp in rows]
     if target.role == "coach" and not is_blocked:
         reviews = (await db.execute(select(CoachReview, User).join(User, User.id == CoachReview.client_id).where(CoachReview.coach_id == user_id).order_by(CoachReview.updated_at.desc()))).all()
         assessments = [{"id": review.id, "author": person(author), "rating": review.rating, "comment": review.comment, "createdAt": review.updated_at.isoformat()} for review, author in reviews]
@@ -448,7 +449,7 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
         attendance = {"missed": sum(1 for r in records if r.status == "missed"), "attended": sum(1 for r in records if r.status == "attended"), "streak": streak}
     active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
     access = await access_state(user_id, db) if target.role == "client" and (own or own_coach) else None
-    return {**person(target), "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": bool(profile and profile.show_rating), "assessments": assessments,
+    return {**person(target), "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": not is_blocked, "assessments": assessments,
         "coach": {"specialty": professional.specialty, "experienceYears": professional.experience_years, "achievements": public_list(professional.achievements), "certificates": public_list(professional.certificates), "coverImageUrl": canonical_avatar_url(professional.cover_image_url)} if professional and not is_blocked else None,
         "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach,
         "canSeeTraining": bool((own_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
@@ -487,13 +488,16 @@ def story_out(story, owner):
 async def stories(owner_id: str | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     ids = (await contacts(user, db)) | {user.id}
     query = select(Story, User).join(User, Story.user_id == User.id).where(or_(Story.expires_at.is_(None), Story.expires_at > now()))
-    query = query.where(Story.user_id == owner_id) if owner_id else query.where(Story.user_id.in_(ids))
+    query = query.where(Story.user_id == owner_id) if owner_id else query.where(or_(Story.user_id.in_(ids), Story.visibility == "public"))
     rows = (await db.execute(query.order_by(Story.created_at.desc()).limit(200))).all()
+    block_rows = (await db.execute(select(UserBlock).where(or_(UserBlock.user_id == user.id, UserBlock.target_id == user.id)))).scalars().all()
+    blocked_ids = {item.target_id if item.user_id == user.id else item.user_id for item in block_rows}
+    views = {view.story_id: view for view in (await db.execute(select(StoryView).where(StoryView.user_id == user.id, StoryView.story_id.in_([story.id for story, _ in rows])))).scalars().all()}
     result = []
     for story, owner in rows:
-        if await can_view_story(story, user, db):
-            view = await db.get(StoryView, (story.id, user.id))
-            result.append({**story_out(story, owner), "seen": bool(view), "liked": bool(view and view.liked)})
+        if story.user_id == user.id or (story.user_id not in blocked_ids and (story.visibility == "public" or story.user_id in ids)):
+            view = views.get(story.id)
+            result.append({**story_out(story, owner), "seen": story.user_id == user.id or bool(view), "liked": bool(story.user_id != user.id and view and view.liked)})
     return result
 
 
@@ -542,6 +546,10 @@ async def story_view(story_id: str, data: StoryViewIn, user: User = Depends(get_
     story = await db.get(Story, story_id)
     if not story or not await can_view_story(story, user, db):
         raise HTTPException(404, "Story not found")
+    if story.user_id == user.id:
+        if data.liked is not None:
+            raise HTTPException(403, "You cannot like your own story")
+        return {"ok": True, "liked": False}
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     item = await db.get(StoryView, (story_id, user.id))
     if not item:
@@ -550,7 +558,7 @@ async def story_view(story_id: str, data: StoryViewIn, user: User = Depends(get_
     if data.liked is not None:
         item.liked = data.liked
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "liked": item.liked}
 
 
 @router.get("/stories/{story_id}/viewers")
@@ -558,5 +566,5 @@ async def story_viewers(story_id: str, user: User = Depends(get_current_user), d
     story = await db.get(Story, story_id)
     if not story or story.user_id != user.id:
         raise HTTPException(404, "Story not found")
-    rows = (await db.execute(select(StoryView, User).join(User, User.id == StoryView.user_id).where(StoryView.story_id == story_id).order_by(StoryView.viewed_at.desc()))).all()
+    rows = (await db.execute(select(StoryView, User).join(User, User.id == StoryView.user_id).where(StoryView.story_id == story_id, StoryView.user_id != story.user_id).order_by(StoryView.viewed_at.desc()))).all()
     return [{**person(p), "liked": view.liked, "viewedAt": view.viewed_at.isoformat()} for view, p in rows]
