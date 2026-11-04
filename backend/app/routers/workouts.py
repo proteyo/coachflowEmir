@@ -1,3 +1,4 @@
+from app.services.training_access import client_coach_id
 """
 GET    /workouts                      — list workouts (coach: all mine; client: own)
 POST   /workouts                      — create manually (coach only + active subscription)
@@ -498,6 +499,7 @@ async def list_workouts(
             query = query.where(WorkoutAssignment.client_id == client_id)
     else:
         query = query.where(WorkoutAssignment.client_id == current_user.id)
+        query = query.where(WorkoutAssignment.coach_id == await client_coach_id(current_user.id, db))
 
     if date:
         query = query.where(WorkoutAssignment.date == date)
@@ -664,7 +666,7 @@ async def get_workout(
     if current_user.role == "coach" and workout.coach_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if current_user.role == "client" and workout.client_id != current_user.id:
+    if current_user.role == "client" and (workout.client_id != current_user.id or workout.coach_id != await client_coach_id(current_user.id, db)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return workout_out(workout)

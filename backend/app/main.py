@@ -6,7 +6,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
+from app.services.training_access import require_training_access
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -149,18 +150,18 @@ async def global_exception_handler(
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(clients.router, prefix=API_PREFIX)
-app.include_router(workouts.router, prefix=API_PREFIX)
-app.include_router(supplements.router, prefix=API_PREFIX)
-app.include_router(progress.router, prefix=API_PREFIX)
+app.include_router(workouts.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
+app.include_router(supplements.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
+app.include_router(progress.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 app.include_router(messages.router, prefix=API_PREFIX)
-app.include_router(weekly_goals.router, prefix=API_PREFIX)
-app.include_router(attendance.router, prefix=API_PREFIX)
-app.include_router(streak.router, prefix=API_PREFIX)
+app.include_router(weekly_goals.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
+app.include_router(attendance.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
+app.include_router(streak.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 app.include_router(places.router, prefix=API_PREFIX)
 app.include_router(subscriptions.router, prefix=API_PREFIX)
 app.include_router(uploads.router, prefix=API_PREFIX)
 app.include_router(reviews.router, prefix=API_PREFIX)
-app.include_router(exercise_results.router, prefix=API_PREFIX)
+app.include_router(exercise_results.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 
 
 # ── Health checks ──────────────────────────────────────────────────────────────
@@ -207,3 +208,6 @@ async def database_health():
 
 from app.routers import social
 app.include_router(social.router, prefix=API_PREFIX)
+
+from app.routers import crm
+app.include_router(crm.router, prefix=API_PREFIX)

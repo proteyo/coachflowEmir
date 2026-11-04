@@ -41,9 +41,9 @@ class MessageIn(BaseModel):
 
     # Frontend creates this temp id and backend returns it back.
     # This protects chat from duplicate messages.
-    client_temp_id: Optional[str] = None
+    client_temp_id: Optional[str] = Field(default=None, max_length=100)
 
-    content: str = ""
+    content: str = Field(default="", max_length=6000)
     message_type: str = "text"
 
     # Reply to another message.

@@ -187,10 +187,10 @@ async def patch_coach_profile(
         )
 
     if data.specialty is not None:
-        profile.specialty = clean_optional_string(data.specialty)
+        profile.specialty = data.specialty.strip()
 
     if data.bio is not None:
-        profile.bio = clean_optional_string(data.bio)
+        profile.bio = data.bio.strip()
 
     if data.experience_years is not None:
         if data.experience_years < 0:
@@ -248,7 +248,12 @@ async def get_client_profile(
             detail="Client profile not found",
         )
 
-    return client_profile_out(profile)
+    from app.services.training_access import access_state
+    access = await access_state(current_user.id, db)
+    result = client_profile_out(profile)
+    result.trainingAccess = access["allowed"]
+    result.contractEndsOn = access["endsOn"]
+    return result
 
 
 @router.patch("/me/client-profile", response_model=ClientProfileOut)
@@ -310,7 +315,12 @@ async def patch_client_profile(
     await db.commit()
     await db.refresh(profile)
 
-    return client_profile_out(profile)
+    from app.services.training_access import access_state
+    access = await access_state(current_user.id, db)
+    result = client_profile_out(profile)
+    result.trainingAccess = access["allowed"]
+    result.contractEndsOn = access["endsOn"]
+    return result
 
 
 # ── Notifications ──────────────────────────────────────────────────────────────

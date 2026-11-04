@@ -1,3 +1,4 @@
+from app.services.training_access import client_coach_id
 """
 Supplements API.
 
@@ -115,6 +116,7 @@ async def _get_client_item(
         .where(
             SupplementItem.id == supplement_item_id,
             SupplementPlan.client_id == client_id,
+            SupplementPlan.coach_id == await client_coach_id(client_id, db),
         )
     )
 
@@ -181,7 +183,7 @@ async def list_plans(
         if client_id and client_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        query = query.where(SupplementPlan.client_id == current_user.id)
+        query = query.where(SupplementPlan.client_id == current_user.id, SupplementPlan.coach_id == await client_coach_id(current_user.id, db))
 
     else:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -261,7 +263,7 @@ async def get_plan(
         await _verify_coach_client(current_user.id, plan.client_id, db)
 
     elif current_user.role == "client":
-        if plan.client_id != current_user.id:
+        if plan.client_id != current_user.id or plan.coach_id != await client_coach_id(current_user.id, db):
             raise HTTPException(status_code=403, detail="Access denied")
 
     else:
@@ -399,7 +401,7 @@ async def list_logs(
         if client_id and client_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        query = query.where(SupplementLog.client_id == current_user.id)
+        query = query.join(SupplementItem, SupplementItem.id == SupplementLog.supplement_item_id).join(SupplementPlan, SupplementPlan.id == SupplementItem.plan_id).where(SupplementLog.client_id == current_user.id, SupplementPlan.coach_id == await client_coach_id(current_user.id, db))
 
     elif current_user.role == "coach":
         await _ensure_coach_subscription_if_needed(current_user, db)

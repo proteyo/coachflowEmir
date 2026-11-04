@@ -74,6 +74,10 @@ async def ensure_client_linked_to_coach(
     profile = res.scalar_one_or_none()
 
     if not profile:
+        from app.models.engagement import ClientEngagement
+        former = (await db.execute(select(ClientEngagement).where(ClientEngagement.coach_id == coach_id, ClientEngagement.client_id == client_id))).scalar_one_or_none()
+        if former:
+            return former
         raise HTTPException(
             status_code=403,
             detail="This client is not linked to this coach",

@@ -1,3 +1,4 @@
+from app.core.deps import require_coach
 """
 Client management.
 
@@ -161,92 +162,6 @@ async def _ensure_client_limit(coach_id: str, db: AsyncSession):
                 f"Upgrade your plan to add more clients."
             ),
         )
-
-
-async def _delete_coach_client_assigned_data(
-    coach_id: str,
-    client_id: str,
-    db: AsyncSession,
-) -> None:
-    """
-    Removes all data assigned by this coach to this client.
-
-    This does NOT delete:
-    - client account
-    - client profile
-    - client weight progress
-    - chat messages
-
-    It deletes:
-    - workouts assigned by this coach
-    - workout exercises through cascade
-    - exercise results connected to this coach/client
-    - supplement plans assigned by this coach
-    - supplement items/logs connected to these plans
-    - attendance created under this coach-client relationship
-    - weekly goals for this client
-    - old invites between this coach and client
-    """
-
-    workout_ids = select(WorkoutAssignment.id).where(
-        WorkoutAssignment.coach_id == coach_id,
-        WorkoutAssignment.client_id == client_id,
-    )
-
-    supplement_plan_ids = select(SupplementPlan.id).where(
-        SupplementPlan.coach_id == coach_id,
-        SupplementPlan.client_id == client_id,
-    )
-
-    supplement_item_ids = select(SupplementItem.id).where(
-        SupplementItem.plan_id.in_(supplement_plan_ids)
-    )
-
-    await db.execute(
-        delete(ExerciseResult).where(
-            ExerciseResult.coach_id == coach_id,
-            ExerciseResult.client_id == client_id,
-        )
-    )
-
-    await db.execute(
-        delete(SupplementLog).where(
-            SupplementLog.client_id == client_id,
-            SupplementLog.supplement_item_id.in_(supplement_item_ids),
-        )
-    )
-
-    await db.execute(
-        delete(WorkoutAssignment).where(
-            WorkoutAssignment.id.in_(workout_ids),
-        )
-    )
-
-    await db.execute(
-        delete(SupplementPlan).where(
-            SupplementPlan.id.in_(supplement_plan_ids),
-        )
-    )
-
-    await db.execute(
-        delete(Attendance).where(
-            Attendance.coach_id == coach_id,
-            Attendance.client_id == client_id,
-        )
-    )
-
-    await db.execute(
-        delete(WeeklyGoal).where(
-            WeeklyGoal.client_id == client_id,
-        )
-    )
-
-    await db.execute(
-        delete(ClientInvite).where(
-            ClientInvite.coach_id == coach_id,
-            ClientInvite.client_id == client_id,
-        )
-    )
 
 
 @router.get("", response_model=list[ClientWithProfileOut])
@@ -642,29 +557,29 @@ async def get_client(
 @router.delete("/{client_id}", status_code=204)
 async def unlink_client(
     client_id: str,
-    coach: User = Depends(require_active_coach_subscription),
+    coach: User = Depends(require_coach),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Coach can unlink client only with active subscription.
+    A coach can archive their own client even after their platform plan expires.
 
-    When the coach removes a client, all coach-assigned data is removed too:
-    workouts, exercises, supplements, attendance, weekly goals,
-    exercise results and private client assessment.
+    Removing a client closes training access and archives their relationship.
+    Existing training records, conversations and reviews are preserved.
 
     The client account and personal profile are not deleted.
     """
-    client_user = await _get_client_or_404(client_id, db)
-    profile = client_user.client_profile
-
+    await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
+    profile = (await db.execute(select(ClientProfile).where(ClientProfile.user_id == client_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if not profile or profile.coach_id != coach.id:
         raise HTTPException(status_code=403, detail="This client is not linked to you")
 
-    await _delete_coach_client_assigned_data(
-        coach_id=coach.id,
-        client_id=client_id,
-        db=db,
-    )
+    from app.models.engagement import ClientEngagement
+    engagement = (await db.execute(select(ClientEngagement).where(ClientEngagement.coach_id == coach.id, ClientEngagement.client_id == client_id))).scalar_one_or_none()
+    if engagement is None:
+        engagement = ClientEngagement(coach_id=coach.id, client_id=client_id)
+        db.add(engagement)
+    engagement.status = "paused"
+    engagement.updated_at = now_utc()
 
     profile.coach_id = None
 

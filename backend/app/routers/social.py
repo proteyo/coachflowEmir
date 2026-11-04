@@ -1,14 +1,15 @@
 """Inbox, groups and explicitly published profile content. Never returns health data."""
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.deps import get_current_user, require_active_coach_subscription
+from app.core.deps import get_current_user, require_active_coach_subscription, get_active_subscription
 from app.db.database import get_db, AsyncSessionLocal
 from app.models.user import User
-from app.models.profile import ClientProfile
+from app.models.profile import ClientProfile, CoachProfile
 from app.models.message import Message
 from app.models.review import ClientAssessment, CoachReview
 from app.models.social import ChatGroup, ChatMember, ConversationSetting, GroupMessage, SocialProfile, Story, StoryView, UserBlock
@@ -33,6 +34,9 @@ async def contacts(user, db):
     # Unlinking coaching does not erase an existing conversation.
     messages = (await db.execute(select(Message.sender_id, Message.receiver_id).where(or_(Message.sender_id == user.id, Message.receiver_id == user.id)).distinct())).all()
     ids.update(b if a == user.id else a for a, b in messages if b)
+    from app.models.engagement import ClientEngagement
+    former = (await db.execute(select(ClientEngagement.coach_id, ClientEngagement.client_id).where(or_(ClientEngagement.coach_id == user.id, ClientEngagement.client_id == user.id)))).all()
+    ids.update(b if a == user.id else a for a, b in former)
     ids.discard(user.id)
     return ids
 
@@ -392,27 +396,62 @@ async def save_profile(data: ProfileIn, user: User = Depends(get_current_user), 
         db.add(item)
     for key, value in data.model_dump().items():
         setattr(item, key, value)
+    if user.role == "coach":
+        coach_profile = (await db.execute(select(CoachProfile).where(CoachProfile.user_id == user.id))).scalar_one_or_none()
+        if coach_profile:
+            coach_profile.bio = data.bio
     await db.commit()
     return {"ok": True}
 
 
+def public_list(value):
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+        return [str(item)[:1000] for item in parsed[:50]] if isinstance(parsed, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
 @router.get("/profile/{user_id}")
 async def public_profile(user_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.models.engagement import ClientEngagement
+    from app.models.attendance import Attendance
+    from app.services.training_access import access_state
     target = await db.get(User, user_id)
     if not target:
         raise HTTPException(404, "User not found")
     profile = await db.get(SocialProfile, user_id)
     private = await db.get(ClientProfile, user_id)
-    own_coach = bool(private and private.coach_id == user.id)
+    professional = await db.get(CoachProfile, user_id) if target.role == "coach" else None
+    own_coach = bool(user.role == "coach" and private and private.coach_id == user.id)
+    former = await db.get(ClientEngagement, (user.id, user_id)) if user.role == "coach" and target.role == "client" else None
+    own = user.id == user_id
     is_blocked = await blocked(user.id, user_id, db)
     assessments = []
-    if not is_blocked and (user.id == user_id or own_coach or (profile and profile.show_rating)):
-        rows = (await db.execute(select(ClientAssessment, User).join(User, User.id == ClientAssessment.coach_id).where(ClientAssessment.client_id == user_id).order_by(ClientAssessment.updated_at.desc()))).all()
-        assessments = [{"id": a.id, "author": person(coach), "rating": round((a.discipline_rating + a.progress_rating + a.communication_rating) / 3, 1), "comment": a.comment, "createdAt": a.updated_at.isoformat()} for a, coach in rows]
+    if not is_blocked and (own or own_coach or former or (profile and profile.show_rating)):
+        rows = (await db.execute(select(ClientAssessment, User, CoachProfile).join(User, User.id == ClientAssessment.coach_id).outerjoin(CoachProfile, CoachProfile.user_id == User.id).where(ClientAssessment.client_id == user_id).order_by(ClientAssessment.updated_at.desc()))).all()
+        assessments = [{"id": a.id, "author": {**person(coach), "experienceYears": cp.experience_years if cp else 0}, "rating": round((a.discipline_rating + a.progress_rating + a.communication_rating) / 3, 1), "disciplineRating": a.discipline_rating, "progressRating": a.progress_rating, "communicationRating": a.communication_rating, "comment": a.comment, "createdAt": a.updated_at.isoformat()} for a, coach, cp in rows if own or own_coach or (profile and profile.show_rating) or a.coach_id == user.id]
     if target.role == "coach" and not is_blocked:
         reviews = (await db.execute(select(CoachReview, User).join(User, User.id == CoachReview.client_id).where(CoachReview.coach_id == user_id).order_by(CoachReview.updated_at.desc()))).all()
         assessments = [{"id": review.id, "author": person(author), "rating": review.rating, "comment": review.comment, "createdAt": review.updated_at.isoformat()} for review, author in reviews]
-    return {**person(target), "bio": profile.bio if profile and not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": bool(profile and profile.show_rating), "assessments": assessments, "canSeeTraining": (own_coach or (user.id == user_id and private is not None)) and not is_blocked, "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
+    attendance = None
+    if not is_blocked and (own_coach or (own and target.role == "client")):
+        coach_id = user.id if own_coach else private.coach_id if private else None
+        records = (await db.execute(select(Attendance).where(Attendance.client_id == user_id, Attendance.coach_id == coach_id).order_by(Attendance.date.desc()))).scalars().all()
+        streak = 0
+        for record in records:
+            if record.status == "rest":
+                continue
+            if record.status != "attended":
+                break
+            streak += 1
+        attendance = {"missed": sum(1 for r in records if r.status == "missed"), "attended": sum(1 for r in records if r.status == "attended"), "streak": streak}
+    active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
+    access = await access_state(user_id, db) if target.role == "client" and (own or own_coach) else None
+    return {**person(target), "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": bool(profile and profile.show_rating), "assessments": assessments,
+        "coach": {"specialty": professional.specialty, "experienceYears": professional.experience_years, "achievements": public_list(professional.achievements), "certificates": public_list(professional.certificates), "coverImageUrl": canonical_avatar_url(professional.cover_image_url)} if professional and not is_blocked else None,
+        "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach,
+        "canSeeTraining": bool((own_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
 
 
 async def can_view_story(story, user, db):

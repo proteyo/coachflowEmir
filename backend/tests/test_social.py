@@ -20,7 +20,7 @@ from app.models.social import ChatMember, ConversationSetting, GroupMessage, Soc
 class LocalClient:
     async def request(self, method, url, json=None):
         status, body = await regression.RegressionTests.request(None, method, url, json)
-        return SimpleNamespace(status_code=status, text=json_module.dumps(body), json=lambda: body)
+        return SimpleNamespace(status_code=status, text=body.decode() if isinstance(body, bytes) else json_module.dumps(body), json=lambda: body)
     async def get(self, url): return await self.request("GET", url)
     async def post(self, url, json=None): return await self.request("POST", url, json)
     async def patch(self, url, json=None): return await self.request("PATCH", url, json)

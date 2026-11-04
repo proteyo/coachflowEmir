@@ -1,3 +1,4 @@
+from app.services.training_access import client_coach_id
 """
 Attendance API.
 
@@ -125,6 +126,7 @@ async def list_attendance(
             raise HTTPException(status_code=403, detail="Access denied")
 
         query = query.where(Attendance.client_id == current_user.id)
+        query = query.where(Attendance.coach_id == await client_coach_id(current_user.id, db))
 
     elif current_user.role == "coach":
         await _ensure_coach_subscription_if_needed(current_user, db)
@@ -219,7 +221,7 @@ async def get_attendance_record(
     record = await _get_attendance_record(record_id, db)
 
     if current_user.role == "client":
-        if record.client_id != current_user.id:
+        if record.client_id != current_user.id or record.coach_id != await client_coach_id(current_user.id, db):
             raise HTTPException(status_code=403, detail="Access denied")
 
     elif current_user.role == "coach":

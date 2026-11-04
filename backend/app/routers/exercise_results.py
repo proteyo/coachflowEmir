@@ -1,3 +1,4 @@
+from app.services.training_access import client_coach_id
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -138,7 +139,7 @@ async def create_result_from_payload(
     workout = await get_workout_or_404(data.workout_id, db)
 
     if current_user.role == "client":
-        if workout.client_id != current_user.id:
+        if workout.client_id != current_user.id or workout.coach_id != await client_coach_id(current_user.id, db):
             raise HTTPException(status_code=403, detail="Access denied")
 
     elif current_user.role == "coach":
@@ -252,7 +253,8 @@ async def list_results(
     query = select(ExerciseResult)
 
     if current_user.role == "client":
-        query = query.where(ExerciseResult.client_id == current_user.id)
+        query = query.where(ExerciseResult.client_id == current_user.id, ExerciseResult.coach_id == await client_coach_id(current_user.id, db))
+        query = query.where(ExerciseResult.coach_id == await client_coach_id(current_user.id, db))
 
     elif current_user.role == "coach":
         await ensure_coach_subscription_if_needed(current_user, db)
@@ -348,7 +350,7 @@ async def get_my_exercise_history(
 
     res = await db.execute(
         select(ExerciseResult)
-        .where(ExerciseResult.client_id == current_user.id)
+        .where(ExerciseResult.client_id == current_user.id, ExerciseResult.coach_id == await client_coach_id(current_user.id, db))
         .order_by(
             ExerciseResult.exercise_name.asc(),
             ExerciseResult.created_at.desc(),

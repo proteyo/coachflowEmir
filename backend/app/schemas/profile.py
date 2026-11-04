@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import Annotated, List, Optional
+from pydantic import BaseModel, Field
 
 
 class CoachProfileOut(BaseModel):
@@ -17,16 +17,19 @@ class CoachProfileOut(BaseModel):
 
 
 class UpdateCoachProfileRequest(BaseModel):
-    specialty: Optional[str] = None
-    bio: Optional[str] = None
-    experience_years: Optional[int] = None
-    achievements: Optional[List[str]] = None
-    certificates: Optional[List[str]] = None
-    profile_image_url: Optional[str] = None
-    cover_image_url: Optional[str] = None
+    model_config = {"extra": "forbid"}
+    specialty: Optional[str] = Field(default=None, max_length=200)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    experience_years: Optional[int] = Field(default=None, ge=0, le=100)
+    achievements: Optional[List[Annotated[str, Field(max_length=1000)]]] = Field(default=None, max_length=50)
+    certificates: Optional[List[Annotated[str, Field(max_length=1000)]]] = Field(default=None, max_length=50)
+    profile_image_url: Optional[str] = Field(default=None, max_length=2000)
+    cover_image_url: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ClientProfileOut(BaseModel):
+    trainingAccess: bool = True
+    contractEndsOn: Optional[str] = None
     userId: str
     coachId: Optional[str] = None
     gender: str = "male"
