@@ -41,3 +41,4 @@ __all__ = [
     "Exercise",
     "WorkoutAssignment",
 ]
+from app.models.social import ChatGroup, ChatMember, ConversationSetting, GroupMessage, SocialProfile, Story, StoryView, UserBlock

@@ -208,17 +208,11 @@ async def _ensure_user_exists(user_id: str, db: AsyncSession) -> User:
 
 
 async def _ensure_chat_relationship(sender: User, receiver: User, db: AsyncSession) -> None:
-    if sender.role == "coach" and receiver.role == "client":
-        coach_id, client_id = sender.id, receiver.id
-    elif sender.role == "client" and receiver.role == "coach":
-        coach_id, client_id = receiver.id, sender.id
-    else:
-        raise HTTPException(status_code=403, detail="Chat is available only between a client and their coach")
-    result = await db.execute(select(ClientProfile.user_id).where(
-        ClientProfile.user_id == client_id, ClientProfile.coach_id == coach_id,
-    ))
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Chat is available only between a client and their coach")
+    from app.routers.social import blocked, contacts
+    if await blocked(sender.id, receiver.id, db):
+        raise HTTPException(403, "User is blocked")
+    if receiver.id not in await contacts(sender, db):
+        raise HTTPException(403, "Conversation access denied")
 
 
 async def _get_user_by_token(token: str, db: AsyncSession) -> User | None:
@@ -537,6 +531,11 @@ async def _create_message(
     """
 
     await _ensure_chat_relationship(current_user, receiver, db)
+    from app.models.social import ConversationSetting
+    await db.execute(update(ConversationSetting).where(
+        or_(and_(ConversationSetting.user_id == current_user.id, ConversationSetting.partner_id == receiver.id),
+            and_(ConversationSetting.user_id == receiver.id, ConversationSetting.partner_id == current_user.id))
+    ).values(hidden=False))
 
     existing = await _find_existing_by_client_temp_id(
         client_temp_id=data.client_temp_id,
@@ -747,6 +746,7 @@ async def send_message(
     await _ensure_coach_subscription_if_needed(current_user, db)
 
     receiver = await _ensure_user_exists(data.receiver_id, db)
+    await _ensure_chat_relationship(current_user, receiver, db)
 
     if receiver.id == current_user.id:
         raise HTTPException(
@@ -979,6 +979,7 @@ async def forward_message(
     _ensure_message_participant(original, current_user)
 
     receiver = await _ensure_user_exists(data.receiver_id, db)
+    await _ensure_chat_relationship(current_user, receiver, db)
 
     if receiver.id == current_user.id:
         raise HTTPException(

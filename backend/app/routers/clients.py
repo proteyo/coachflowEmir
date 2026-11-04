@@ -185,7 +185,6 @@ async def _delete_coach_client_assigned_data(
     - supplement items/logs connected to these plans
     - attendance created under this coach-client relationship
     - weekly goals for this client
-    - private client assessment from this coach
     - old invites between this coach and client
     """
 
@@ -239,13 +238,6 @@ async def _delete_coach_client_assigned_data(
     await db.execute(
         delete(WeeklyGoal).where(
             WeeklyGoal.client_id == client_id,
-        )
-    )
-
-    await db.execute(
-        delete(ClientAssessment).where(
-            ClientAssessment.coach_id == coach_id,
-            ClientAssessment.client_id == client_id,
         )
     )
 

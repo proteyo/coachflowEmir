@@ -83,8 +83,20 @@ async def require_media_access(kind: str, filename: str, user: User, db: AsyncSe
             and_(Message.receiver_id == user.id, Message.deleted_for_receiver.is_(False)),
         ),
     ).limit(1))
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Chat media access denied")
+    if result.scalar_one_or_none() is not None:
+        return
+    from app.models.social import GroupMessage, ChatMember, Story
+    group_media = (await db.execute(select(GroupMessage).join(ChatMember, ChatMember.group_id == GroupMessage.group_id).where(
+        ChatMember.user_id == user.id, GroupMessage.media_url.endswith("/" + filename, autoescape=True)
+    ))).scalars().all()
+    if any(user.id not in message.hidden_for for message in group_media):
+        return
+    from app.routers.social import can_view_story
+    stories = (await db.execute(select(Story).where(Story.media_url.endswith("/" + filename, autoescape=True)))).scalars().all()
+    for story in stories:
+        if await can_view_story(story, user, db):
+            return
+    raise HTTPException(status_code=403, detail="Chat media access denied")
 
 
 async def validate_message_media(url: str | None, kind: str, user: User, db: AsyncSession) -> str | None:

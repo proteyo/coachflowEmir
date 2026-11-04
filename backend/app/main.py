@@ -204,3 +204,6 @@ async def database_health():
                 "database": "disconnected",
             },
         )
+
+from app.routers import social
+app.include_router(social.router, prefix=API_PREFIX)
