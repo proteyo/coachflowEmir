@@ -32,3 +32,13 @@ class ClientPayment(Base):
     note: Mapped[str] = mapped_column(String(300), default="")
     request_id: Mapped[str] = mapped_column(String(160), unique=True)
 
+
+
+class CoachExpense(Base):
+    __tablename__ = "coach_expenses"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: "expense_" + uuid.uuid4().hex)
+    coach_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    request_id: Mapped[str] = mapped_column(String(160), unique=True)

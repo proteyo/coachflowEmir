@@ -163,3 +163,54 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         for patch in ({"name": " "}, {"dosage": ""}, {"times_per_day": 2}, {"specific_times": ["30:00"]}, {"days_of_week": ["Fake"]}, {"notes": "x" * 2001}):
             response = await self.http.post("/api/v1/supplements/plans", json={**payload, "items": [{**item, **patch}]})
             self.assertEqual(response.status_code, 422, response.text)
+
+    async def test_expenses_are_private_idempotent_and_in_month_balance(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        payload = {"amount": "125.50", "paid_on": today, "note": "Equipment", "request_id": "expense_test_123"}
+        first = await self.http.post("/api/v1/crm/expenses", json=payload)
+        self.assertEqual(first.status_code, 201, first.text)
+        again = await self.http.post("/api/v1/crm/expenses", json=payload)
+        self.assertEqual(first.json()["id"], again.json()["id"])
+        data = (await self.http.get("/api/v1/crm")).json()
+        self.assertEqual(float(data["expensesTotal"]), 125.50)
+        self.assertEqual(sum(float(d["expense"]) for d in data["daily"]), 125.50)
+        self.assertEqual(float(data["afterTariffEstimate"]), -125.50)
+        invalid = await self.http.post("/api/v1/crm/expenses", json={**payload, "coach_id": self.stranger.id})
+        self.assertEqual(invalid.status_code, 422)
+        self.stranger.role = "coach"; self.session.commit(); self.current = self.stranger
+        self.assertEqual((await self.http.delete("/api/v1/crm/expenses/" + first.json()["id"])).status_code, 404)
+        self.current = self.client
+        self.assertEqual((await self.http.post("/api/v1/crm/expenses", json=payload)).status_code, 403)
+        self.current = self.coach
+        self.assertEqual((await self.http.delete("/api/v1/crm/expenses/" + first.json()["id"])).status_code, 204)
+
+    async def test_coach_rating_button_requires_real_client_relationship(self):
+        self.current = self.client
+        profile = (await self.http.get(f"/api/v1/social/profile/{self.coach.id}")).json()
+        self.assertTrue(profile["canReviewCoach"])
+        result = await self.http.post(f"/api/v1/reviews/coaches/{self.coach.id}", json={"rating": 4, "comment": "Helpful"})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.current = self.stranger
+        profile = (await self.http.get(f"/api/v1/social/profile/{self.coach.id}")).json()
+        self.assertFalse(profile["canReviewCoach"])
+        result = await self.http.post(f"/api/v1/reviews/coaches/{self.coach.id}", json={"rating": 5})
+        self.assertEqual(result.status_code, 403)
+
+    async def test_story_reply_honors_visibility_blocks_and_owner_preference(self):
+        from app.models.social import Story, UserBlock
+        story = Story(user_id=self.coach.id, media_url="/api/v1/uploads/images/u_coach_own.jpg", media_type="image", caption="Hello", visibility="contacts", replies_enabled=False)
+        self.session.add(story); self.session.commit()
+        self.current = self.client
+        payload = {"text": "Nice session", "request_id": "story_reply_123"}
+        endpoint = f"/api/v1/social/stories/{story.id}/reply"
+        self.assertEqual((await self.http.post(endpoint, json=payload)).status_code, 403)
+        story.replies_enabled = True; self.session.commit()
+        result = await self.http.post(endpoint, json=payload)
+        self.assertEqual(result.status_code, 201, result.text)
+        duplicate = await self.http.post(endpoint, json=payload)
+        self.assertEqual(result.json()["id"], duplicate.json()["id"])
+        self.current = self.stranger
+        self.assertEqual((await self.http.post(endpoint, json=payload)).status_code, 404)
+        self.current = self.client
+        self.session.add(UserBlock(user_id=self.coach.id, target_id=self.client.id)); self.session.commit()
+        self.assertEqual((await self.http.post(endpoint, json=payload)).status_code, 404)

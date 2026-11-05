@@ -448,10 +448,13 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
             streak += 1
         attendance = {"missed": sum(1 for r in records if r.status == "missed"), "attended": sum(1 for r in records if r.status == "attended"), "streak": streak}
     active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
+    reviewer_profile = await db.get(ClientProfile, user.id) if user.role == "client" and target.role == "coach" else None
+    reviewer_former = await db.get(ClientEngagement, (user_id, user.id)) if reviewer_profile else None
+    can_review_coach = bool(reviewer_profile and (reviewer_profile.coach_id == user_id or reviewer_former) and not is_blocked)
     access = await access_state(user_id, db) if target.role == "client" and (own or own_coach) else None
     return {**person(target), "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": not is_blocked, "assessments": assessments,
         "coach": {"specialty": professional.specialty, "experienceYears": professional.experience_years, "achievements": public_list(professional.achievements), "certificates": public_list(professional.certificates), "coverImageUrl": canonical_avatar_url(professional.cover_image_url)} if professional and not is_blocked else None,
-        "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach,
+        "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach, "canReviewCoach": can_review_coach,
         "canSeeTraining": bool((own_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
 
 
@@ -473,15 +476,17 @@ class StoryIn(BaseModel):
     caption: str = Field(default="", max_length=500)
     visibility: Literal["contacts", "public"] = "contacts"
     post: bool = False
+    replies_enabled: bool = True
 
 
 class StoryEdit(BaseModel):
+    replies_enabled: bool = True
     caption: str = Field(max_length=500)
     visibility: Literal["contacts", "public"] = "contacts"
 
 
 def story_out(story, owner):
-    return {"id": story.id, "owner": person(owner), "mediaUrl": story.media_url, "mediaType": story.media_type, "caption": story.caption, "visibility": story.visibility, "createdAt": story.created_at.isoformat(), "expiresAt": story.expires_at.isoformat() if story.expires_at else None}
+    return {"id": story.id, "owner": person(owner), "repliesEnabled": story.replies_enabled, "mediaUrl": story.media_url, "mediaType": story.media_type, "caption": story.caption, "visibility": story.visibility, "createdAt": story.created_at.isoformat(), "expiresAt": story.expires_at.isoformat() if story.expires_at else None}
 
 
 @router.get("/stories")
@@ -512,7 +517,7 @@ async def publish_story(data: StoryIn, user: User = Depends(get_current_user), d
     from app.services.media_access import media_reference
     if not media_reference(media)[1].startswith(user.id + "_"):
         raise HTTPException(403, "Only your own upload can be published")
-    item = Story(user_id=user.id, media_url=media, media_type=data.media_type, caption=data.caption, visibility=data.visibility, expires_at=None if data.post else now() + timedelta(hours=24))
+    item = Story(user_id=user.id, media_url=media, media_type=data.media_type, caption=data.caption, visibility=data.visibility, replies_enabled=data.replies_enabled, expires_at=None if data.post else now() + timedelta(hours=24))
     db.add(item)
     await db.commit()
     return story_out(item, user)
@@ -524,6 +529,7 @@ async def edit_story(story_id: str, data: StoryEdit, user: User = Depends(get_cu
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Story not found")
     item.caption, item.visibility = data.caption, data.visibility
+    item.replies_enabled = data.replies_enabled
     await db.commit()
     return {"ok": True}
 
@@ -568,3 +574,21 @@ async def story_viewers(story_id: str, user: User = Depends(get_current_user), d
         raise HTTPException(404, "Story not found")
     rows = (await db.execute(select(StoryView, User).join(User, User.id == StoryView.user_id).where(StoryView.story_id == story_id, StoryView.user_id != story.user_id).order_by(StoryView.viewed_at.desc()))).all()
     return [{**person(p), "liked": view.liked, "viewedAt": view.viewed_at.isoformat()} for view, p in rows]
+
+
+class StoryReplyIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+@router.post("/stories/{story_id}/reply", status_code=201)
+async def reply_story(story_id: str, data: StoryReplyIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    story = await db.get(Story, story_id)
+    if not story or not await can_view_story(story, user, db):
+        raise HTTPException(404, "Story not found")
+    if story.user_id == user.id or not story.replies_enabled or not data.text.strip():
+        raise HTTPException(403, "Replies are disabled")
+    # Reuse direct-message relationship, block, subscription and duplicate guards.
+    from app.schemas.other import MessageIn
+    from app.routers.messages import send_message
+    return await send_message(MessageIn(receiver_id=story.user_id, content=data.text.strip(), client_temp_id="story_" + data.request_id), current_user=user, db=db)

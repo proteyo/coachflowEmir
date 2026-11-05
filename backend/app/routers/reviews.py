@@ -149,6 +149,9 @@ async def create_or_update_coach_review(
         raise HTTPException(status_code=404, detail="Coach not found")
 
     await ensure_client_linked_to_coach(coach_id, current_user.id, db)
+    from app.routers.social import blocked
+    if await blocked(current_user.id, coach_id, db):
+        raise HTTPException(403, "User is blocked")
 
     existing_res = await db.execute(
         select(CoachReview)

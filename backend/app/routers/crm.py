@@ -10,7 +10,7 @@ from app.core.deps import get_current_user, require_coach, require_active_coach_
 from app.db.database import get_db
 from app.models.user import User
 from app.models.profile import ClientProfile
-from app.models.engagement import ClientEngagement, ClientPayment
+from app.models.engagement import ClientEngagement, ClientPayment, CoachExpense
 from app.services.training_access import access_state, engagement_active
 
 router = APIRouter(prefix="/crm", tags=["Coach CRM"])
@@ -89,9 +89,13 @@ async def dashboard(month: str | None = None, coach: User = Depends(require_coac
     # This is a planning estimate, not a claim that a real subscription payment occurred.
     subscription = await get_active_subscription(db, coach.id)
     cost = Decimal(str(subscription.price or 0)) if subscription and subscription.status == "active" else Decimal("0")
+    expenses = (await db.execute(select(CoachExpense).where(CoachExpense.coach_id == coach.id, CoachExpense.paid_on >= start, CoachExpense.paid_on < end).order_by(CoachExpense.paid_on.desc()))).scalars().all()
+    spent = sum((e.amount for e in expenses), Decimal("0"))
     names = {client.id: client.name for client, _ in clients}
     return {"month": start.strftime("%Y-%m"), "currency": "KZT", "received": str(received), "tariffEstimate": str(cost),
-            "afterTariffEstimate": str(received - cost), "clients": rows,
+            "afterTariffEstimate": str(received - cost - spent), "expensesTotal": str(spent),
+            "expenses": [{"id": e.id, "amount": str(e.amount), "paidOn": e.paid_on.isoformat(), "note": e.note} for e in expenses],
+            "daily": [{"day": day, "income": str(sum((p.amount for p in payments if p.paid_on.day == day), Decimal("0"))), "expense": str(sum((e.amount for e in expenses if e.paid_on.day == day), Decimal("0")))} for day in range(1, (end - start).days + 1)], "clients": rows,
             "expiring": sum(1 for row in rows if row["active"] and row["endsOn"] and 0 <= (date.fromisoformat(row["endsOn"]) - today).days <= 7),
             "payments": [{"id": p.id, "clientId": p.client_id, "name": names.get(p.client_id, ""), "amount": str(p.amount), "paidOn": p.paid_on.isoformat(), "note": p.note} for p in payments]}
 
@@ -144,5 +148,29 @@ async def remove_payment(payment_id: str, coach: User = Depends(require_coach), 
     item = (await db.execute(select(ClientPayment).where(ClientPayment.id == payment_id, ClientPayment.coach_id == coach.id))).scalar_one_or_none()
     if not item:
         raise HTTPException(404, "Payment not found")
+    await db.delete(item)
+    await db.commit()
+
+
+@router.post("/expenses", status_code=201)
+async def add_expense(data: PaymentIn, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+    await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
+    key = coach.id + ":" + data.request_id
+    existing = (await db.execute(select(CoachExpense).where(CoachExpense.request_id == key))).scalar_one_or_none()
+    if existing:
+        if existing.amount != data.amount or existing.paid_on != data.paid_on or existing.note != data.note:
+            raise HTTPException(409, "Expense request identifier already used")
+        return {"id": existing.id}
+    item = CoachExpense(coach_id=coach.id, amount=data.amount, paid_on=data.paid_on, note=data.note, request_id=key)
+    db.add(item)
+    await db.commit()
+    return {"id": item.id}
+
+
+@router.delete("/expenses/{expense_id}", status_code=204)
+async def remove_expense(expense_id: str, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+    item = (await db.execute(select(CoachExpense).where(CoachExpense.id == expense_id, CoachExpense.coach_id == coach.id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Expense not found")
     await db.delete(item)
     await db.commit()

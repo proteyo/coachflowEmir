@@ -543,7 +543,7 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
             with empty.begin() as connection:
                 initialize(connection)
                 self.assertIn("auth_sessions", inspect(connection).get_table_names())
-                self.assertEqual(connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one(), "c62026110403")
+                self.assertEqual(connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one(), "c62026110501")
                 with self.assertRaises(RuntimeError):
                     initialize(connection)
         finally:

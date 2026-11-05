@@ -74,6 +74,7 @@ class Story(Base):
     media_url: Mapped[str] = mapped_column(String)
     media_type: Mapped[str] = mapped_column(String(10))
     caption: Mapped[str] = mapped_column(String(500), default="")
+    replies_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     visibility: Mapped[str] = mapped_column(String(12), default="contacts")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
