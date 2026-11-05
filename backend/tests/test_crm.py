@@ -200,6 +200,10 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         from app.models.social import Story, UserBlock
         story = Story(user_id=self.coach.id, media_url="/api/v1/uploads/images/u_coach_own.jpg", media_type="image", caption="Hello", visibility="contacts", replies_enabled=False)
         self.session.add(story); self.session.commit()
+        self.current = self.coach
+        edit = await self.http.patch(f"/api/v1/social/stories/{story.id}", json={"caption": "Updated", "visibility": "contacts"})
+        self.assertEqual(edit.status_code, 200)
+        self.assertFalse(self.session.get(Story, story.id).replies_enabled)
         self.current = self.client
         payload = {"text": "Nice session", "request_id": "story_reply_123"}
         endpoint = f"/api/v1/social/stories/{story.id}/reply"

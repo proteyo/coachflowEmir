@@ -531,7 +531,8 @@ async def edit_story(story_id: str, data: StoryEdit, user: User = Depends(get_cu
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Story not found")
     item.caption, item.visibility = data.caption, data.visibility
-    item.replies_enabled = data.replies_enabled
+    if "replies_enabled" in data.model_fields_set:
+        item.replies_enabled = data.replies_enabled
     await db.commit()
     return {"ok": True}
 
@@ -594,4 +595,5 @@ async def reply_story(story_id: str, data: StoryReplyIn, user: User = Depends(ge
     # Reuse direct-message relationship, block, subscription and duplicate guards.
     from app.schemas.other import MessageIn
     from app.routers.messages import send_message
-    return await send_message(MessageIn(receiver_id=story.user_id, content=data.text.strip(), client_temp_id="story_" + data.request_id), current_user=user, db=db)
+    content = f"↪ {story.caption[:120]}\n{data.text.strip()}"
+    return await send_message(MessageIn(receiver_id=story.user_id, content=content, client_temp_id="story_" + data.request_id), current_user=user, db=db)
