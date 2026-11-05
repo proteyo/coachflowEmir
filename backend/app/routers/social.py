@@ -437,16 +437,10 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
         assessments = [{"id": review.id, "author": person(author), "rating": review.rating, "comment": review.comment, "createdAt": review.updated_at.isoformat()} for review, author in reviews]
     attendance = None
     if not is_blocked and (own_coach or (own and target.role == "client")):
-        coach_id = user.id if own_coach else private.coach_id if private else None
-        records = (await db.execute(select(Attendance).where(Attendance.client_id == user_id, Attendance.coach_id == coach_id).order_by(Attendance.date.desc()))).scalars().all()
-        streak = 0
-        for record in records:
-            if record.status == "rest":
-                continue
-            if record.status != "attended":
-                break
-            streak += 1
-        attendance = {"missed": sum(1 for r in records if r.status == "missed"), "attended": sum(1 for r in records if r.status == "attended"), "streak": streak}
+        from app.services.attendance_stats import attendance_stats
+        records = (await db.execute(select(Attendance).where(Attendance.client_id == user_id))).scalars().all()
+        stats = attendance_stats(records)
+        attendance = {"missed": stats["missed"], "attended": stats["attended"], "streak": stats["currentStreak"]}
     active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
     reviewer_profile = await db.get(ClientProfile, user.id) if user.role == "client" and target.role == "coach" else None
     reviewer_former = await db.get(ClientEngagement, (user_id, user.id)) if reviewer_profile else None

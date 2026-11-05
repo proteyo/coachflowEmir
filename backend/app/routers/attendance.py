@@ -206,6 +206,21 @@ async def upsert_attendance(
     return attendance_out(record)
 
 
+@router.get("/summary")
+async def attendance_summary(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.services.attendance_stats import attendance_stats
+    if user.role == "coach":
+        await require_active_coach_subscription(user, db)
+        ids = list((await db.execute(select(ClientProfile.user_id).where(ClientProfile.coach_id == user.id))).scalars().all())
+    else:
+        ids = [user.id]
+    records = (await db.execute(select(Attendance).where(Attendance.client_id.in_(ids)))).scalars().all()
+    grouped = {uid: [] for uid in ids}
+    for record in records:
+        grouped[record.client_id].append(record)
+    return [{"clientId": uid, **attendance_stats(items)} for uid, items in grouped.items()]
+
+
 @router.get("/{record_id}", response_model=AttendanceOut)
 async def get_attendance_record(
     record_id: str,

@@ -218,3 +218,69 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.current = self.client
         self.session.add(UserBlock(user_id=self.coach.id, target_id=self.client.id)); self.session.commit()
         self.assertEqual((await self.http.post(endpoint, json=payload)).status_code, 404)
+
+    async def test_attendance_summary_uses_marks_and_counts_lifetime_without_leaking_other_clients(self):
+        self.session.add_all([Attendance(coach_id=self.coach.id, client_id=self.client.id, date="2026-11-01", status="attended"), Attendance(coach_id=self.coach.id, client_id=self.client.id, date="2026-11-02", status="rest"), Attendance(coach_id=self.coach.id, client_id=self.client.id, date="2026-11-03", status="attended"), Attendance(coach_id=self.coach.id, client_id=self.client.id, date="2026-11-04", status="missed")]); self.session.commit()
+        summary = (await self.http.get("/api/v1/attendance/summary")).json()
+        item = next(r for r in summary if r["clientId"] == self.client.id)
+        self.assertEqual(item["currentStreak"], 0); self.assertEqual(item["attended"], 2)
+        self.assertNotIn(self.stranger.id, str(summary))
+        self.current = self.client
+        self.assertEqual((await self.http.get("/api/v1/streak")).json()["currentStreak"], 0)
+        self.assertEqual((await self.http.post("/api/v1/streak/activity")).json()["currentStreak"], 0)
+        self.current = self.stranger
+        summary = (await self.http.get("/api/v1/attendance/summary")).json()
+        self.assertEqual([r["clientId"] for r in summary], [self.stranger.id])
+
+    async def test_membership_can_record_a_payment_atomically_once_and_analytics_periods_match(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        body = {"monthly_fee": "30000", "starts_on": today, "ends_on": "2099-01-01", "payment": {"amount": "90000", "paid_on": today, "note": "Three months", "request_id": "membership_payment_123"}}
+        for _ in range(2):
+            response = await self.http.patch(f"/api/v1/crm/clients/{self.client.id}", json=body)
+            self.assertEqual(response.status_code, 200, response.text)
+        for period, count in (("month", None), ("quarter", 3), ("year", 12)):
+            response = await self.http.get(f"/api/v1/crm?period={period}")
+            self.assertEqual(response.status_code, 200, response.text)
+            result = response.json(); self.assertEqual(float(result["received"]), 90000)
+            self.assertEqual(result["clientsPaid"], 1); self.assertEqual(result["paymentCount"], 1)
+            if count: self.assertEqual(len(result["daily"]), count)
+            paid = next(d for d in result["daily"] if float(d["income"]) > 0)
+            self.assertIn("date", paid); self.assertEqual(paid["clientsPaid"], 1)
+        response = await self.http.patch(f"/api/v1/crm/clients/{self.client.id}", json={**body, "payment": {**body["payment"], "amount": "91000"}})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual((await self.http.get("/api/v1/crm")).json()["paymentCount"], 1)
+
+    async def test_workout_completion_is_confirmed_once_updates_goal_and_cannot_bypass_archive(self):
+        from app.models.weekly_goal import WeeklyGoal
+        now = datetime.now(timezone.utc) + timedelta(minutes=300)
+        week = (now.date() - timedelta(days=now.weekday())).isoformat()
+        goal = WeeklyGoal(client_id=self.client.id, week_start=week, target_minutes=100, target_workouts=3, completed_minutes=0, completed_workouts=0)
+        workout = WorkoutAssignment(coach_id=self.coach.id, client_id=self.client.id, date=now.date().isoformat(), name="Session", completed=False, duration_minutes=45)
+        self.session.add_all([goal, workout]); self.session.commit()
+        self.current = self.coach
+        self.assertEqual((await self.http.post(f"/api/v1/workouts/{workout.id}/complete", json={"duration_minutes": 30})).status_code, 403)
+        self.current = self.client
+        for _ in range(2):
+            response = await self.http.post(f"/api/v1/workouts/{workout.id}/complete", json={"duration_minutes": 30, "utc_offset_minutes": 300})
+            self.assertEqual(response.status_code, 200, response.text)
+        self.session.refresh(goal)
+        self.assertEqual(goal.completed_minutes, 30); self.assertEqual(goal.completed_workouts, 1)
+        self.assertEqual((await self.http.get("/api/v1/streak")).json()["currentStreak"], 0)
+        pending = WorkoutAssignment(coach_id=self.coach.id, client_id=self.client.id, date=now.date().isoformat(), name="Pending", completed=False)
+        self.session.add(pending); self.session.commit()
+        self.current = self.coach
+        await self.http.delete(f"/api/v1/clients/{self.client.id}")
+        self.current = self.client
+        self.assertEqual((await self.http.post(f"/api/v1/workouts/{pending.id}/complete")).status_code, 403)
+        self.assertFalse(self.session.get(WorkoutAssignment, pending.id).completed)
+
+    async def test_receipts_use_the_submitted_bounded_local_timezone(self):
+        from app.routers.crm import PaymentIn
+        from unittest.mock import patch
+        from datetime import date
+        with patch("app.routers.crm.datetime") as clock:
+            clock.now.return_value = datetime(2026, 11, 5, 22, 0, tzinfo=timezone.utc)
+            data = PaymentIn(amount="10", paid_on=date(2026, 11, 6), utc_offset_minutes=300, request_id="timezone_test")
+            self.assertEqual(data.paid_on.day, 6)
+            with self.assertRaises(ValueError):
+                PaymentIn(amount="10", paid_on=date(2026, 11, 6), utc_offset_minutes=0, request_id="timezone_test")

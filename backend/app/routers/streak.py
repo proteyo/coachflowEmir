@@ -64,51 +64,14 @@ async def get_streak(
 ) -> StreakOut:
     require_client(current_user)
 
-    streak = await get_or_create_streak(
-        db=db,
-        client_id=current_user.id,
-    )
-
-    return streak_out(streak)
+    from app.models.attendance import Attendance
+    from app.services.attendance_stats import attendance_stats
+    records = (await db.execute(select(Attendance).where(Attendance.client_id == current_user.id))).scalars().all()
+    stats = attendance_stats(records)
+    return StreakOut(attendedTotal=stats["attended"], clientId=current_user.id, currentStreak=stats["currentStreak"], bestStreak=stats["bestStreak"], lastActivityDate=stats["lastActivityDate"])
 
 
 @router.post("/activity", response_model=StreakOut)
-async def record_activity(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> StreakOut:
-    """
-    Records today's client activity and recalculates streak.
-
-    Logic:
-    - If activity is already recorded today, streak does not change.
-    - If previous activity was yesterday, current streak increases by 1.
-    - If previous activity was earlier than yesterday or missing, streak starts from 1.
-    """
-    require_client(current_user)
-
-    streak = await get_or_create_streak(
-        db=db,
-        client_id=current_user.id,
-    )
-
-    today_date = date.today()
-    today = today_date.isoformat()
-    yesterday = (today_date - timedelta(days=1)).isoformat()
-
-    if streak.last_activity_date == today:
-        return streak_out(streak)
-
-    if streak.last_activity_date == yesterday:
-        streak.current_streak += 1
-    else:
-        streak.current_streak = 1
-
-    streak.last_activity_date = today
-    streak.best_streak = max(streak.best_streak, streak.current_streak)
-
-    db.add(streak)
-    await db.commit()
-    await db.refresh(streak)
-
-    return streak_out(streak)
+async def record_activity(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Compatibility route: exercise completion never changes attendance.
+    return await get_streak(current_user, db)

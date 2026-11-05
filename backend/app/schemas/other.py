@@ -301,6 +301,7 @@ class WeeklyGoalOut(BaseModel):
 # ── Streak ────────────────────────────────────────────────────────────────────
 
 class StreakOut(BaseModel):
+    attendedTotal: int = 0
     clientId: str
     currentStreak: int
     bestStreak: int

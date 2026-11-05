@@ -1,5 +1,5 @@
 """Coach-only CRM with decimal bookkeeping and reversible access suspension."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +16,22 @@ from app.services.training_access import access_state, engagement_active
 router = APIRouter(prefix="/crm", tags=["Coach CRM"])
 
 
+class PaymentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: Decimal = Field(gt=0, le=100000000, decimal_places=2, allow_inf_nan=False)
+    paid_on: date
+    utc_offset_minutes: int = Field(default=0, ge=-720, le=840)
+    note: str = Field(default="", max_length=300)
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @model_validator(mode="after")
+    def not_future(self):
+        if self.paid_on > (datetime.now(timezone.utc) + timedelta(minutes=self.utc_offset_minutes)).date():
+            raise ValueError("Payment date cannot be in the future")
+        return self
+
+
+
 class EngagementIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["active", "paused", "ended"] = "active"
@@ -23,25 +39,12 @@ class EngagementIn(BaseModel):
     ends_on: date | None = None
     monthly_fee: Decimal = Field(default=Decimal("0"), ge=0, le=100000000, decimal_places=2, allow_inf_nan=False)
     notes: str = Field(default="", max_length=1000)
+    payment: PaymentIn | None = None
 
     @model_validator(mode="after")
     def dates_ordered(self):
         if self.starts_on and self.ends_on and self.ends_on < self.starts_on:
             raise ValueError("End date must follow start date")
-        return self
-
-
-class PaymentIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    amount: Decimal = Field(gt=0, le=100000000, decimal_places=2, allow_inf_nan=False)
-    paid_on: date
-    note: str = Field(default="", max_length=300)
-    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
-
-    @model_validator(mode="after")
-    def not_future(self):
-        if self.paid_on > datetime.now(timezone.utc).date():
-            raise ValueError("Payment date cannot be in the future")
         return self
 
 
@@ -71,7 +74,7 @@ async def my_access(user: User = Depends(get_current_user), db: AsyncSession = D
 
 
 @router.get("")
-async def dashboard(month: str | None = None, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def dashboard(month: str | None = None, period: Literal["month", "quarter", "year"] = "month", coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
     today = datetime.now(timezone.utc).date()
     try:
         start = date.fromisoformat((month or today.strftime("%Y-%m")) + "-01")
@@ -80,6 +83,13 @@ async def dashboard(month: str | None = None, coach: User = Depends(require_coac
     if not 1900 <= start.year <= 2100:
         raise HTTPException(422, "Invalid month")
     end = date(start.year + (start.month == 12), 1 if start.month == 12 else start.month + 1, 1)
+    anchor = start
+    if period == "quarter":
+        index = start.year * 12 + start.month - 3
+        start = date(index // 12, index % 12 + 1, 1)
+    elif period == "year":
+        start, end = date(start.year, 1, 1), date(start.year + 1, 1, 1)
+    months_count = (end.year - start.year) * 12 + end.month - start.month
     records = (await db.execute(select(ClientEngagement).where(ClientEngagement.coach_id == coach.id))).scalars().all()
     by_id = {r.client_id: r for r in records}
     clients = (await db.execute(select(User, ClientProfile).join(ClientProfile, ClientProfile.user_id == User.id).where(or_(ClientProfile.coach_id == coach.id, User.id.in_(by_id))))).all()
@@ -91,11 +101,24 @@ async def dashboard(month: str | None = None, coach: User = Depends(require_coac
     cost = Decimal(str(subscription.price or 0)) if subscription and subscription.status == "active" else Decimal("0")
     expenses = (await db.execute(select(CoachExpense).where(CoachExpense.coach_id == coach.id, CoachExpense.paid_on >= start, CoachExpense.paid_on < end).order_by(CoachExpense.paid_on.desc()))).scalars().all()
     spent = sum((e.amount for e in expenses), Decimal("0"))
+    cost *= months_count
+    buckets = []
+    bucket = start
+    while bucket < end:
+        if period == "month":
+            from datetime import timedelta
+            boundary = bucket + timedelta(days=1)
+        else:
+            boundary = date(bucket.year + (bucket.month == 12), 1 if bucket.month == 12 else bucket.month + 1, 1)
+        incoming = [p for p in payments if bucket <= p.paid_on < boundary]
+        outgoing = [e for e in expenses if bucket <= e.paid_on < boundary]
+        buckets.append({"day": bucket.day if period == "month" else bucket.month, "date": bucket.isoformat(), "income": str(sum((p.amount for p in incoming), Decimal("0"))), "expense": str(sum((e.amount for e in outgoing), Decimal("0"))), "clientsPaid": len({p.client_id for p in incoming}), "payments": len(incoming)})
+        bucket = boundary
     names = {client.id: client.name for client, _ in clients}
-    return {"month": start.strftime("%Y-%m"), "currency": "KZT", "received": str(received), "tariffEstimate": str(cost),
+    return {"month": anchor.strftime("%Y-%m"), "period": period, "startsOn": start.isoformat(), "endsBefore": end.isoformat(), "clientsPaid": len({p.client_id for p in payments}), "paymentCount": len(payments), "currency": "KZT", "received": str(received), "tariffEstimate": str(cost),
             "afterTariffEstimate": str(received - cost - spent), "expensesTotal": str(spent),
             "expenses": [{"id": e.id, "amount": str(e.amount), "paidOn": e.paid_on.isoformat(), "note": e.note} for e in expenses],
-            "daily": [{"day": day, "income": str(sum((p.amount for p in payments if p.paid_on.day == day), Decimal("0"))), "expense": str(sum((e.amount for e in expenses if e.paid_on.day == day), Decimal("0")))} for day in range(1, (end - start).days + 1)], "clients": rows,
+            "daily": buckets, "clients": rows,
             "expiring": sum(1 for row in rows if row["active"] and row["endsOn"] and 0 <= (date.fromisoformat(row["endsOn"]) - today).days <= 7),
             "payments": [{"id": p.id, "clientId": p.client_id, "name": names.get(p.client_id, ""), "amount": str(p.amount), "paidOn": p.paid_on.isoformat(), "note": p.note} for p in payments]}
 
@@ -118,10 +141,18 @@ async def update_engagement(client_id: str, data: EngagementIn, coach: User = De
     if item is None:
         item = ClientEngagement(coach_id=coach.id, client_id=client_id)
         db.add(item)
-    for key, value in data.model_dump(exclude_unset=True).items():
+    for key, value in data.model_dump(exclude_unset=True, exclude={"payment"}).items():
         setattr(item, key, value)
     if item.starts_on and item.ends_on and item.ends_on < item.starts_on:
         raise HTTPException(422, "End date must follow start date")
+    if data.payment:
+        paid = data.payment
+        key = coach.id + ":" + paid.request_id
+        prior = (await db.execute(select(ClientPayment).where(ClientPayment.request_id == key))).scalar_one_or_none()
+        if prior and (prior.client_id != client_id or prior.amount != paid.amount or prior.paid_on != paid.paid_on):
+            raise HTTPException(409, "Payment request identifier already used")
+        if not prior:
+            db.add(ClientPayment(coach_id=coach.id, client_id=client_id, amount=paid.amount, paid_on=paid.paid_on, note=paid.note, request_id=key))
     item.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return {"ok": True}

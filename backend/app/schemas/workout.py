@@ -78,6 +78,14 @@ class WorkoutInputFields(BaseModel):
             raise ValueError("Workout name is required")
         return value.strip() if value is not None else value
 
+    @field_validator("time", check_fields=False)
+    @classmethod
+    def valid_time(cls, value):
+        import re
+        if value is not None and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+            raise ValueError("Use HH:mm time")
+        return value
+
     @field_validator("date", "start_date", check_fields=False)
     @classmethod
     def valid_day(cls, value):

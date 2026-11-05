@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -770,20 +770,38 @@ async def delete_workout(
     await db.commit()
 
 
+class WorkoutCompletionIn(BaseModel):
+    utc_offset_minutes: int = Field(default=0, ge=-720, le=840)
+    model_config = {"extra": "forbid"}
+    duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
 @router.post("/{workout_id}/complete", response_model=WorkoutOut)
 async def complete_workout(
     workout_id: str,
+    data: WorkoutCompletionIn | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await db.execute(select(WorkoutAssignment.id).where(WorkoutAssignment.id == workout_id).with_for_update())
     workout = await _get_workout(workout_id, db)
 
     if workout.client_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if workout.coach_id != await client_coach_id(current_user.id, db):
+        raise HTTPException(status_code=403, detail="Training access is closed")
+    if workout.completed:
+        return workout_out(workout)
     workout.completed = True
     workout.completed_at = _now()
+    if data and data.duration_minutes is not None:
+        workout.duration_minutes = data.duration_minutes
 
+    from app.models.weekly_goal import WeeklyGoal
+    today = (_now() + timedelta(minutes=data.utc_offset_minutes if data else 0)).date()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    await db.execute(update(WeeklyGoal).where(WeeklyGoal.client_id == current_user.id, WeeklyGoal.week_start == week_start).values(completed_minutes=WeeklyGoal.completed_minutes + (workout.duration_minutes or 0), completed_workouts=WeeklyGoal.completed_workouts + 1))
     db.add(workout)
 
     await db.commit()
