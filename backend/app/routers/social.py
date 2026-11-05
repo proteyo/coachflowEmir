@@ -471,6 +471,7 @@ async def can_view_story(story, user, db):
 
 
 class StoryIn(BaseModel):
+    model_config = {"extra": "forbid"}
     media_url: str
     media_type: Literal["image", "video"]
     caption: str = Field(default="", max_length=500)
@@ -480,6 +481,7 @@ class StoryIn(BaseModel):
 
 
 class StoryEdit(BaseModel):
+    model_config = {"extra": "forbid"}
     replies_enabled: bool = True
     caption: str = Field(max_length=500)
     visibility: Literal["contacts", "public"] = "contacts"
@@ -577,6 +579,7 @@ async def story_viewers(story_id: str, user: User = Depends(get_current_user), d
 
 
 class StoryReplyIn(BaseModel):
+    model_config = {"extra": "forbid"}
     text: str = Field(min_length=1, max_length=2000)
     request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
 
