@@ -137,3 +137,29 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         response = await self.http.patch("/api/v1/social/profile", json={"goal": "New goal", "birth_year": "1995"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.session.get(CoachProfile, self.coach.id).bio, "About me")
+
+    async def test_workout_save_edit_preserves_exercise_identity_and_rejects_invalid_input(self):
+        payload = {"client_id": self.client.id, "date": "2026-11-05", "name": "Leg day", "exercises": [{"name": "Squat", "sets": 3, "reps": 10, "rest_seconds": 60}]}
+        response = await self.http.post("/api/v1/workouts", json=payload)
+        self.assertEqual(response.status_code, 201, response.text)
+        workout = response.json(); exercise_id = workout["exercises"][0]["id"]
+        edited = await self.http.patch(f"/api/v1/workouts/{workout['id']}", json={"name": "Updated", "exercises": [{**payload["exercises"][0], "id": exercise_id, "sets": 4}]})
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["exercises"][0]["id"], exercise_id)
+        self.assertEqual(edited.json()["exercises"][0]["sets"], 4)
+        self.assertEqual(len(edited.json()["exercises"]), 1)
+        for patch in ({"name": " "}, {"name": "a" * 121}, {"date": "2026-02-30"}, {"exercises": [{**payload["exercises"][0], "sets": -1}]}, {"exercises": [{**payload["exercises"][0], "weight": "NaN"}]}):
+            invalid = await self.http.post("/api/v1/workouts", json={**payload, **patch})
+            self.assertEqual(invalid.status_code, 422, invalid.text)
+        forbidden = await self.http.patch(f"/api/v1/workouts/{workout['id']}", json={"exercises": [{**payload["exercises"][0], "id": "foreign-exercise"}]})
+        self.assertEqual(forbidden.status_code, 403)
+        self.session.rollback()
+        self.current = self.stranger
+        self.assertEqual((await self.http.get(f"/api/v1/workouts/{workout['id']}")).status_code, 403)
+
+    async def test_supplement_schedule_rejects_missing_fields_invalid_times_and_dosage(self):
+        item = {"name": "Vitamin", "dosage": "1 mg", "times_per_day": 1, "specific_times": ["09:00"], "days_of_week": ["Mon"]}
+        payload = {"client_id": self.client.id, "start_date": "2026-11-05", "items": [item]}
+        for patch in ({"name": " "}, {"dosage": ""}, {"times_per_day": 2}, {"specific_times": ["30:00"]}, {"days_of_week": ["Fake"]}, {"notes": "x" * 2001}):
+            response = await self.http.post("/api/v1/supplements/plans", json={**payload, "items": [{**item, **patch}]})
+            self.assertEqual(response.status_code, 422, response.text)

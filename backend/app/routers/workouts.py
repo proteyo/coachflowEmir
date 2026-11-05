@@ -236,6 +236,7 @@ async def _get_workout(workout_id: str, db: AsyncSession) -> WorkoutAssignment:
         select(WorkoutAssignment)
         .where(WorkoutAssignment.id == workout_id)
         .options(selectinload(WorkoutAssignment.exercises))
+        .execution_options(populate_existing=True)
     )
 
     workout = res.scalar_one_or_none()
@@ -252,7 +253,7 @@ def _build_exercise_from_input(
     index: int,
 ) -> Exercise:
     return Exercise(
-        id=exercise.id or _new_exercise_id(),
+        id=_new_exercise_id(),
         workout_id=workout_id,
 
         library_exercise_id=getattr(exercise, "library_exercise_id", None),
@@ -727,11 +728,25 @@ async def update_workout(
             setattr(workout, field, value)
 
     if data.exercises is not None:
-        for exercise in list(workout.exercises):
-            await db.delete(exercise)
-
-        for index, exercise in enumerate(data.exercises):
-            db.add(_build_exercise_from_input(exercise, workout_id, index))
+        existing = {exercise.id: exercise for exercise in workout.exercises}
+        incoming_ids = [exercise.id for exercise in data.exercises if exercise.id]
+        if len(incoming_ids) != len(set(incoming_ids)):
+            raise HTTPException(422, "Duplicate exercise identifiers")
+        if any(identifier not in existing for identifier in incoming_ids):
+            raise HTTPException(403, "Exercise does not belong to this workout")
+        for identifier, exercise in existing.items():
+            if identifier not in incoming_ids:
+                await db.delete(exercise)
+        for index, incoming in enumerate(data.exercises):
+            values = _build_exercise_from_input(incoming, workout_id, index)
+            if incoming.id:
+                # Keep the row and its result history when editing an existing exercise.
+                target = existing[incoming.id]
+                for column in Exercise.__table__.columns:
+                    if column.name not in ("id", "workout_id"):
+                        setattr(target, column.name, getattr(values, column.name))
+            else:
+                db.add(values)
 
     db.add(workout)
 
