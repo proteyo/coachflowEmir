@@ -284,3 +284,10 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data.paid_on.day, 6)
             with self.assertRaises(ValueError):
                 PaymentIn(amount="10", paid_on=date(2026, 11, 6), utc_offset_minutes=0, request_id="timezone_test")
+
+    async def test_attendance_rejects_malformed_days_oversized_notes_and_owner_injection(self):
+        body = {"client_id": self.client.id, "date": "2026-11-06", "status": "attended"}
+        for change in ({"date": "2026-02-30"}, {"date": "not-a-date"}, {"notes": "x" * 2001}, {"coach_id": self.stranger.id}):
+            response = await self.http.post("/api/v1/attendance", json={**body, **change})
+            self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(len(self.session.scalars(select(Attendance)).all()), 0)

@@ -1,11 +1,18 @@
-from pydantic import BaseModel, Field
+from datetime import date as calendar_date
+from pydantic import BaseModel, Field, field_validator
 
 
 class AttendanceIn(BaseModel):
-    client_id: str
-    date: str
+    model_config = {"extra": "forbid"}
+    client_id: str = Field(min_length=1, max_length=128)
+    date: str = Field(min_length=10, max_length=10)
     status: str = Field(pattern="^(attended|missed|rest)$")
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("date")
+    @classmethod
+    def valid_day(cls, value):
+        return calendar_date.fromisoformat(value).isoformat()
 
 
 class AttendanceOut(BaseModel):
