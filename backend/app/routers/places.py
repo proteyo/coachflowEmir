@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path as PathParam
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,6 +156,26 @@ async def _get_saved_places(
     return items[:limit]
 
 
+@router.get("/{place_id}/details")
+async def place_details(
+    place_id: str = PathParam(min_length=1, max_length=512),
+    language: Literal["en", "ru", "kk"] = Query(default="en"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.place_details import check_budget, google_place_details
+    check_budget(current_user.id)
+    if place_id.startswith("google_"):
+        provider_id = place_id[len("google_"):]
+        if not provider_id:
+            raise HTTPException(400, "Invalid place ID")
+        return await google_place_details((settings.GOOGLE_MAPS_API_KEY or "").strip(), provider_id, language)
+    place = (await db.execute(select(Place).where(Place.id == place_id))).scalar_one_or_none()
+    if not place:
+        raise HTTPException(404, "Place not found")
+    return {"id": place.id, "description": place.description or "", "rating": place.rating, "reviewCount": 0, "reviews": [], "openingHours": [], "source": "CoachFlow", "sourceUrl": None}
+
+
 def _google_query_for_type(place_type: PlaceType) -> dict[str, str]:
     """
     Maps CoachFlow categories to Google Places search parameters.
@@ -172,12 +192,12 @@ def _google_query_for_type(place_type: PlaceType) -> dict[str, str]:
     if place_type == "nutrition":
         return {
             "type": "restaurant",
-            "keyword": "healthy food nutrition protein smoothie",
+            "keyword": "",
         }
 
     return {
         "type": "store",
-        "keyword": "sports shop sporting goods fitness supplements",
+        "keyword": "sports",
     }
 
 
@@ -262,8 +282,9 @@ def _google_nearby_request_sync(
         "location": f"{lat},{lng}",
         "radius": str(radius),
         "type": google_params["type"],
-        "keyword": google_params["keyword"],
     }
+    if google_params["keyword"]:
+        query_params["keyword"] = google_params["keyword"]
 
     url = f"{GOOGLE_PLACES_NEARBY_URL}?{urllib.parse.urlencode(query_params)}"
 
