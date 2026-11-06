@@ -206,7 +206,15 @@ async def link_client(
     if not client_user:
         raise HTTPException(status_code=404, detail="No client found with this code")
 
-    profile = client_user.client_profile
+    await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
+    # Serialize claims across different coaches, not only each coach's quota.
+    # Reload under the lock so a concurrent successful claim is visible here.
+    profile = (await db.execute(
+        select(ClientProfile)
+        .where(ClientProfile.user_id == client_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
 
     if not profile:
         raise HTTPException(status_code=400, detail="Client has no profile")
@@ -417,8 +425,9 @@ async def accept_invite(
 
         raise HTTPException(status_code=400, detail="Invite expired")
 
+    await db.execute(select(User.id).where(User.id == invite.coach_id).with_for_update())
     profile_res = await db.execute(
-        select(ClientProfile).where(ClientProfile.user_id == current_user.id).with_for_update()
+        select(ClientProfile).where(ClientProfile.user_id == current_user.id).with_for_update().execution_options(populate_existing=True)
     )
 
     profile = profile_res.scalar_one_or_none()

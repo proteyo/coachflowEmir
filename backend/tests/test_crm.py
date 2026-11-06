@@ -27,6 +27,21 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await social.SocialTests.asyncTearDown(self)
 
+    async def test_code_link_cannot_claim_another_coachs_client_and_is_idempotent(self):
+        self.client.client_code = "CLAIM123"
+        self.session.commit()
+        same = await self.http.post("/api/v1/clients/link", json={"client_code": "CLAIM123"})
+        self.assertEqual(same.status_code, 200, same.text)
+        self.stranger.role = "coach"
+        self.session.add(Subscription(coach_id=self.stranger.id, status="active", plan_code="free", price=0, client_limit=3, end_date=datetime.now(timezone.utc) + timedelta(days=30)))
+        self.session.commit()
+        self.current = self.stranger
+        stolen = await self.http.post("/api/v1/clients/link", json={"client_code": "CLAIM123"})
+        self.assertEqual(stolen.status_code, 400, stolen.text)
+        self.session.expire_all()
+        profile = self.session.scalar(select(ClientProfile).where(ClientProfile.user_id == self.client.id))
+        self.assertEqual(profile.coach_id, self.coach.id)
+
     async def test_archive_preserves_data_but_closes_every_training_router(self):
         workout = WorkoutAssignment(coach_id=self.coach.id, client_id=self.client.id, date="2026-11-01", name="Keep")
         message = Message(sender_id=self.coach.id, receiver_id=self.client.id, content="Keep chat")
