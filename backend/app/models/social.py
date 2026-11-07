@@ -1,7 +1,7 @@
 """Social data is separate from private coaching and health records."""
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -65,6 +65,8 @@ class SocialProfile(Base):
     birth_year: Mapped[str] = mapped_column(String(4), default="")
     goal: Mapped[str] = mapped_column(String(160), default="")
     show_rating: Mapped[bool] = mapped_column(Boolean, default=False)
+    cover_image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    cover_opacity: Mapped[float] = mapped_column(Float, default=0.35, server_default="0.35")
 
 
 class Story(Base):

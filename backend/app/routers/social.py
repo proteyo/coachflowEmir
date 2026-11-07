@@ -1,5 +1,6 @@
 """Inbox, groups and explicitly published profile content. Never returns health data."""
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -384,10 +385,20 @@ class ProfileIn(BaseModel):
     goal: str = Field(default="", max_length=160)
     birth_year: str = Field(default="", pattern=r"^(|19\d{2}|20\d{2})$")
     show_rating: bool = False
+    cover_image_url: str | None = Field(default=None, max_length=1000)
+    cover_opacity: float | None = Field(default=None, ge=0.1, le=1, allow_inf_nan=False)
 
 
 @router.patch("/profile")
 async def save_profile(data: ProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if data.cover_image_url:
+        reference = canonical_avatar_url(data.cover_image_url)
+        prefix = re.sub(r"[^A-Za-z0-9_.-]", "_", user.id)
+        if not re.fullmatch(r"/api/v1/uploads/avatars/" + re.escape(prefix) + r"_[a-f0-9]{16}\.jpg", reference or ""):
+            raise HTTPException(400, "Invalid cover image")
+        data.cover_image_url = reference
+    if "cover_opacity" in data.model_fields_set and data.cover_opacity is None:
+        raise HTTPException(400, "Invalid cover opacity")
     if data.birth_year and int(data.birth_year) > now().year:
         raise HTTPException(400, "Invalid birth year")
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
@@ -446,7 +457,7 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
     reviewer_former = await db.get(ClientEngagement, (user_id, user.id)) if reviewer_profile else None
     can_review_coach = bool(reviewer_profile and (reviewer_profile.coach_id == user_id or reviewer_former) and not is_blocked)
     access = await access_state(user_id, db) if target.role == "client" and (own or own_coach) else None
-    return {**person(target), "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": not is_blocked, "assessments": assessments,
+    return {**person(target), "coverImageUrl": canonical_avatar_url(profile.cover_image_url) if profile and not is_blocked else None, "coverOpacity": profile.cover_opacity if profile else 0.35, "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": not is_blocked, "assessments": assessments,
         "coach": {"specialty": professional.specialty, "experienceYears": professional.experience_years, "achievements": public_list(professional.achievements), "certificates": public_list(professional.certificates), "coverImageUrl": canonical_avatar_url(professional.cover_image_url)} if professional and not is_blocked else None,
         "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach, "canReviewCoach": can_review_coach,
         "canSeeTraining": bool((own_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}

@@ -73,6 +73,14 @@ async def my_access(user: User = Depends(get_current_user), db: AsyncSession = D
     return await access_state(user.id, db) if user.role == "client" else {"allowed": True, "status": "active", "coachId": None, "endsOn": None}
 
 
+@router.get("/payments/me")
+async def own_payments(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user.role != "client":
+        raise HTTPException(403, "Client access required")
+    rows = (await db.execute(select(ClientPayment).where(ClientPayment.client_id == user.id).order_by(ClientPayment.paid_on.desc(), ClientPayment.id.desc()).limit(50))).scalars().all()
+    return [{"id": item.id, "amount": str(item.amount), "paidOn": item.paid_on.isoformat()} for item in rows]
+
+
 @router.get("")
 async def dashboard(month: str | None = None, period: Literal["month", "quarter", "year"] = "month", coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
     today = datetime.now(timezone.utc).date()
