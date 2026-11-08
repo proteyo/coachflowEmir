@@ -123,10 +123,11 @@ async def dashboard(month: str | None = None, period: Literal["month", "quarter"
         buckets.append({"day": bucket.day if period == "month" else bucket.month, "date": bucket.isoformat(), "income": str(sum((p.amount for p in incoming), Decimal("0"))), "expense": str(sum((e.amount for e in outgoing), Decimal("0"))), "clientsPaid": len({p.client_id for p in incoming}), "payments": len(incoming)})
         bucket = boundary
     names = {client.id: client.name for client, _ in clients}
+    recorded_payment_count = (await db.execute(select(func.count(ClientPayment.id)).where(ClientPayment.coach_id == coach.id, ClientPayment.amount > 0))).scalar_one()
     return {"month": anchor.strftime("%Y-%m"), "period": period, "startsOn": start.isoformat(), "endsBefore": end.isoformat(), "clientsPaid": len({p.client_id for p in payments}), "paymentCount": len(payments), "currency": "KZT", "received": str(received), "tariffEstimate": str(cost),
             "afterTariffEstimate": str(received - cost - spent), "expensesTotal": str(spent),
             "expenses": [{"id": e.id, "amount": str(e.amount), "paidOn": e.paid_on.isoformat(), "note": e.note} for e in expenses],
-            "daily": buckets, "clients": rows,
+            "daily": buckets, "clients": rows, "recordedPaymentCount": recorded_payment_count,
             "expiring": sum(1 for row in rows if row["active"] and row["endsOn"] and 0 <= (date.fromisoformat(row["endsOn"]) - today).days <= 7),
             "payments": [{"id": p.id, "clientId": p.client_id, "name": names.get(p.client_id, ""), "amount": str(p.amount), "paidOn": p.paid_on.isoformat(), "note": p.note} for p in payments]}
 

@@ -27,6 +27,19 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await social.SocialTests.asyncTearDown(self)
 
+    async def test_first_income_count_is_account_wide_and_ignores_contract_prices(self):
+        empty=await self.http.get("/api/v1/crm?month=2026-11")
+        self.assertEqual(empty.json()["recordedPaymentCount"],0)
+        self.session.add(ClientEngagement(coach_id=self.coach.id,client_id=self.client.id,monthly_fee=Decimal("50000")))
+        self.session.add(ClientPayment(coach_id=self.coach.id,client_id=self.client.id,amount=Decimal("10000"),paid_on=datetime(2025,1,2).date(),request_id="old-real-payment"))
+        self.session.add(ClientPayment(coach_id="other_coach",client_id=self.client.id,amount=Decimal("90000"),paid_on=datetime(2026,11,2).date(),request_id="not-my-payment"))
+        self.session.commit()
+        current=await self.http.get("/api/v1/crm?month=2026-11")
+        self.assertEqual(current.status_code,200,current.text)
+        self.assertEqual(current.json()["recordedPaymentCount"],1)
+        self.assertEqual(current.json()["paymentCount"],0)
+        self.assertEqual(Decimal(current.json()["received"]),0)
+
     async def test_code_link_cannot_claim_another_coachs_client_and_is_idempotent(self):
         self.client.client_code = "CLAIM123"
         self.session.commit()

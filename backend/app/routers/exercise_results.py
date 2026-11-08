@@ -156,12 +156,36 @@ async def create_result_from_payload(
 
     exercise = await get_exercise_or_none(data.exercise_id, db)
 
+    if data.exercise_id and not exercise:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+
     if exercise and exercise.workout_id != workout.id:
         raise HTTPException(
             status_code=400,
             detail="Exercise does not belong to this workout",
         )
 
+    # Serialize retries against completion and other result saves for this
+    # assignment. A set position is an observation, not another set on retry.
+    await db.execute(select(WorkoutAssignment).where(WorkoutAssignment.id == workout.id).with_for_update().execution_options(populate_existing=True))
+    await db.flush()
+    query=select(ExerciseResult).where(ExerciseResult.workout_id==workout.id,ExerciseResult.coach_id==workout.coach_id,ExerciseResult.client_id==workout.client_id,ExerciseResult.set_number==data.set_number)
+    query=query.where(ExerciseResult.exercise_id==data.exercise_id) if data.exercise_id else query.where(ExerciseResult.exercise_id.is_(None),ExerciseResult.exercise_name==data.exercise_name.strip())
+    existing=(await db.execute(query.order_by(ExerciseResult.created_at.desc(),ExerciseResult.id.desc()).limit(1))).scalar_one_or_none()
+    if existing:
+        unchanged=(existing.actual_reps==data.actual_reps and existing.weight==data.weight and existing.target_reps==data.target_reps and existing.notes==data.notes)
+        if workout.completed and not unchanged:
+            raise HTTPException(status_code=409,detail="Completed workout results cannot be changed")
+        if not unchanged:
+            existing.actual_reps=data.actual_reps
+            existing.target_reps=data.target_reps
+            existing.weight=data.weight
+            existing.notes=data.notes
+            existing.exercise_name=data.exercise_name.strip()
+            existing.muscle_group=data.muscle_group
+        return existing
+    if workout.completed:
+        raise HTTPException(status_code=409,detail="Completed workout results cannot be changed")
     return ExerciseResult(
         client_id=workout.client_id,
         coach_id=workout.coach_id,
@@ -221,17 +245,21 @@ async def create_results_bulk(
 
     created: list[ExerciseResult] = []
 
-    for item in data.results:
+    # Stable lock order avoids cross-assignment deadlocks for multi-workout
+    # batches. Preserve the caller's response order independently.
+    output: dict[int, ExerciseResult] = {}
+    for index,item in sorted(enumerate(data.results),key=lambda pair:pair[1].workout_id):
         result = await create_result_from_payload(item, current_user, db)
         db.add(result)
         created.append(result)
+        output[index]=result
 
     await db.commit()
 
     for item in created:
         await db.refresh(item)
 
-    return [result_out(result) for result in created]
+    return [result_out(output[index]) for index in range(len(data.results))]
 
 
 @router.get("", response_model=list[ExerciseResultOut])
