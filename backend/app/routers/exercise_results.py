@@ -1,7 +1,8 @@
 from app.services.training_access import client_coach_id
 from collections import defaultdict
+from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -238,6 +239,10 @@ async def list_results(
     client_id: str | None = None,
     workout_id: str | None = None,
     exercise_name: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int | None = Query(default=None, ge=1, le=500),
+    offset: int = Query(default=0, ge=0, le=100000),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -252,9 +257,17 @@ async def list_results(
     """
     query = select(ExerciseResult)
 
+    if date_from is not None or date_to is not None:
+        if date_from is None or date_to is None or limit is None:
+            raise HTTPException(status_code=422, detail="A bounded date range and limit are required")
+        if date_from.tzinfo is None or date_to.tzinfo is None:
+            raise HTTPException(status_code=422, detail="Dates must include a timezone")
+        if date_to <= date_from or date_to - date_from > timedelta(days=32):
+            raise HTTPException(status_code=422, detail="Date range must be between 0 and 32 days")
+        query = query.where(ExerciseResult.created_at >= date_from.astimezone(timezone.utc), ExerciseResult.created_at < date_to.astimezone(timezone.utc))
+
     if current_user.role == "client":
         query = query.where(ExerciseResult.client_id == current_user.id, ExerciseResult.coach_id == await client_coach_id(current_user.id, db))
-        query = query.where(ExerciseResult.coach_id == await client_coach_id(current_user.id, db))
 
     elif current_user.role == "coach":
         await ensure_coach_subscription_if_needed(current_user, db)
@@ -279,7 +292,10 @@ async def list_results(
     query = query.order_by(
         ExerciseResult.created_at.desc(),
         ExerciseResult.set_number.asc(),
+        ExerciseResult.id.asc(),
     )
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
 
     res = await db.execute(query)
 

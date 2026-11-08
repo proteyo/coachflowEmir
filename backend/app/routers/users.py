@@ -277,7 +277,8 @@ async def patch_client_profile(
         )
 
     if data.gender is not None:
-        profile.gender = normalize_client_gender(data.gender)
+        if normalize_client_gender(data.gender) != profile.gender:
+            raise HTTPException(status_code=422, detail="Gender cannot be changed after registration")
 
     string_fields = (
         "goal",

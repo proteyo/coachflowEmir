@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 
 
 class RegisterRequest(BaseModel):
@@ -9,7 +9,7 @@ class RegisterRequest(BaseModel):
     password: str
     role: str
     age: Optional[int] = None
-    gender: Optional[str] = "male"
+    gender: Optional[str] = None
     goal: Optional[str] = None
     goal_type: Optional[str] = None
 
@@ -25,9 +25,9 @@ class RegisterRequest(BaseModel):
 
     @field_validator("gender")
     @classmethod
-    def gender_valid(cls, v: Optional[str]) -> str:
+    def gender_valid(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
-            return "male"
+            return None
 
         cleaned = v.strip().lower()
 
@@ -35,6 +35,12 @@ class RegisterRequest(BaseModel):
             raise ValueError("gender must be 'male' or 'female'")
 
         return cleaned
+
+    @model_validator(mode="after")
+    def client_gender_required(self):
+        if self.role == "client" and self.gender is None:
+            raise ValueError("Gender is required for clients")
+        return self
 
     @field_validator("age")
     @classmethod
