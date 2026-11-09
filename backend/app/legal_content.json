@@ -1,0 +1,257 @@
+{
+  "version": "2026-11-09",
+  "service": "CoachFlow",
+  "contact": "klaevers001@gmail.com",
+  "ru": {
+    "privacyTitle": "Политика конфиденциальности",
+    "termsTitle": "Условия использования",
+    "deletionTitle": "Удаление аккаунта",
+    "updated": "Обновлено",
+    "privacy": [
+      [
+        "О сервисе и связи",
+        "Владелец сервиса CoachFlow — Эмир Камилов, Казахстан. CoachFlow — приложение для совместной работы тренера и клиента. По вопросам персональных данных и работы сервиса: klaevers001@gmail.com. Политика относится к приложению CoachFlow и его серверу."
+      ],
+      [
+        "Какие данные обрабатываются",
+        "Для аккаунта используются имя, email, роль, код клиента и пароль, который сервер хранит в виде стойкого хеша. В зависимости от заполненных полей и используемых функций обрабатываются пол, возраст или год рождения, рост, вес, цель, планы и результаты тренировок, посещаемость, добавки, отметки приёма и записи тренера об абонементах и оплатах. Фото, видео и голосовые сообщения загружаются только по вашему действию. Сообщения, отзывы, описание профиля и истории содержат то, что вы отправили или опубликовали."
+      ],
+      [
+        "Для чего нужны данные",
+        "Данные нужны для входа, ведения тренировок, отображения прогресса, общения с тренером, расчётов внутри приложения, управления доступом и защиты от злоупотреблений. Расчёты нагрузки и силы не являются медицинской диагностикой. Не вводите информацию, которая не нужна для этих задач."
+      ],
+      [
+        "Кому доступны данные",
+        "Привязанному тренеру доступны данные его клиента, необходимые для работы. Другие пользователи видят опубликованную информацию профиля, отзывы и истории в пределах выбранной аудитории. Личные сообщения доступны участникам; чат не использует сквозное шифрование. Инфраструктура сервиса включает хостинг Render и настроенное хранилище файлов. При поиске мест координаты и категория запроса передаются поставщику поиска, включая Google; при использовании писем email передаётся почтовому провайдеру. Мы не продаём данные и не используем их для рекламного отслеживания."
+      ],
+      [
+        "Разрешения телефона",
+        "Геолокация запрашивается при поиске ближайших мест. Для выбора фото и видео используется системный выбор файлов; на iOS может потребоваться доступ к выбранным фото. Микрофон используется только после разрешения для записи голосового сообщения. Уведомления можно отключить в приложении и настройках телефона. Доступ к телефонной книге не запрашивается: контакты приложения — это ваши связи внутри CoachFlow. Отказ от необязательного разрешения ограничивает соответствующую функцию, а не весь аккаунт."
+      ],
+      [
+        "Хранение и удаление",
+        "Данные аккаунта хранятся, пока вы используете сервис. При подтверждённом удалении личные поля аккаунта обезличиваются необратимо, сессии отзываются, а связанные личные записи удаляются. Файлы владельца очищаются отдельной очередью с повторными попытками при ошибках хранилища. Обезличенные хеши подтверждений покупок могут сохраняться для защиты от повторного использования. Чужие сообщения и чужие аккаунты не удаляются; у совместной группы может смениться владелец. Копии, которые другие люди сохранили самостоятельно, не подконтрольны приложению. Резервные копии инфраструктуры исключаются из рабочего доступа и удаляются при их штатной ротации."
+      ],
+      [
+        "Ваш выбор",
+        "Вы можете изменять доступные поля профиля, управлять разрешениями и уведомлениями, удалять собственный контент, блокировать пользователей и подавать жалобы. Удаление аккаунта находится в разделе документов профиля; оно доступно и без активной подписки. Также можно воспользоваться страницей удаления на сервере CoachFlow без установки приложения. Для запроса копии данных или уточнения сроков удаления напишите на контактный email."
+      ],
+      [
+        "Защита и изменения",
+        "Применяются защищённая передача данных, проверка авторизации, разграничение доступа и ограничения попыток. Ни один интернет-сервис не может обещать отсутствие всех рисков. Не передавайте пароль и коды подтверждения другим людям. Существенные изменения политики публикуются с новой датой; дополнительные согласия запрашиваются, если они необходимы."
+      ]
+    ],
+    "terms": [
+      [
+        "Использование CoachFlow",
+        "CoachFlow доступен только пользователям от 18 лет. Используйте сервис в соответствии с законодательством. Указывайте достоверные данные, храните пароль в тайне и не используйте чужой аккаунт."
+      ],
+      [
+        "Тренировки и расчёты",
+        "Тренер отвечает за назначенный план и рекомендации в пределах своей квалификации. CoachFlow хранит и отображает данные, но не оказывает медицинскую помощь. Оценка веса на один повтор, индексы силы и доли нагрузки являются расчётными показателями с ограничениями, указанными в приложении; они не гарантируют результат и не подтверждают безопасность конкретного веса. При боли, недомогании или противопоказаниях остановите тренировку и обратитесь к специалисту."
+      ],
+      [
+        "Контент и общение",
+        "Публикуйте только контент, на который имеете права и необходимые согласия. Запрещены угрозы, травля, сексуальная эксплуатация, незаконный контент, раскрытие чужих личных данных, спам и попытки обхода защиты. На нежелательный контент можно пожаловаться и заблокировать пользователя. Сервис может ограничить доступ к нарушающему контенту и аккаунту по результатам рассмотрения жалобы."
+      ],
+      [
+        "Подписки и абонементы",
+        "Подписка CoachFlow и договорённости клиента с тренером — разные отношения. Запись тренера об оплате не означает, что CoachFlow списал деньги. Перед реальной покупкой в приложении должны отображаться цена, срок, условия продления и правила соответствующего магазина. Окончание подписки ограничивает рабочие функции тренера, сохраняя доступ к профилю, документам и оформлению продления. Удаление клиента из рабочего списка и удаление аккаунта — разные действия."
+      ],
+      [
+        "Удаление и ответственность",
+        "Вы можете прекратить использование и удалить аккаунт. Если у вас есть подписка магазина, отдельно отмените её продление в настройках магазина: удаление аккаунта не отменяет магазинную подписку. Удаление необратимо. Ограничения ответственности применяются только в пределах, допустимых законом; обязательные права потребителя сохраняются."
+      ],
+      [
+        "Поддержка",
+        "По вопросам сервиса, жалоб и данных: klaevers001@gmail.com. Актуальные документы доступны в приложении и на публичных страницах сервера CoachFlow."
+      ]
+    ],
+    "deletion": [
+      [
+        "Как удалить аккаунт",
+        "В приложении: Профиль → Документы → Удаление аккаунта. Введите пароль и подтверждение DELETE. Без приложения используйте форму на этой странице. Не отправляйте пароль в поддержку."
+      ],
+      [
+        "Что произойдёт",
+        "Аккаунт станет недоступен, сессии будут отозваны, личные поля обезличены, связанные личные записи удалены, файлы переданы на очистку. Чужие аккаунты и чужой контент не удаляются. Обезличенные хеши покупок остаются только для защиты от повторного использования. Если есть подписка магазина, отмените её продление отдельно. Для помощи: klaevers001@gmail.com."
+      ]
+    ],
+    "email": "Email",
+    "password": "Пароль",
+    "confirmation": "Для подтверждения введите DELETE",
+    "delete": "Удалить аккаунт навсегда",
+    "deleted": "Аккаунт удалён. Сессии отозваны, очистка файлов выполняется в очереди.",
+    "invalid": "Проверьте email, пароль и подтверждение DELETE.",
+    "limited": "Слишком много попыток. Попробуйте позже."
+  },
+  "en": {
+    "privacyTitle": "Privacy policy",
+    "termsTitle": "Terms of use",
+    "deletionTitle": "Account deletion",
+    "updated": "Updated",
+    "privacy": [
+      [
+        "Service and contact",
+        "CoachFlow is operated by Эмир Камилов, Kazakhstan. CoachFlow supports collaboration between coaches and clients. Contact for service and personal-data matters: klaevers001@gmail.com. This policy covers the CoachFlow application and server."
+      ],
+      [
+        "Data processed",
+        "Account data includes name, email, role, client code and a password stored by the server as a strong hash. Depending on the fields and features you use, data may include sex, age or birth year, height, weight, goals, training plans and results, attendance, supplements, intake logs and a coach’s membership and payment records. Photos, videos and voice messages are uploaded only following your action. Messages, reviews, profile descriptions and stories contain what you send or publish."
+      ],
+      [
+        "Purposes",
+        "Data supports sign-in, coaching, progress tracking, communication, in-app calculations, access management and protection against abuse. Load and strength calculations are not medical diagnosis. Do not enter information unnecessary for these purposes."
+      ],
+      [
+        "Access and service providers",
+        "A linked coach can access client data needed for coaching. Other users see published profile information, reviews and stories within the chosen audience. Private messages are available to participants; the chat is not end-to-end encrypted. Service infrastructure includes Render hosting and the configured file storage. Place searches send coordinates and the requested category to search providers, including Google. When email features are used, the email provider receives the relevant email address. We do not sell data or use it for advertising tracking."
+      ],
+      [
+        "Device permissions",
+        "Location is requested when searching nearby places. Photos and videos are selected through the system picker; iOS may require access to selected photos. The microphone is used only after permission for a voice recording. Notifications can be disabled in the app and device settings. We do not request address-book access: app contacts are relationships within CoachFlow. Denying an optional permission limits that feature rather than the whole account."
+      ],
+      [
+        "Retention and deletion",
+        "Account data is kept while you use the service. Confirmed account deletion irreversibly anonymizes personal account fields, revokes sessions and removes associated personal records. Owner-uploaded files are cleaned by a separate queue that retries storage failures. Anonymous purchase-confirmation hashes may remain to prevent receipt replay. Other people’s accounts and messages are preserved; a shared group may receive a new owner. Copies independently saved by others are outside the app’s control. Infrastructure backups are excluded from normal app access and removed through their regular rotation."
+      ],
+      [
+        "Your choices",
+        "You can edit available profile fields, manage permissions and notifications, remove your own content, block users and report content. Account deletion is in the profile documents section and does not require an active subscription. A public server deletion page also works without reinstalling the app. Contact us to request a copy of your data or clarify deletion timing."
+      ],
+      [
+        "Protection and updates",
+        "We use protected transport, authentication, access controls and attempt limits. No online service can promise zero risk. Keep passwords and verification codes private. Material policy changes receive a new date; additional consent is requested where necessary."
+      ]
+    ],
+    "terms": [
+      [
+        "Using CoachFlow",
+        "CoachFlow is available only to adults aged 18 or older. Use the service in accordance with applicable law. Provide accurate information, keep your password private and do not use another person’s account."
+      ],
+      [
+        "Training and calculations",
+        "Coaches are responsible for assigned plans and guidance within their qualifications. CoachFlow stores and displays information; it does not provide medical care. Estimated single-repetition weights, strength indices and load shares have the limitations explained in the app. They do not guarantee a lift or establish that a weight is safe. Stop training and seek qualified advice if you experience pain, illness or contraindications."
+      ],
+      [
+        "Content and communication",
+        "Share only content you have the rights and necessary permission to use. Threats, harassment, sexual exploitation, illegal content, disclosure of others’ personal data, spam and attempts to bypass security are prohibited. Report unwanted content and block users. Content and account access may be restricted following review of a report."
+      ],
+      [
+        "Subscriptions and memberships",
+        "The CoachFlow subscription and a client’s agreement with a coach are separate. A coach recording a payment does not mean CoachFlow charged money. A real in-app purchase must show its price, duration, renewal terms and the relevant store rules. An expired subscription limits a coach’s working features while preserving profile, document and renewal access. Removing a client from a roster differs from deleting an account."
+      ],
+      [
+        "Deletion and responsibility",
+        "You can stop using the service and delete your account. Separately cancel store subscription renewal in the store settings: account deletion does not cancel a store subscription. Deletion is irreversible. Liability limits apply only as permitted by law; mandatory consumer rights remain unaffected."
+      ],
+      [
+        "Support",
+        "For service, reports and data requests: klaevers001@gmail.com. Current documents are available in the app and on the public CoachFlow server pages."
+      ]
+    ],
+    "deletion": [
+      [
+        "Delete your account",
+        "In the app: Profile → Documents → Account deletion. Enter your password and the confirmation DELETE. Without the app, use this page’s form. Never send your password to support."
+      ],
+      [
+        "What happens",
+        "Your account becomes unavailable, sessions are revoked, personal account fields anonymized, associated personal records removed and files queued for cleanup. Other users’ accounts and content are preserved. Anonymous purchase hashes remain only to prevent receipt replay. Cancel any store subscription renewal separately. Help: klaevers001@gmail.com."
+      ]
+    ],
+    "email": "Email",
+    "password": "Password",
+    "confirmation": "Type DELETE to confirm",
+    "delete": "Permanently delete account",
+    "deleted": "Account deleted. Sessions are revoked and file cleanup is queued.",
+    "invalid": "Check the email, password and DELETE confirmation.",
+    "limited": "Too many attempts. Please try again later."
+  },
+  "kk": {
+    "privacyTitle": "Құпиялылық саясаты",
+    "termsTitle": "Пайдалану шарттары",
+    "deletionTitle": "Аккаунтты жою",
+    "updated": "Жаңартылды",
+    "privacy": [
+      [
+        "Сервис және байланыс",
+        "CoachFlow сервисінің иесі — Эмир Камилов, Қазақстан. CoachFlow жаттықтырушы мен клиенттің бірлескен жұмысына арналған. Сервис пен дербес деректер мәселелері бойынша: klaevers001@gmail.com. Саясат CoachFlow қолданбасы мен серверіне қатысты."
+      ],
+      [
+        "Өңделетін деректер",
+        "Аккаунт үшін аты-жөн, email, рөл, клиент коды және серверде тұрақты хеш түрінде сақталатын құпиясөз қолданылады. Толтырған өрістер мен функцияларға қарай жыныс, жас немесе туған жыл, бой, салмақ, мақсат, жаттығу жоспарлары мен нәтижелері, қатысу, қоспалар мен қабылдау белгілері, жаттықтырушының абонемент және төлем жазбалары өңделеді. Фото, бейне және дауыстық хабарлама тек сіздің әрекетіңізбен жүктеледі. Хабарлама, пікір, профиль сипаттамасы мен хикаяға өзіңіз жіберген не жариялаған ақпарат кіреді."
+      ],
+      [
+        "Мақсаттар",
+        "Деректер кіруге, жаттығуды жүргізуге, ілгерілеуді көрсетуге, байланысқа, қолданбадағы есептеулерге, қолжетімділікті басқаруға және теріс пайдаланудан қорғауға қажет. Жүктеме мен күш есептеулері медициналық диагноз емес. Осы мақсаттарға қажетсіз ақпаратты енгізбеңіз."
+      ],
+      [
+        "Қолжетімділік және жеткізушілер",
+        "Байланыстырылған жаттықтырушы жұмысқа қажетті клиент деректерін көреді. Өзге пайдаланушылар жария профиль, пікірлер және таңдалған аудиториядағы хикаяларды көреді. Жеке хабарлама қатысушыларға қолжетімді; чатта ұштан-ұшқа шифрлау жоқ. Инфрақұрылымға Render хостингі және бапталған файл қоймасы кіреді. Орын іздегенде координаттар мен санат Google сияқты іздеу жеткізушісіне беріледі. Хат жіберу қолданылса, тиісті email пошта провайдеріне беріледі. Деректер сатылмайды және жарнамалық бақылау үшін қолданылмайды."
+      ],
+      [
+        "Телефон рұқсаттары",
+        "Жақын орындарды іздегенде геолокация сұралады. Фото мен бейне жүйелік таңдау арқылы ашылады; iOS таңдалған фотоларға рұқсат сұрауы мүмкін. Микрофон дауыстық жазба үшін рұқсаттан кейін ғана қолданылады. Хабарландыруды қолданбада және телефон баптауында өшіруге болады. Телефон кітапшасына рұқсат сұралмайды: қолданба контактілері — CoachFlow ішіндегі байланыстар. Қосымша рұқсаттан бас тарту бүкіл аккаунтты емес, тиісті функцияны шектейді."
+      ],
+      [
+        "Сақтау және жою",
+        "Деректер сервисті пайдаланған кезде сақталады. Расталған жоюда жеке аккаунт өрістері қайтымсыз иесізденеді, сессиялар қайтарылады, байланысты жеке жазбалар жойылады. Иесінің файлдары қойма қатесінде қайта әрекет жасайтын кезекпен тазаланады. Сатып алу растауларының иесізденген хештері қайталап қолданудан қорғау үшін сақталуы мүмкін. Өзгелердің аккаунттары мен хабарламалары сақталады; ортақ топ иесі ауысуы мүмкін. Өзгелер өздері сақтаған көшірмелер қолданба бақылауына жатпайды. Инфрақұрылымның резервтік көшірмелері жұмыс қолжетімділігінен бөлек сақталып, қалыпты айналымда жойылады."
+      ],
+      [
+        "Сіздің таңдауыңыз",
+        "Қолжетімді профиль өрістерін өңдеуге, рұқсаттар мен хабарландыруды басқаруға, өз контентіңізді жоюға, пайдаланушыны бұғаттауға және шағым беруге болады. Аккаунтты жою профильдің құжаттар бөлімінде, белсенді жазылымсыз да қолжетімді. Сервердің ашық жою беті қолданбасыз жұмыс істейді. Деректер көшірмесі не жою мерзімі туралы email арқылы сұрауға болады."
+      ],
+      [
+        "Қорғау және өзгерістер",
+        "Қорғалған байланыс, авторизация, қолжетімділікті бөлу және әрекет шектеулері қолданылады. Ешбір интернет сервисі тәуекелдің толық жоқтығын уәде ете алмайды. Құпиясөз бен растау кодын бөліспеңіз. Маңызды өзгерістер жаңа күнмен жарияланады; қажет болса қосымша келісім сұралады."
+      ]
+    ],
+    "terms": [
+      [
+        "CoachFlow пайдалану",
+        "CoachFlow тек 18 жасқа толған пайдаланушыларға арналған. Сервисті заңға сай пайдаланыңыз. Дұрыс ақпарат беріп, құпиясөзді құпия сақтаңыз және өзгенің аккаунтын қолданбаңыз."
+      ],
+      [
+        "Жаттығу мен есептеулер",
+        "Жаттықтырушы біліктілігі шегінде жоспар мен ұсынымға жауап береді. CoachFlow деректі сақтап көрсетеді, медициналық көмек бермейді. Бір қайталауға арналған болжам, күш индексі мен жүктеме үлесінің шектеулері қолданбада түсіндіріледі. Олар нәтижеге кепіл емес және салмақ қауіпсіздігін растамайды. Ауырсыну, сырқат не қарсы көрсетілім болса, жаттығуды тоқтатып, маманға жүгініңіз."
+      ],
+      [
+        "Контент пен байланыс",
+        "Құқығыңыз және қажет келісіміңіз бар контентті ғана бөлісіңіз. Қорқыту, қудалау, жыныстық қанау, заңсыз контент, өзгенің жеке дерегін тарату, спам және қорғанысты айналып өтуге тыйым салынады. Контентке шағымданып, пайдаланушыны бұғаттауға болады. Шағым қаралған соң контентке не аккаунтқа қолжетімділік шектелуі мүмкін."
+      ],
+      [
+        "Жазылым мен абонемент",
+        "CoachFlow жазылымы мен клиенттің жаттықтырушымен келісімі бөлек. Жаттықтырушы төлемді тіркесе, бұл CoachFlow ақша алды деген сөз емес. Нақты сатып алуда баға, мерзім, жаңарту шарттары және дүкен ережелері көрсетілуі тиіс. Жазылым біткенде жаттықтырушының жұмыс функциялары шектеледі, профиль, құжаттар және ұзарту қолжетімді қалады. Клиентті тізімнен шығару мен аккаунтты жою — бөлек әрекет."
+      ],
+      [
+        "Жою мен жауапкершілік",
+        "Сервисті тоқтатып, аккаунтты жоюға болады. Дүкен жазылымын дүкен баптауында бөлек тоқтатыңыз: аккаунтты жою оны тоқтатпайды. Жою қайтымсыз. Жауапкершілік шектеулері тек заң рұқсат еткен шекте қолданылады; тұтынушының міндетті құқықтары сақталады."
+      ],
+      [
+        "Қолдау",
+        "Сервис, шағым және деректер мәселелері бойынша: klaevers001@gmail.com. Өзекті құжаттар қолданбада және CoachFlow серверінің ашық беттерінде бар."
+      ]
+    ],
+    "deletion": [
+      [
+        "Аккаунтты жою",
+        "Қолданбада: Профиль → Құжаттар → Аккаунтты жою. Құпиясөз бен DELETE растауын енгізіңіз. Қолданбасыз осы беттегі форманы қолданыңыз. Құпиясөзді қолдауға жібермеңіз."
+      ],
+      [
+        "Не болады",
+        "Аккаунт қолжетімсіз болады, сессиялар қайтарылады, жеке өрістер иесізденеді, байланысты жеке жазбалар жойылып, файлдар тазалау кезегіне қосылады. Өзге аккаунттар мен контент сақталады. Иесізденген сатып алу хештері тек қайталап қолданудан қорғау үшін қалады. Дүкен жазылымын бөлек тоқтатыңыз. Көмек: klaevers001@gmail.com."
+      ]
+    ],
+    "email": "Email",
+    "password": "Құпиясөз",
+    "confirmation": "Растау үшін DELETE енгізіңіз",
+    "delete": "Аккаунтты біржола жою",
+    "deleted": "Аккаунт жойылды. Сессиялар қайтарылды, файл тазалау кезекте.",
+    "invalid": "Email, құпиясөз және DELETE растауын тексеріңіз.",
+    "limited": "Әрекет тым көп. Кейінірек қайталаңыз."
+  },
+  "operator": "Эмир Камилов",
+  "country": "Казахстан",
+  "minimumAge": 18
+}

@@ -74,6 +74,7 @@ engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
     echo=get_bool_env("DATABASE_ECHO", False),
     pool_pre_ping=True,
+    hide_parameters=True,
     pool_size=get_int_env("DATABASE_POOL_SIZE", 5),
     max_overflow=get_int_env("DATABASE_MAX_OVERFLOW", 10),
     pool_timeout=get_int_env("DATABASE_POOL_TIMEOUT", 30),

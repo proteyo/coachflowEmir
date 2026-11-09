@@ -250,6 +250,7 @@ async def ensure_media_upload_allowed(
     current_user: User,
     db: AsyncSession,
 ) -> None:
+    await lock_upload_owner(current_user, db)
     if current_user.role == "coach":
         await require_active_coach_subscription(current_user, db)
         return
@@ -262,6 +263,16 @@ async def ensure_media_upload_allowed(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Unsupported user role",
     )
+
+
+async def lock_upload_owner(user: User, db: AsyncSession):
+    # An erasure waits until an in-flight upload finishes; no orphan media can
+    # be uploaded after the cleanup has already completed.
+    from app.core.rate_limit import consume_limit
+    await consume_limit(db,"media-upload",user.id,30,60)
+    role = (await db.execute(select(User.role).where(User.id == user.id).with_for_update())).scalar_one_or_none()
+    if role not in ("coach", "client"):
+        raise HTTPException(403, "Account unavailable")
 
 
 def prepare_jpeg_image(
@@ -389,7 +400,9 @@ def upload_bytes_to_storage_or_local(
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    await lock_upload_owner(current_user, db)
     content_type = file.content_type or "application/octet-stream"
 
     if content_type not in ALLOWED_IMAGE_TYPES:
@@ -404,21 +417,21 @@ async def upload_avatar(
             max_size=MAX_IMAGE_SIZE,
         )
 
-        filename, jpeg_content = prepare_jpeg_image(
+        filename, jpeg_content = await asyncio.to_thread(prepare_jpeg_image,
             content=content,
             filename_prefix=current_user.id,
             max_size=AVATAR_THUMBNAIL_SIZE,
             quality=IMAGE_JPEG_QUALITY,
         )
 
-        avatar_url, public_url = upload_bytes_to_storage_or_local(
+        avatar_url, public_url = await asyncio.to_thread(upload_bytes_to_storage_or_local,
             content=jpeg_content,
             filename=filename,
             content_type="image/jpeg",
             cloud_prefix=get_storage_prefix("STORAGE_AVATAR_PREFIX", "avatars"),
             local_dir=AVATAR_DIR,
             local_api_path="/api/v1/uploads/avatars",
-            cache_control="public, max-age=31536000, immutable",
+            cache_control="public, max-age=3600",
         )
 
     finally:
@@ -464,7 +477,7 @@ async def upload_voice(
         filename = f"{current_user.id}_{uuid.uuid4().hex[:16]}{extension}"
         response_content_type = VOICE_MEDIA_TYPES.get(extension, "audio/mp4")
 
-        voice_url, public_url = upload_bytes_to_storage_or_local(
+        voice_url, public_url = await asyncio.to_thread(upload_bytes_to_storage_or_local,
             content=content,
             filename=filename,
             content_type=response_content_type,
@@ -517,14 +530,14 @@ async def upload_chat_image(
             max_size=MAX_IMAGE_SIZE,
         )
 
-        filename, jpeg_content = prepare_jpeg_image(
+        filename, jpeg_content = await asyncio.to_thread(prepare_jpeg_image,
             content=content,
             filename_prefix=current_user.id,
             max_size=CHAT_IMAGE_MAX_SIZE,
             quality=CHAT_IMAGE_JPEG_QUALITY,
         )
 
-        image_url, public_url = upload_bytes_to_storage_or_local(
+        image_url, public_url = await asyncio.to_thread(upload_bytes_to_storage_or_local,
             content=jpeg_content,
             filename=filename,
             content_type="image/jpeg",
@@ -581,7 +594,7 @@ async def upload_chat_video(
         filename = f"{current_user.id}_{uuid.uuid4().hex[:16]}{extension}"
         response_content_type = VIDEO_MEDIA_TYPES.get(extension, "video/mp4")
 
-        video_url, public_url = upload_bytes_to_storage_or_local(
+        video_url, public_url = await asyncio.to_thread(upload_bytes_to_storage_or_local,
             content=content,
             filename=filename,
             content_type=response_content_type,
@@ -636,14 +649,14 @@ async def upload_video_thumbnail(
             max_size=MAX_VIDEO_THUMBNAIL_SIZE,
         )
 
-        filename, jpeg_content = prepare_jpeg_image(
+        filename, jpeg_content = await asyncio.to_thread(prepare_jpeg_image,
             content=content,
             filename_prefix=f"{current_user.id}_thumb",
             max_size=VIDEO_THUMBNAIL_MAX_SIZE,
             quality=VIDEO_THUMBNAIL_JPEG_QUALITY,
         )
 
-        thumbnail_url, public_url = upload_bytes_to_storage_or_local(
+        thumbnail_url, public_url = await asyncio.to_thread(upload_bytes_to_storage_or_local,
             content=jpeg_content,
             filename=filename,
             content_type="image/jpeg",
@@ -673,10 +686,15 @@ async def upload_video_thumbnail(
 
 
 @router.get("/avatars/{filename}")
-async def get_avatar(filename: str):
+async def get_avatar(filename: str, db: AsyncSession = Depends(get_db)):
     ensure_upload_dirs()
 
     safe_name = validate_safe_filename(filename)
+    generated = re.fullmatch(r"(.+)_[a-f0-9]{16}\.jpg", safe_name)
+    if generated:
+        role = (await db.execute(select(User.role).where(User.id == generated.group(1)))).scalar_one_or_none()
+        if role not in ("coach", "client"):
+            raise HTTPException(404, "Avatar not found")
     if settings.uses_cloud_storage:
         key = f"{settings.STORAGE_AVATAR_PREFIX.strip('/')}/{safe_name}"
         try:
@@ -697,7 +715,7 @@ async def get_avatar(filename: str):
         filepath,
         media_type="image/jpeg",
         headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
+            "Cache-Control": "public, max-age=3600",
             "X-Content-Type-Options": "nosniff",
         },
     )

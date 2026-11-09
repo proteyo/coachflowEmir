@@ -15,7 +15,7 @@ class MuscleAnalysisTests(unittest.IsolatedAsyncioTestCase):
         await social.SocialTests.asyncTearDown(self)
 
     async def test_gender_is_required_and_cannot_be_changed_by_direct_api(self):
-        body = dict(name="Client", email="new@example.com", password="Strong123!", role="client")
+        body = dict(name="Client", email="new@example.com", password="Strong123!", role="client",age=30,terms_version="2026-11-09",adult_confirmed=True,health_data_consent=True)
         for gender in [None, "other", ""]:
             with self.assertRaises(ValidationError):
                 RegisterRequest(**body, gender=gender)
@@ -44,8 +44,7 @@ class MuscleAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(p["clientId"]==self.client.id for p in pages))
         self.current=self.stranger
         response=await self.http.get("/api/v1/exercise-results?"+urlencode(dict(params,client_id=self.client.id)))
-        self.assertEqual(response.status_code,200,response.text)
-        self.assertEqual(response.json(), [])
+        self.assertEqual(response.status_code,403,response.text)
 
     async def test_invalid_or_unbounded_analysis_windows_are_rejected(self):
         for params in [dict(limit=501),dict(limit=0),dict(offset=-1),dict(date_from="2026-11-01T00:00:00Z"),dict(date_from="2026-01-01T00:00:00Z",date_to="2026-11-01T00:00:00Z",limit=500),dict(date_from="2026-11-01",date_to="2026-11-03",limit=500)]:

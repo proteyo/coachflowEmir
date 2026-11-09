@@ -1,4 +1,5 @@
 from app.models.purchase_claim import PurchaseClaim
+from app.models.content_report import ContentReport
 from app.models.auth_session import AuthSession
 from app.models.auth_limit import AuthRateLimit
 from app.models.attendance import Attendance

@@ -126,7 +126,7 @@ async def get_current_user(
 
     user = result.scalar_one_or_none()
 
-    if not user or not user.email_verified or not token_matches_password(token, user.password_hash):
+    if not user or user.role not in ("coach", "client") or not user.email_verified or not token_matches_password(token, user.password_hash):
         raise unauthorized("Invalid or expired token")
 
     if not await session_is_active(token, db):

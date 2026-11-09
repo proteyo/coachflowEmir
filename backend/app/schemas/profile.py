@@ -47,15 +47,16 @@ class ClientProfileOut(BaseModel):
 
 
 class UpdateClientProfileRequest(BaseModel):
+    model_config = {"extra":"forbid"}
     gender: Optional[str] = None
-    goal: Optional[str] = None
+    goal: Optional[str] = Field(default=None,max_length=500)
     goal_type: Optional[str] = None
-    start_weight: Optional[float] = None
-    current_weight: Optional[float] = None
-    height: Optional[float] = None
-    age: Optional[int] = None
+    start_weight: Optional[float] = Field(default=None,ge=0,le=400,allow_inf_nan=False)
+    current_weight: Optional[float] = Field(default=None,ge=0,le=400,allow_inf_nan=False)
+    height: Optional[float] = Field(default=None,ge=0,le=250,allow_inf_nan=False)
+    age: Optional[int] = Field(default=None,ge=18,le=100)
     fitness_level: Optional[str] = None
-    health_notes: Optional[str] = None
+    health_notes: Optional[str] = Field(default=None,max_length=4000)
 
 
 class UpdateUserRequest(BaseModel):

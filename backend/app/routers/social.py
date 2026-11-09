@@ -1,3 +1,5 @@
+from app.services.content_safety import validate_content
+from app.core.rate_limit import consume_limit
 """Inbox, groups and explicitly published profile content. Never returns health data."""
 import json
 import re
@@ -230,6 +232,8 @@ class GroupIn(BaseModel):
 
 @router.post("/groups", status_code=201)
 async def create_group(data: GroupIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await consume_limit(db,"social-write",user.id,60,60)
+    validate_content(data.name)
     await coach_access(user, db)
     ids = set(data.members) - {user.id}
     allowed = await contacts(user, db)
@@ -326,6 +330,8 @@ async def group_messages(group_id: str, before: str | None = None, user: User = 
 
 @router.post("/groups/{group_id}/messages", status_code=201)
 async def send_group_message(group_id: str, data: GroupMessageIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await consume_limit(db,"social-write",user.id,60,60)
+    validate_content(data.content)
     await coach_access(user, db)
     await member(group_id, user, db)
     members = (await db.execute(select(ChatMember.user_id).where(ChatMember.group_id == group_id))).scalars().all()
@@ -391,6 +397,8 @@ class ProfileIn(BaseModel):
 
 @router.patch("/profile")
 async def save_profile(data: ProfileIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await consume_limit(db,"social-write",user.id,60,60)
+    validate_content(data.bio)
     if data.cover_image_url:
         reference = canonical_avatar_url(data.cover_image_url)
         prefix = re.sub(r"[^A-Za-z0-9_.-]", "_", user.id)
@@ -430,7 +438,7 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
     from app.models.attendance import Attendance
     from app.services.training_access import access_state
     target = await db.get(User, user_id)
-    if not target:
+    if not target or target.role not in ("coach", "client"):
         raise HTTPException(404, "User not found")
     profile = await db.get(SocialProfile, user_id)
     private = await db.get(ClientProfile, user_id)
@@ -446,21 +454,21 @@ async def public_profile(user_id: str, user: User = Depends(get_current_user), d
     if target.role == "coach" and not is_blocked:
         reviews = (await db.execute(select(CoachReview, User).join(User, User.id == CoachReview.client_id).where(CoachReview.coach_id == user_id).order_by(CoachReview.updated_at.desc()))).all()
         assessments = [{"id": review.id, "author": person(author), "rating": review.rating, "comment": review.comment, "createdAt": review.updated_at.isoformat()} for review, author in reviews]
+    active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
     attendance = None
-    if not is_blocked and (own_coach or (own and target.role == "client")):
+    if not is_blocked and (own_coach and active_coach or (own and target.role == "client")):
         from app.services.attendance_stats import attendance_stats
         records = (await db.execute(select(Attendance).where(Attendance.client_id == user_id))).scalars().all()
         stats = attendance_stats(records)
         attendance = {"missed": stats["missed"], "attended": stats["attended"], "streak": stats["currentStreak"]}
-    active_coach = bool(await get_active_subscription(db, user.id)) if user.role == "coach" and (own_coach or former) else False
     reviewer_profile = await db.get(ClientProfile, user.id) if user.role == "client" and target.role == "coach" else None
     reviewer_former = await db.get(ClientEngagement, (user_id, user.id)) if reviewer_profile else None
     can_review_coach = bool(reviewer_profile and (reviewer_profile.coach_id == user_id or reviewer_former) and not is_blocked)
     access = await access_state(user_id, db) if target.role == "client" and (own or own_coach) else None
     return {**person(target), "coverImageUrl": canonical_avatar_url(profile.cover_image_url) if profile and not is_blocked else None, "coverOpacity": profile.cover_opacity if profile else 0.35, "isOwn": own, "bio": (professional.bio if professional else profile.bio if profile else "") if not is_blocked else "", "goal": profile.goal if profile and not is_blocked else "", "birthYear": profile.birth_year if profile and not is_blocked else "", "showRating": not is_blocked, "assessments": assessments,
         "coach": {"specialty": professional.specialty, "experienceYears": professional.experience_years, "achievements": public_list(professional.achievements), "certificates": public_list(professional.certificates), "coverImageUrl": canonical_avatar_url(professional.cover_image_url)} if professional and not is_blocked else None,
-        "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(own_coach or former), "clientLinked": own_coach, "canReviewCoach": can_review_coach,
-        "canSeeTraining": bool((own_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
+        "attendance": attendance, "canAssess": bool(target.role == "client" and (own_coach or former) and active_coach and not is_blocked), "canManageClient": bool(active_coach and (own_coach or former)), "clientLinked": own_coach, "canReviewCoach": can_review_coach,
+        "canSeeTraining": bool((own_coach and active_coach or (own and access and access["allowed"])) and not is_blocked), "trainingClosed": bool(own and access and not access["allowed"]), "blocked": bool(await db.get(UserBlock, (user.id, user_id)))}
 
 
 async def can_view_story(story, user, db):
@@ -515,6 +523,8 @@ async def stories(owner_id: str | None = None, user: User = Depends(get_current_
 
 @router.post("/stories", status_code=201)
 async def publish_story(data: StoryIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await consume_limit(db,"social-write",user.id,60,60)
+    validate_content(data.caption)
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     recent = (await db.execute(select(Story.id).where(Story.user_id == user.id, Story.created_at > now() - timedelta(days=1)).limit(51))).all()
     if len(recent) >= 50:
@@ -532,6 +542,8 @@ async def publish_story(data: StoryIn, user: User = Depends(get_current_user), d
 
 @router.patch("/stories/{story_id}")
 async def edit_story(story_id: str, data: StoryEdit, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await consume_limit(db,"social-write",user.id,60,60)
+    validate_content(data.caption)
     item = await db.get(Story, story_id)
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Story not found")

@@ -1,3 +1,5 @@
+from app.services.content_safety import validate_content
+from app.core.rate_limit import consume_limit
 """
 Messages API.
 
@@ -232,7 +234,7 @@ async def _get_user_by_token(token: str, db: AsyncSession) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id).execution_options(populate_existing=True))
     user = result.scalar_one_or_none()
 
-    if not user or not user.email_verified or not token_matches_password(cleaned_token, user.password_hash):
+    if not user or user.role not in ("coach", "client") or not user.email_verified or not token_matches_password(cleaned_token, user.password_hash):
         return None
 
     if not await session_is_active(cleaned_token, db):
@@ -743,6 +745,8 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await consume_limit(db,"chat-write",current_user.id,60,60)
+    validate_content(data.content)
     await _ensure_coach_subscription_if_needed(current_user, db)
 
     receiver = await _ensure_user_exists(data.receiver_id, db)
@@ -859,6 +863,8 @@ async def edit_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await consume_limit(db,"chat-write",current_user.id,60,60)
+    validate_content(data.content)
     await _ensure_coach_subscription_if_needed(current_user, db)
 
     message = await _get_message_by_id(message_id, db)

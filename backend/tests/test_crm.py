@@ -205,7 +205,10 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(data["afterTariffEstimate"]), -125.50)
         invalid = await self.http.post("/api/v1/crm/expenses", json={**payload, "coach_id": self.stranger.id})
         self.assertEqual(invalid.status_code, 422)
-        self.stranger.role = "coach"; self.session.commit(); self.current = self.stranger
+        self.stranger.role = "coach"
+        self.session.add(CoachProfile(user_id=self.stranger.id))
+        self.session.add(Subscription(coach_id=self.stranger.id,status="active",plan_code="pro",end_date=datetime.now(timezone.utc)+timedelta(days=30)))
+        self.session.commit(); self.current = self.stranger
         self.assertEqual((await self.http.delete("/api/v1/crm/expenses/" + first.json()["id"])).status_code, 404)
         self.current = self.client
         self.assertEqual((await self.http.post("/api/v1/crm/expenses", json=payload)).status_code, 403)
@@ -257,8 +260,8 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.http.get("/api/v1/streak")).json()["currentStreak"], 0)
         self.assertEqual((await self.http.post("/api/v1/streak/activity")).json()["currentStreak"], 0)
         self.current = self.stranger
-        summary = (await self.http.get("/api/v1/attendance/summary")).json()
-        self.assertEqual([r["clientId"] for r in summary], [self.stranger.id])
+        response = await self.http.get("/api/v1/attendance/summary")
+        self.assertEqual(response.status_code, 403)  # An unassigned account has no training access.
 
     async def test_membership_can_record_a_payment_atomically_once_and_analytics_periods_match(self):
         today = datetime.now(timezone.utc).date().isoformat()

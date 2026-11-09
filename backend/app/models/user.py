@@ -93,6 +93,10 @@ class User(Base):
     )
 
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    terms_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    adult_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    health_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     coach_profile: Mapped["CoachProfile"] = relationship(
         back_populates="user",

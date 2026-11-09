@@ -335,3 +335,72 @@ class StorageService:
 
 def get_storage_service() -> StorageService:
     return StorageService()
+
+
+def delete_user_uploads(user_id: str) -> bool:
+    """Only generated files under an authenticated owner's exact prefix.
+
+    One pass is bounded; incomplete/cloud failures are retried by the persisted
+    tombstone queue. This never removes directories or accepts caller paths.
+    """
+    from pathlib import Path
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", user_id):
+        raise ValueError("Invalid owner")
+    service = get_storage_service()
+    prefixes = [("avatars", "STORAGE_AVATAR_PREFIX"), ("voice", "STORAGE_VOICE_PREFIX"),
+                ("images", "STORAGE_IMAGE_PREFIX"), ("videos", "STORAGE_VIDEO_PREFIX"),
+                ("video-thumbnails", "STORAGE_VIDEO_THUMBNAIL_PREFIX")]
+    complete = True
+    for folder, setting in prefixes:
+        expected = user_id + ("_thumb_" if folder == "video-thumbnails" else "_")
+        owned_name = re.compile(re.escape(expected) + r"[a-f0-9]{16}\.[A-Za-z0-9]{1,8}$")
+        prefix = getattr(service.settings, setting, folder).strip("/")
+        if not re.fullmatch(r"[A-Za-z0-9_/-]+", prefix):
+            raise ValueError("Invalid storage prefix")
+        owner_prefix = f"{prefix}/{user_id}_"
+        if service._s3_client is not None:
+            cursor, budget = None, 1000
+            while True:
+                response = service._s3_client.list_objects_v2(Bucket=service.settings.STORAGE_BUCKET_NAME, Prefix=owner_prefix, MaxKeys=1000, **({"ContinuationToken": cursor} if cursor else {}))
+                keys = [item["Key"] for item in response.get("Contents", []) if item["Key"].startswith(prefix + "/") and owned_name.fullmatch(item["Key"][len(prefix)+1:])]
+                selected = keys[:budget]
+                if selected:
+                    result = service._s3_client.delete_objects(Bucket=service.settings.STORAGE_BUCKET_NAME, Delete={"Objects": [{"Key": key} for key in selected], "Quiet": True})
+                    if result.get("Errors"):
+                        raise RuntimeError("Storage cleanup incomplete")
+                    budget -= len(selected)
+                more = len(keys) > len(selected) or response.get("IsTruncated", False)
+                if not more:
+                    break
+                if budget == 0:
+                    complete = False
+                    break
+                cursor = response.get("NextContinuationToken")
+                if not cursor:
+                    raise RuntimeError("Storage pagination unavailable")
+        elif service._gcs_bucket is not None:
+            budget = 1000
+            for blob in service._gcs_client.list_blobs(service._gcs_bucket, prefix=owner_prefix):
+                if blob.name.startswith(prefix + "/") and owned_name.fullmatch(blob.name[len(prefix)+1:]):
+                    if budget == 0:
+                        complete = False
+                        break
+                    blob.delete()
+                    budget -= 1
+        else:
+            root = (Path(__file__).resolve().parents[2] / "uploads").resolve()
+            directory = (root / folder).resolve()
+            directory.relative_to(root)
+            if not directory.exists():
+                continue
+            removed = 0
+            for item in directory.iterdir():
+                if not owned_name.fullmatch(item.name) or not item.is_file() or item.is_symlink():
+                    continue
+                item.resolve().relative_to(directory)
+                if removed >= 1000:
+                    complete = False
+                    break
+                item.unlink()
+                removed += 1
+    return complete

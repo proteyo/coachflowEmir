@@ -571,13 +571,13 @@ async def send_password_reset_email(
             html_body=html_body,
         )
 
-        logger.info("Password reset email sent to %s", to_email)
+        logger.info("Password reset email sent")
 
     except EmailConfigurationError:
         raise
 
     except Exception as exc:
-        logger.exception("Failed to send password reset email to %s", to_email)
+        logger.warning("Password reset email delivery failed")
 
         raise EmailDeliveryError("Could not send password reset email") from exc
 
@@ -655,12 +655,12 @@ async def send_email_verification_code(
             html_body=html_body,
         )
 
-        logger.info("Email verification code sent to %s", to_email)
+        logger.info("Verification email sent")
 
     except EmailConfigurationError:
         raise
 
     except Exception as exc:
-        logger.exception("Failed to send email verification code to %s", to_email)
+        logger.warning("Verification email delivery failed")
 
         raise EmailDeliveryError("Could not send email verification code") from exc

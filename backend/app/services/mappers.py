@@ -188,6 +188,7 @@ def to_optional_int(value: Any) -> int | None:
 
 def user_out(user: User) -> UserOut:
     return UserOut(
+        termsVersion=user.terms_version,
         id=user.id,
         email=user.email,
         name=user.name,

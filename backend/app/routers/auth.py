@@ -414,6 +414,7 @@ async def register(
         client_code=await generate_unique_client_code(db) if is_client else None,
         created_at=current_time,
         email_verified=False,
+
     )
 
     raw_code = attach_new_email_verification_code(user)
@@ -537,6 +538,13 @@ async def verify_email(
         )
 
     validate_password_strength(data.password)
+    if data.legal:
+        profile=(await db.execute(select(ClientProfile).where(ClientProfile.user_id==user.id))).scalar_one_or_none()
+        if user.role=="client" and (not data.legal.health_data_consent or profile and profile.age is not None and profile.age<18):
+            raise HTTPException(422,"ADULT_HEALTH_CONSENT_REQUIRED")
+        user.terms_version=data.legal.terms_version
+        user.terms_accepted_at=user.adult_confirmed_at=now_utc()
+        user.health_consent_at=now_utc() if user.role=="client" else None
     user.password_hash = hash_password(data.password)
     user.email_verified = True
     user.email_verification_code_hash = None
@@ -621,7 +629,7 @@ async def login(
 
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(data.password, user.password_hash):
+    if not user or user.role not in ("coach", "client") or not verify_password(data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -658,7 +666,7 @@ async def refresh(
 
     user = result.scalar_one_or_none()
 
-    if not user or not token_matches_password(data.refresh_token, user.password_hash, "refresh"):
+    if not user or user.role not in ("coach", "client") or not token_matches_password(data.refresh_token, user.password_hash, "refresh"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",

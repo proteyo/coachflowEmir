@@ -3,6 +3,8 @@ CoachFlow Backend — FastAPI application.
 """
 
 import logging
+import asyncio
+from contextlib import suppress
 import os
 from contextlib import asynccontextmanager
 
@@ -74,9 +76,15 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-    yield
-
-    await engine.dispose()
+    from app.services.account_erasure import erasure_worker
+    cleanup = asyncio.create_task(erasure_worker())
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -88,6 +96,8 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+from app.routers import legal
+app.include_router(legal.router)
 
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
@@ -149,6 +159,10 @@ async def global_exception_handler(
 
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
+from app.routers import account
+app.include_router(account.router, prefix=API_PREFIX)
+from app.routers import safety
+app.include_router(safety.router, prefix=API_PREFIX)
 app.include_router(clients.router, prefix=API_PREFIX)
 app.include_router(workouts.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 app.include_router(supplements.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])

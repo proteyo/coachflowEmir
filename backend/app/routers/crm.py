@@ -82,7 +82,7 @@ async def own_payments(user: User = Depends(get_current_user), db: AsyncSession 
 
 
 @router.get("")
-async def dashboard(month: str | None = None, period: Literal["month", "quarter", "year"] = "month", coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def dashboard(month: str | None = None, period: Literal["month", "quarter", "year"] = "month", coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     today = datetime.now(timezone.utc).date()
     try:
         start = date.fromisoformat((month or today.strftime("%Y-%m")) + "-01")
@@ -133,7 +133,7 @@ async def dashboard(month: str | None = None, period: Literal["month", "quarter"
 
 
 @router.patch("/clients/{client_id}")
-async def update_engagement(client_id: str, data: EngagementIn, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def update_engagement(client_id: str, data: EngagementIn, coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     # Lock the coach first, matching quota enforcement in /clients/link.
     await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
     profile, item = await relationship(coach.id, client_id, db, lock=True)
@@ -168,7 +168,7 @@ async def update_engagement(client_id: str, data: EngagementIn, coach: User = De
 
 
 @router.post("/clients/{client_id}/payments", status_code=201)
-async def add_payment(client_id: str, data: PaymentIn, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def add_payment(client_id: str, data: PaymentIn, coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
     await relationship(coach.id, client_id, db)
     key = coach.id + ":" + data.request_id
@@ -184,7 +184,7 @@ async def add_payment(client_id: str, data: PaymentIn, coach: User = Depends(req
 
 
 @router.delete("/payments/{payment_id}", status_code=204)
-async def remove_payment(payment_id: str, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def remove_payment(payment_id: str, coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     item = (await db.execute(select(ClientPayment).where(ClientPayment.id == payment_id, ClientPayment.coach_id == coach.id))).scalar_one_or_none()
     if not item:
         raise HTTPException(404, "Payment not found")
@@ -193,7 +193,7 @@ async def remove_payment(payment_id: str, coach: User = Depends(require_coach), 
 
 
 @router.post("/expenses", status_code=201)
-async def add_expense(data: PaymentIn, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def add_expense(data: PaymentIn, coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     await db.execute(select(User.id).where(User.id == coach.id).with_for_update())
     key = coach.id + ":" + data.request_id
     existing = (await db.execute(select(CoachExpense).where(CoachExpense.request_id == key))).scalar_one_or_none()
@@ -208,7 +208,7 @@ async def add_expense(data: PaymentIn, coach: User = Depends(require_coach), db:
 
 
 @router.delete("/expenses/{expense_id}", status_code=204)
-async def remove_expense(expense_id: str, coach: User = Depends(require_coach), db: AsyncSession = Depends(get_db)):
+async def remove_expense(expense_id: str, coach: User = Depends(require_active_coach_subscription), db: AsyncSession = Depends(get_db)):
     item = (await db.execute(select(CoachExpense).where(CoachExpense.id == expense_id, CoachExpense.coach_id == coach.id))).scalar_one_or_none()
     if not item:
         raise HTTPException(404, "Expense not found")

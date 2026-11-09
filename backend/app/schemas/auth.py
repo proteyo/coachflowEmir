@@ -1,14 +1,15 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from app.services.legal_terms import LegalAcceptance
 
 
-class RegisterRequest(BaseModel):
-    name: str
+class RegisterRequest(LegalAcceptance):
+    name: str = Field(min_length=1,max_length=120)
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
     role: str
-    age: Optional[int] = None
+    age: Optional[int] = Field(default=None,ge=18,le=100)
     gender: Optional[str] = None
     goal: Optional[str] = None
     goal_type: Optional[str] = None
@@ -40,6 +41,8 @@ class RegisterRequest(BaseModel):
     def client_gender_required(self):
         if self.role == "client" and self.gender is None:
             raise ValueError("Gender is required for clients")
+        if self.role == "client" and (self.age is None or not self.health_data_consent):
+            raise ValueError("Adult age and health-data consent are required for clients")
         return self
 
     @field_validator("age")
@@ -82,6 +85,7 @@ class VerifyEmailRequest(BaseModel):
     email: EmailStr
     code: str
     password: str
+    legal: Optional[LegalAcceptance] = None
 
     @field_validator("code")
     @classmethod
@@ -119,6 +123,7 @@ class UserOut(BaseModel):
 
     emailVerified: bool = False
     trialStartedAt: Optional[str] = None
+    termsVersion: Optional[str] = None
 
     lastSeenAt: Optional[str] = None
     isOnline: bool = False
