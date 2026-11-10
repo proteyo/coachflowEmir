@@ -9,7 +9,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
-from app.services.training_access import require_training_access
+from app.services.training_access import require_training_access, require_places_access
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -171,7 +171,7 @@ app.include_router(messages.router, prefix=API_PREFIX)
 app.include_router(weekly_goals.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 app.include_router(attendance.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
 app.include_router(streak.router, prefix=API_PREFIX, dependencies=[Depends(require_training_access)])
-app.include_router(places.router, prefix=API_PREFIX)
+app.include_router(places.router, prefix=API_PREFIX, dependencies=[Depends(require_places_access)])
 app.include_router(subscriptions.router, prefix=API_PREFIX)
 app.include_router(uploads.router, prefix=API_PREFIX)
 app.include_router(reviews.router, prefix=API_PREFIX)

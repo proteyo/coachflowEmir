@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.deps import get_current_user, require_active_coach_subscription
+from app.core.deps import get_current_user, require_active_coach_subscription, require_active_client_coach_subscription
 from app.db.database import get_db
 from app.models.engagement import ClientEngagement
 from app.models.profile import ClientProfile
@@ -36,3 +36,10 @@ async def require_training_access(user: User = Depends(get_current_user), db: As
 
 async def client_coach_id(user_id: str, db: AsyncSession):
     return (await db.execute(select(ClientProfile.coach_id).where(ClientProfile.user_id == user_id))).scalar_one_or_none()
+
+
+async def require_places_access(user: User = Depends(require_training_access), db: AsyncSession = Depends(get_db)):
+    # Check entitlement before cache reads or any billable provider call.
+    if user.role == "client":
+        await require_active_client_coach_subscription(user, db)
+    return user

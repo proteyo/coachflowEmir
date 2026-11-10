@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-09",
+  "version": "2026-11-10",
   "service": "CoachFlow",
   "contact": "klaevers001@gmail.com",
   "ru": {
@@ -30,7 +30,7 @@
       ],
       [
         "Хранение и удаление",
-        "Данные аккаунта хранятся, пока вы используете сервис. При подтверждённом удалении личные поля аккаунта обезличиваются необратимо, сессии отзываются, а связанные личные записи удаляются. Файлы владельца очищаются отдельной очередью с повторными попытками при ошибках хранилища. Обезличенные хеши подтверждений покупок могут сохраняться для защиты от повторного использования. Чужие сообщения и чужие аккаунты не удаляются; у совместной группы может смениться владелец. Копии, которые другие люди сохранили самостоятельно, не подконтрольны приложению. Резервные копии инфраструктуры исключаются из рабочего доступа и удаляются при их штатной ротации."
+        "Данные аккаунта хранятся, пока вы используете сервис. При подтверждённом удалении личные поля аккаунта обезличиваются необратимо, сессии отзываются, а связанные личные записи удаляются. Файлы владельца очищаются отдельной очередью с повторными попытками при ошибках хранилища. Обезличенные хеши подтверждений покупок могут сохраняться для защиты от повторного использования. Чужие сообщения и чужие аккаунты не удаляются; у совместной группы может смениться владелец. Копии, которые другие люди сохранили самостоятельно, не подконтрольны приложению. Резервные копии и ограничения их очистки описаны ниже."
       ],
       [
         "Ваш выбор",
@@ -39,6 +39,38 @@
       [
         "Защита и изменения",
         "Применяются защищённая передача данных, проверка авторизации, разграничение доступа и ограничения попыток. Ни один интернет-сервис не может обещать отсутствие всех рисков. Не передавайте пароль и коды подтверждения другим людям. Существенные изменения политики публикуются с новой датой; дополнительные согласия запрашиваются, если они необходимы."
+      ],
+      [
+        "Учётная запись и технические данные",
+        "Для регистрации и входа используются имя, email, пароль в виде защищённого хеша, роль клиента или тренера, код клиента, подтверждения почты и записи согласий. Сервер обрабатывает IP-адрес и технические сведения запроса для передачи данных, авторизации и защиты от злоупотреблений. На устройстве сохраняются сессия, язык, тема, настройки, черновики и часть данных для работы интерфейса. Пароли и коды нельзя передавать в поддержку."
+      ],
+      [
+        "Фото, видео и голос",
+        "На сервер отправляются только выбранные вами файлы: аватар, обложка, истории, вложения переписки и другие добавленные изображения, а также записанные вами голосовые сообщения. Вместе с материалом могут обрабатываться формат, размер, длительность и технические метаданные файла. Не выбираемые вами фотографии и телефонная книга не загружаются. Публикуя чужое изображение или голос, получите необходимое разрешение. Публичный материал и его копии могут стать доступны выбранной аудитории."
+      ],
+      [
+        "Тренировки, здоровье и расчёты",
+        "Для работы с тренером используются указанные вами пол, возраст, рост, вес, цель, отметки посещений, упражнения, подходы, повторы, рабочий вес, прогресс и план добавок. Эти данные не публикуются как журнал тренировок для посторонних: доступ зависит от роли и связи с тренером. О себе, цель, истории, отзывы и выбранные публичные поля отображаются в профиле по правилам соответствующей функции. Нагрузка по мышцам и расчёт максимума на повтор являются оценками по сохранённым результатам, а не медицинским заключением или измерением состава тела."
+      ],
+      [
+        "Местоположение, карта и валюта",
+        "После разрешения координаты используются для поиска мест поблизости. Запрос к серверу и поставщику поиска может содержать координаты, категорию и радиус; Google возвращает места, оценки и ограниченную выборку отзывов. Отображение карты и открытие внешней карты передают её поставщику сведения о запросе и области просмотра. Если доступ уже разрешён, страна может определяться средствами геокодирования Apple или Google для выбора валюты; координаты для этой задачи не сохраняются в профиле. При отказе геолокацию для цен не запрашиваем повторно, по умолчанию используется долларовый каталог. Постоянное фоновое отслеживание не применяется."
+      ],
+      [
+        "Оплаты и финансовые записи",
+        "Стоимость тарифа, валюта, период действия, состояние подписки и подтверждения покупки используются для предоставления доступа и защиты от повторного использования покупки. Реквизиты банковской карты и банковского счёта не вводятся в CoachFlow: при магазинной покупке их обрабатывает соответствующий магазин. Отдельные записи тренера об абонементах, оплатах и расходах являются учётом самого тренера и не означают, что CoachFlow принял платёж от клиента. Доступ к этим записям разграничен."
+      ],
+      [
+        "Получатели данных и внешние сервисы",
+        "Хостинг и база Render, фактически настроенное файловое хранилище и почтовый провайдер обслуживают соответствующие функции. Google Maps/Places получает запросы карты и мест; Apple/Google могут обрабатывать запрос определения страны. При магазинных покупках Google Play или App Store обрабатывает платёж и подтверждение. Для показа внешних изображений и перехода по ссылке устройство обращается к её владельцу, который может видеть IP-адрес и параметры запроса. Обращение в поддержку открывает почтовый клиент: отправка происходит по вашему подтверждению. Данные также могут быть раскрыты по законному обязательному запросу или для защиты прав в предусмотренных законом пределах. Рекламные идентификаторы и продажа персональных данных для рекламы не используются."
+      ],
+      [
+        "Основания, страны обработки и обращения",
+        "Мы обрабатываем данные для предоставления запрошенных функций, исполнения обязательств, защиты сервиса и на основании требуемых согласий. Инфраструктура и поставщики могут находиться за пределами Казахстана; в текущей тестовой конфигурации Render используется регион Oregon, США. Перед публичным запуском размещение базы и трансграничная передача должны быть приведены в соответствие с применимыми требованиями Казахстана. Одно согласие с этим текстом не отменяет требования закона. Для доступа к данным, исправления, отзыва согласия, удаления или жалобы напишите на klaevers001@gmail.com; для защиты аккаунта может потребоваться проверка принадлежности. Отзыв необходимого согласия может сделать соответствующую функцию недоступной. Сохраняется право обратиться в уполномоченный орган или суд."
+      ],
+      [
+        "Сроки и пределы удаления",
+        "Операционные записи хранятся для работы аккаунта до их удаления пользователем или подтверждённого удаления аккаунта; сроки отдельных финансовых и защитных записей могут определяться законом. Удаление аккаунта прекращает сессии и очищает связанные личные записи; удаление файлов повторяется при техническом сбое и не обязательно завершается в ту же секунду. Защитные хеши подтверждений покупок сохраняются для предотвращения повторного использования. Копии на устройствах других людей не контролируются CoachFlow. Фактические сроки резервных копий зависят от выбранного хостинга и должны быть подтверждены до публичного выпуска; приложение не обещает мгновенного удаления из всех резервных копий. Для уточнения конкретного запроса используйте контакт поддержки."
       ]
     ],
     "terms": [
@@ -65,6 +97,22 @@
       [
         "Поддержка",
         "По вопросам сервиса, жалоб и данных: klaevers001@gmail.com. Актуальные документы доступны в приложении и на публичных страницах сервера CoachFlow."
+      ],
+      [
+        "Покупка, продление и отмена",
+        "До подтверждения магазинной покупки пользователь видит её цену, валюту, период и условия продления в окне магазина. Каталог региональных цен приложения сам по себе не списывает деньги. При включении автоматического продления списания осуществляет магазин по показанным им условиям до отмены пользователем. Управлять подпиской и отменять продление нужно в разделе подписок Google Play или App Store; удаление приложения либо аккаунта не заменяет отмену. Доступ после отмены сохраняется до оплаченного срока, если иное не следует из законного возврата или решения магазина. Возвраты рассматриваются по правилам магазина и применимому законодательству; обязательные права потребителя не ограничиваются. В тестовой версии реальные покупки могут быть недоступны."
+      ],
+      [
+        "Отношения клиента и тренера",
+        "Тренер самостоятельно отвечает за свои квалификацию, рекомендации, расписание, цены и договорённости с клиентом в пределах закона. CoachFlow предоставляет инструменты учёта и общения и не гарантирует результат тренировок или доход тренера. Занятия, выплаты тренеру и споры об оказании услуг регулируются договорённостями сторон и законодательством. Ограничение тренером доступа к плану не удаляет автоматически аккаунт клиента."
+      ],
+      [
+        "Безопасное использование и права сторон",
+        "Не выполняйте упражнение или приём добавки при противопоказании, боли или сомнении в безопасности; обратитесь к квалифицированному специалисту. Расчёты прогресса, поздравления и уведомления не являются медицинским назначением и не побуждают превышать безопасную нагрузку. Вы сохраняете права на свой контент и разрешаете его хранение, техническое преобразование и показ лишь для работы выбранных функций. Не загружайте материалы без необходимых прав. Сервис не может исключить все технические сбои или неправомерные действия третьих лиц; это не освобождает оператора от ответственности, которая не может быть исключена законом. Изменения условий публикуются с датой версии; новые необходимые согласия запрашиваются отдельно."
+      ],
+      [
+        "Доступ к карте",
+        "Карта и поиск мест доступны тренеру с действующим тарифом, включая активный пробный период. Клиенту также необходимы действующее разрешение на тренировки и активный тариф связанного тренера. При окончании тарифа, снятии доступа или прекращении связи с тренером карта закрывается. Отказ в геолокации не списывает средства и не включает платную функцию."
       ]
     ],
     "deletion": [
@@ -113,7 +161,7 @@
       ],
       [
         "Retention and deletion",
-        "Account data is kept while you use the service. Confirmed account deletion irreversibly anonymizes personal account fields, revokes sessions and removes associated personal records. Owner-uploaded files are cleaned by a separate queue that retries storage failures. Anonymous purchase-confirmation hashes may remain to prevent receipt replay. Other people’s accounts and messages are preserved; a shared group may receive a new owner. Copies independently saved by others are outside the app’s control. Infrastructure backups are excluded from normal app access and removed through their regular rotation."
+        "Account data is kept while you use the service. Confirmed account deletion irreversibly anonymizes personal account fields, revokes sessions and removes associated personal records. Owner-uploaded files are cleaned by a separate queue that retries storage failures. Anonymous purchase-confirmation hashes may remain to prevent receipt replay. Other people’s accounts and messages are preserved; a shared group may receive a new owner. Copies independently saved by others are outside the app’s control. Backup retention and cleanup limits are described below."
       ],
       [
         "Your choices",
@@ -122,6 +170,38 @@
       [
         "Protection and updates",
         "We use protected transport, authentication, access controls and attempt limits. No online service can promise zero risk. Keep passwords and verification codes private. Material policy changes receive a new date; additional consent is requested where necessary."
+      ],
+      [
+        "Account and technical data",
+        "Registration and access use your name, email, password hash, client or coach role, client code, email verification and consent records. The server processes IP addresses and request metadata for delivery, authentication and abuse prevention. Your device stores the session, language, theme, settings, drafts and some interface data. Never send passwords or verification codes to support."
+      ],
+      [
+        "Photos, video and voice",
+        "Only files you choose are uploaded: your avatar, cover, stories, chat attachments and other submitted images, plus voice messages you record. Format, size, duration and file metadata may also be processed. Unselected photographs and your phone address book are not uploaded. Obtain necessary permission before sharing another person’s image or voice. Published material may be accessible and copied by its selected audience."
+      ],
+      [
+        "Training, health and estimates",
+        "Coaching uses your declared sex, age, height, weight, goal, attendance, exercises, sets, repetitions, working weights, progress and supplement plan. Strangers do not receive your private training journal: access depends on roles and your coach relationship. Bio, goal, stories, reviews and selected public fields follow the visibility rules of their feature. Muscle workload and estimated single-repetition strength are estimates based on saved results, not medical conclusions or body-composition measurements."
+      ],
+      [
+        "Location, maps and currency",
+        "With permission, coordinates are used to find nearby places. Requests to our server and search provider may include coordinates, category and radius; Google returns places, ratings and a limited review selection. Displaying or opening an external map sends its provider request and viewport information. Where location access is already granted, Apple or Google geocoding may resolve a country to choose the catalogue currency; these pricing coordinates are not stored in your profile. Refusal does not trigger another location prompt for pricing; the default catalogue is USD. We do not perform continuous background tracking."
+      ],
+      [
+        "Payments and financial records",
+        "Plan price, currency, validity, subscription status and purchase confirmations support access and prevent purchase replay. You do not enter bank-card or bank-account details into CoachFlow; the store processes them for store purchases. A coach’s membership, payment and expense entries are the coach’s own records, not evidence that CoachFlow accepted a client payment. Access to these records is restricted."
+      ],
+      [
+        "Recipients and external services",
+        "Render hosting/database, configured file storage and the email provider serve their respective features. Google Maps/Places receives map and place requests; Apple/Google may process country-geocoding requests. Google Play or App Store processes store payments and confirmations. External images and links contact their providers, which may receive your IP address and request parameters. Support opens an email composer; you decide whether to send it. Data may also be disclosed for legally binding requests or protection of rights within the law. Advertising identifiers and sale of personal data for advertising are not used."
+      ],
+      [
+        "Legal grounds, processing countries and requests",
+        "Data is processed to provide requested features, fulfil obligations, protect the service and obtain required consents. Infrastructure and providers may be outside Kazakhstan; the current Render test configuration uses Oregon, USA. Database location and international transfers must meet applicable Kazakhstan requirements before public launch. Agreement to this text does not waive legal requirements. For access, correction, consent withdrawal, deletion or a complaint contact klaevers001@gmail.com; account ownership may need verification. Withdrawing necessary consent may disable the relevant feature. Your right to contact an authority or court remains."
+      ],
+      [
+        "Retention and deletion limits",
+        "Operational records support your account until you remove them or confirm account deletion; law may determine retention of particular financial or protective records. Account deletion revokes sessions and removes associated personal records; file cleanup retries technical failures and may not finish instantly. Purchase-confirmation hashes remain to prevent replay. CoachFlow cannot control copies saved on other people’s devices. Actual backup retention depends on the selected infrastructure and must be confirmed before public release; immediate removal from every backup is not promised. Contact support about a specific request."
       ]
     ],
     "terms": [
@@ -148,6 +228,22 @@
       [
         "Support",
         "For service, reports and data requests: klaevers001@gmail.com. Current documents are available in the app and on the public CoachFlow server pages."
+      ],
+      [
+        "Purchase, renewal and cancellation",
+        "Before confirming a store purchase you see its price, currency, period and renewal terms in the store checkout. The app’s regional catalogue does not itself charge money. If automatic renewal is enabled, the store charges under the displayed terms until you cancel. Manage and cancel renewal in Google Play or App Store subscriptions; uninstalling or deleting your account does not replace cancellation. Access normally lasts until the paid term ends unless a lawful refund or store decision changes it. Refunds follow store rules and applicable law; mandatory consumer rights remain. Real purchases may be unavailable in the test version."
+      ],
+      [
+        "Client and coach relationship",
+        "Coaches are responsible for their qualifications, recommendations, schedules, fees and client agreements as required by law. CoachFlow supplies record-keeping and communication tools and does not guarantee training outcomes or coach income. Sessions, payments to coaches and service disputes follow the parties’ agreements and applicable law. A coach restricting plan access does not automatically delete the client’s account."
+      ],
+      [
+        "Safe use and rights",
+        "Do not perform an exercise or take a supplement when contraindicated, painful or unsafe; consult a qualified professional. Progress estimates, praise and notifications are not medical prescriptions or encouragement to exceed safe loads. You retain your content rights and permit storage, technical conversion and display only to operate the selected features. Do not upload material without necessary rights. Technical failures and unlawful third-party activity cannot be ruled out; this does not exclude liability that cannot lawfully be waived. Updated terms show their version date; new necessary consents are requested separately."
+      ],
+      [
+        "Map access",
+        "Maps and place search require an active coach plan, including an active trial. Clients also need active training access and an active plan for their linked coach. Plan expiry, revoked access or unlinking closes maps. Refusing location does not charge money or activate a paid feature."
       ]
     ],
     "deletion": [
@@ -196,7 +292,7 @@
       ],
       [
         "Сақтау және жою",
-        "Деректер сервисті пайдаланған кезде сақталады. Расталған жоюда жеке аккаунт өрістері қайтымсыз иесізденеді, сессиялар қайтарылады, байланысты жеке жазбалар жойылады. Иесінің файлдары қойма қатесінде қайта әрекет жасайтын кезекпен тазаланады. Сатып алу растауларының иесізденген хештері қайталап қолданудан қорғау үшін сақталуы мүмкін. Өзгелердің аккаунттары мен хабарламалары сақталады; ортақ топ иесі ауысуы мүмкін. Өзгелер өздері сақтаған көшірмелер қолданба бақылауына жатпайды. Инфрақұрылымның резервтік көшірмелері жұмыс қолжетімділігінен бөлек сақталып, қалыпты айналымда жойылады."
+        "Деректер сервисті пайдаланған кезде сақталады. Расталған жоюда жеке аккаунт өрістері қайтымсыз иесізденеді, сессиялар қайтарылады, байланысты жеке жазбалар жойылады. Иесінің файлдары қойма қатесінде қайта әрекет жасайтын кезекпен тазаланады. Сатып алу растауларының иесізденген хештері қайталап қолданудан қорғау үшін сақталуы мүмкін. Өзгелердің аккаунттары мен хабарламалары сақталады; ортақ топ иесі ауысуы мүмкін. Өзгелер өздері сақтаған көшірмелер қолданба бақылауына жатпайды. Резервтік көшірме мерзімі мен тазалау шектері төменде сипатталған."
       ],
       [
         "Сіздің таңдауыңыз",
@@ -205,6 +301,38 @@
       [
         "Қорғау және өзгерістер",
         "Қорғалған байланыс, авторизация, қолжетімділікті бөлу және әрекет шектеулері қолданылады. Ешбір интернет сервисі тәуекелдің толық жоқтығын уәде ете алмайды. Құпиясөз бен растау кодын бөліспеңіз. Маңызды өзгерістер жаңа күнмен жарияланады; қажет болса қосымша келісім сұралады."
+      ],
+      [
+        "Аккаунт және техникалық деректер",
+        "Тіркелу мен кіру үшін аты-жөніңіз, email, құпиясөз хеші, клиент не жаттықтырушы рөлі, клиент коды, поштаны растау және келісім жазбалары қолданылады. Сервер деректерді жеткізу, авторизация және теріс пайдаланудан қорғау үшін IP-мекенжай мен сұрау метадеректерін өңдейді. Құрылғыда сессия, тіл, тақырып, баптаулар, нобайлар және интерфейстің кей деректері сақталады. Құпиясөз бен растау кодын қолдауға жібермеңіз."
+      ],
+      [
+        "Фото, бейне және дауыс",
+        "Тек өзіңіз таңдаған файлдар жүктеледі: аватар, мұқаба, оқиғалар, чат тіркемелері, басқа қосқан суреттер және өзіңіз жазған дауыстық хабарламалар. Формат, өлшем, ұзақтық пен файл метадеректері де өңделуі мүмкін. Таңдалмаған фотолар мен телефон кітапшасы жүктелмейді. Басқа адамның бейнесі не дауысын бөлісу үшін қажетті рұқсат алыңыз. Жария материал таңдалған аудиторияға қолжетімді болып, көшірілуі мүмкін."
+      ],
+      [
+        "Жаттығу, денсаулық және бағалау",
+        "Жаттықтырушымен жұмыс үшін көрсеткен жыныс, жас, бой, салмақ, мақсат, қатысу, жаттығулар, тәсілдер, қайталаулар, жұмыс салмағы, прогресс пен қоспалар жоспары пайдаланылады. Бөгде адамдар жеке жаттығу журналыңызды алмайды: қолжетімділік рөл мен жаттықтырушымен байланысқа тәуелді. Өзіңіз туралы ақпарат, мақсат, оқиғалар, пікірлер және таңдалған ашық өрістер тиісті функция ережелерімен көрсетіледі. Бұлшықет жүктемесі мен бір қайталау күшінің есебі — сақталған нәтижелерге негізделген бағалау, медициналық қорытынды не дене құрамын өлшеу емес."
+      ],
+      [
+        "Орналасқан жер, карта және валюта",
+        "Рұқсат берілгенде координаттар жақын орындарды іздеу үшін қолданылады. Сервер мен іздеу жеткізушісіне координаттар, санат пен радиус жіберілуі мүмкін; Google орындар, бағалар және пікірлердің шектеулі іріктемесін қайтарады. Картаны көрсету не сыртқы картаны ашу сұрау мен көрініс аймағын оның жеткізушісіне береді. Орналасу рұқсаты бұрын берілсе, каталог валютасын таңдау үшін Apple не Google геокодтауы елді анықтай алады; бұл координаттар профильде сақталмайды. Бас тартқанда баға үшін рұқсат қайта сұралмайды, әдепкі каталог USD болады. Үздіксіз фондық бақылау жүргізілмейді."
+      ],
+      [
+        "Төлемдер және қаржы жазбалары",
+        "Тариф бағасы, валюта, мерзім, жазылым күйі және сатып алуды растау қолжетімділік пен қайта пайдаланудан қорғау үшін қолданылады. Банк картасы не шот деректері CoachFlow ішінде енгізілмейді; дүкендік сатып алуда оларды дүкен өңдейді. Жаттықтырушының абонемент, төлем және шығын жазбалары — оның өз есебі; CoachFlow клиент төлемін қабылдады дегенді білдірмейді. Бұл жазбаларға қолжетімділік шектелген."
+      ],
+      [
+        "Дерек алушылар және сыртқы сервистер",
+        "Render хостингі мен базасы, бапталған файл қоймасы және пошта жеткізушісі тиісті функцияларды атқарады. Google Maps/Places карта мен орын сұрауларын алады; Apple/Google елді геокодтау сұрауын өңдеуі мүмкін. Google Play не App Store дүкен төлемі мен растауын өңдейді. Сыртқы сурет не сілтеме ашылғанда оның иесі IP-мекенжай мен сұрау параметрлерін көруі мүмкін. Қолдау пошта редакторын ашады: хатты жіберуді өзіңіз растайсыз. Деректер міндетті заңды сұрау не құқықтарды заң шегінде қорғау үшін де ашылуы мүмкін. Жарнамалық идентификаторлар мен жеке деректерді жарнама үшін сату қолданылмайды."
+      ],
+      [
+        "Негіздер, өңдеу елдері және өтініштер",
+        "Деректер сұралған функцияларды ұсыну, міндеттемелерді орындау, сервисті қорғау және қажетті келісімдер негізінде өңделеді. Инфрақұрылым мен жеткізушілер Қазақстаннан тыс болуы мүмкін; Render-дің қазіргі тест баптауы АҚШ-тың Oregon аймағын қолданады. Ашық іске қосуға дейін база орналасуы мен шекарааралық беру Қазақстан талаптарына сай келуі керек. Осы мәтінге келісу заң талаптарын жоймайды. Дерекке қол жеткізу, түзету, келісімді қайтарып алу, жою не шағым үшін klaevers001@gmail.com мекенжайына жазыңыз; аккаунт иесін тексеру қажет болуы мүмкін. Қажетті келісімді қайтарып алу тиісті функцияны тоқтатуы мүмкін. Уәкілетті органға не сотқа жүгіну құқығы сақталады."
+      ],
+      [
+        "Сақтау және жою шектері",
+        "Жұмыс жазбалары сіз оларды жойғанға не аккаунтты жоюды растағанға дейін аккаунт қызметі үшін сақталады; кей қаржылық және қорғау жазбаларының мерзімін заң анықтауы мүмкін. Аккаунт жойылғанда сессиялар тоқтап, байланысты жеке жазбалар өшіріледі; файл тазалау ақауларда қайталанады және бірден аяқталмауы мүмкін. Сатып алу растауының хештері қайта пайдалануды болдырмау үшін қалады. Өзге адамдар құрылғысына сақтаған көшірмелер CoachFlow бақылауында емес. Резервтік көшірме мерзімі таңдалған инфрақұрылымға тәуелді және ашық шығарылымға дейін нақтылануы керек; барлық резервтен лезде жою уәде етілмейді. Нақты сұрау бойынша қолдауға жазыңыз."
       ]
     ],
     "terms": [
@@ -231,6 +359,22 @@
       [
         "Қолдау",
         "Сервис, шағым және деректер мәселелері бойынша: klaevers001@gmail.com. Өзекті құжаттар қолданбада және CoachFlow серверінің ашық беттерінде бар."
+      ],
+      [
+        "Сатып алу, ұзарту және тоқтату",
+        "Дүкендік сатып алуды растауға дейін баға, валюта, мерзім мен ұзарту шарттары дүкен терезесінде көрсетіледі. Қолданбаның аймақтық каталогы өздігінен ақша алмайды. Автоматты ұзарту қосылса, дүкен көрсетілген шарттар бойынша сіз тоқтатқанға дейін төлем алады. Ұзартуды Google Play не App Store жазылымдарында басқарып тоқтатыңыз; қолданбаны не аккаунтты жою мұны алмастырмайды. Заңды қайтарым не дүкен шешімі өзгертпесе, қолжетімділік төленген мерзім соңына дейін қалады. Қайтарым дүкен ережелері мен заңға сай қаралады; міндетті тұтынушы құқықтары сақталады. Тест нұсқасында нақты сатып алу қолжетімсіз болуы мүмкін."
+      ],
+      [
+        "Клиент пен жаттықтырушы қатынасы",
+        "Жаттықтырушы өз біліктілігі, ұсыныстары, кестесі, бағасы және клиентпен келісімдері үшін заң шегінде жауапты. CoachFlow есеп пен байланыс құралдарын ұсынады, жаттығу нәтижесі не жаттықтырушы кірісіне кепіл бермейді. Сабақтар, жаттықтырушыға төлемдер және қызмет даулары тараптар келісімі мен заңға бағынады. Жаттықтырушы жоспарға қолжетімділікті шектеуі клиент аккаунтын автоматты жоймайды."
+      ],
+      [
+        "Қауіпсіз пайдалану және құқықтар",
+        "Қарсы көрсетілім, ауырсыну не қауіпсіздікке күмән болса жаттығуды орындамаңыз және қоспа қабылдамаңыз; білікті маманға жүгініңіз. Прогресс бағалауы, құттықтау мен хабарламалар медициналық тағайындау не қауіпсіз жүктемеден асуға шақыру емес. Контент құқығы өзіңізде қалады; таңдалған функция үшін ғана сақтау, техникалық түрлендіру және көрсетуге рұқсат бересіз. Қажетті құқықсыз материал жүктемеңіз. Техникалық ақау мен үшінші тараптың заңсыз әрекетін толық жоққа шығару мүмкін емес; бұл заңмен алып тастауға болмайтын жауапкершілікті жоймайды. Өзгерген шарттар нұсқа күнімен жарияланады; жаңа қажетті келісімдер бөлек сұралады."
+      ],
+      [
+        "Картаға қолжетімділік",
+        "Карта мен орын іздеу үшін жаттықтырушының белсенді тарифі, соның ішінде белсенді сынақ кезеңі қажет. Клиентте жаттығуға рұқсат пен байланыстырылған жаттықтырушының белсенді тарифі болуы керек. Тариф аяқталса, рұқсат тоқтатылса не байланыс үзілсе, карта жабылады. Геолокациядан бас тарту ақша алмайды және ақылы функцияны қоспайды."
       ]
     ],
     "deletion": [

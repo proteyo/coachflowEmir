@@ -15,7 +15,7 @@ class MuscleAnalysisTests(unittest.IsolatedAsyncioTestCase):
         await social.SocialTests.asyncTearDown(self)
 
     async def test_gender_is_required_and_cannot_be_changed_by_direct_api(self):
-        body = dict(name="Client", email="new@example.com", password="Strong123!", role="client",age=30,terms_version="2026-11-09",adult_confirmed=True,health_data_consent=True)
+        body = dict(name="Client", email="new@example.com", password="Strong123!", role="client",age=30,terms_version="2026-11-10",adult_confirmed=True,health_data_consent=True)
         for gender in [None, "other", ""]:
             with self.assertRaises(ValidationError):
                 RegisterRequest(**body, gender=gender)

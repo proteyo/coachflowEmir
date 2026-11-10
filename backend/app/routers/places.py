@@ -156,6 +156,12 @@ async def _get_saved_places(
     return items[:limit]
 
 
+@router.get("/access")
+async def place_access():
+    # The router's dependency has checked both training access and subscription.
+    return {"allowed": True}
+
+
 @router.get("/{place_id}/details")
 async def place_details(
     place_id: str = PathParam(min_length=1, max_length=512),
@@ -164,6 +170,8 @@ async def place_details(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.place_details import check_budget, google_place_details
+    from app.core.rate_limit import consume_limit
+    await consume_limit(db, "places-details-day", current_user.id, 100, 86400)
     check_budget(current_user.id)
     if place_id.startswith("google_"):
         provider_id = place_id[len("google_"):]
@@ -372,7 +380,7 @@ async def _load_google_places(
 
     for result in results:
         if isinstance(result, Exception):
-            logger.warning("Google Places request failed: %s", result)
+            logger.warning("Google Places request failed")
             continue
 
         merged.extend(result)
@@ -490,6 +498,9 @@ async def nearby_places(
     if not api_key:
         return saved_places
 
+    from app.core.rate_limit import consume_limit
+    await consume_limit(db, "places-search-minute", current_user.id, 12, 60)
+    await consume_limit(db, "places-search-day", current_user.id, 100, 86400)
     google_places = await _load_google_places(
         api_key=api_key,
         lat=lat,

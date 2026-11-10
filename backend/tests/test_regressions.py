@@ -128,7 +128,7 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registration_email_failure_leaves_account_pending_and_can_be_retried(self):
         from app.services.email_service import EmailDeliveryError
-        body = {"name": "Pending", "email": "pending@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-09","adult_confirmed":True}
+        body = {"name": "Pending", "email": "pending@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-10","adult_confirmed":True}
         with patch.object(auth, "send_email_verification_code", AsyncMock(side_effect=EmailDeliveryError("delivery failed"))):
             status, data = await self.request("POST", "/api/v1/auth/register", body)
         self.assertEqual(status, 503)
@@ -409,7 +409,7 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(self.client.id, manager.active_connections)
 
     async def test_pending_registration_cannot_replace_password_or_send_more_mail(self):
-        body = {"name": "Pending", "email": "pending@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-09","adult_confirmed":True}
+        body = {"name": "Pending", "email": "pending@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-10","adult_confirmed":True}
         with patch.object(auth, "send_email_verification_code", AsyncMock()) as sender:
             self.assertEqual((await self.request("POST", "/api/v1/auth/register", body))[0], 201)
             body.update(password="Attacker456!", name="Changed")
@@ -525,7 +525,7 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_delivery_does_not_create_accounts_or_reveal_existing_email(self):
         with patch.dict(os.environ, {"EMAIL_ENABLED": "false"}):
             status, _ = await self.request("POST", "/api/v1/auth/register", {
-                "name": "Pending", "email": "disabled@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-09","adult_confirmed":True,
+                "name": "Pending", "email": "disabled@example.com", "password": "Original123!", "role": "coach", "terms_version":"2026-11-10","adult_confirmed":True,
             })
             self.assertEqual(status, 503)
             self.assertIsNone(self.session.scalar(select(User.id).where(User.email == "disabled@example.com")))

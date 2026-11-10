@@ -16,6 +16,18 @@ from app.models.user import User
 
 
 class CrmTests(unittest.IsolatedAsyncioTestCase):
+    async def test_profile_height_is_available_to_owner_and_active_coach_only(self):
+        profile = self.session.get(ClientProfile, self.client.id)
+        profile.height = 175
+        self.session.commit()
+        self.current = self.coach
+        response = await self.http.get(f"/api/v1/social/profile/{self.client.id}")
+        self.assertEqual(response.json()["height"], 175)
+        self.current = self.client
+        self.assertEqual((await self.http.get(f"/api/v1/social/profile/{self.client.id}")).json()["height"], 175)
+        self.current = self.stranger
+        self.assertNotIn("height", (await self.http.get(f"/api/v1/social/profile/{self.client.id}")).json())
+
     async def asyncSetUp(self):
         await social.SocialTests.asyncSetUp(self)
         self.session.add(CoachProfile(user_id=self.coach.id, specialty="Strength", bio="About me", experience_years=7, achievements=json.dumps(["Champion"]), certificates=json.dumps(["Certified"]), cover_image_url="/api/v1/uploads/avatars/u_coach_cover.jpg"))

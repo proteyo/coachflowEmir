@@ -1,5 +1,9 @@
 """Offline map provider regressions. Never contacts Google or production."""
 import unittest
+from datetime import datetime, timedelta, timezone
+from app.models.subscription import Subscription
+from app.models.engagement import ClientEngagement
+from app.models.profile import ClientProfile
 from unittest.mock import patch, AsyncMock, Mock
 import test_social as social
 from app.services import place_details as details
@@ -9,11 +13,34 @@ from app.routers import places
 class PlaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await social.SocialTests.asyncSetUp(self)
+        self.subscription = Subscription(coach_id=self.coach.id, status="active", plan_code="free", price=0, client_limit=3, end_date=datetime.now(timezone.utc)+timedelta(days=30))
+        self.session.add(self.subscription)
+        self.session.commit()
         details._cache.clear()
         details._limits.clear()
 
     async def asyncTearDown(self):
         await social.SocialTests.asyncTearDown(self)
+
+    async def test_access_revocation_blocks_all_map_routes_before_provider_calls(self):
+        routes=["/api/v1/places/access", "/api/v1/places", "/api/v1/places/nearby?lat=43&lng=76", "/api/v1/places/google_ChIJ123/details"]
+        with patch.object(places,"_load_google_places",new=AsyncMock()) as nearby, patch.object(details,"google_place_details",new=AsyncMock()) as reviews:
+            self.current=self.coach
+            self.assertEqual((await self.http.get(routes[0])).status_code,200)
+            self.subscription.status="expired";self.session.commit()
+            for current in (self.coach,self.client,self.stranger):
+                self.current=current
+                for route in routes:
+                    response=await self.http.get(route)
+                    self.assertEqual(response.status_code,403,response.text)
+            self.subscription.status="active";self.session.add(ClientEngagement(coach_id=self.coach.id,client_id=self.client.id,status="paused"));self.session.commit()
+            self.current=self.client
+            for route in routes:self.assertEqual((await self.http.get(route)).status_code,403)
+            self.session.get(ClientEngagement,(self.coach.id,self.client.id)).status="active";self.session.commit()
+            self.assertEqual((await self.http.get(routes[0])).status_code,200)
+            self.session.get(ClientProfile,self.client.id).coach_id=None;self.session.commit()
+            for route in routes:self.assertEqual((await self.http.get(route)).status_code,403)
+            nearby.assert_not_awaited();reviews.assert_not_awaited()
 
     async def test_detail_endpoint_passes_only_valid_locale_and_requires_auth(self):
         with patch.object(details, "google_place_details", new=AsyncMock(return_value={"reviews": []})) as provider:
