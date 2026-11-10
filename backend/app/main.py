@@ -39,6 +39,8 @@ from app.routers import (
 
 
 logger = logging.getLogger(__name__)
+from app.core.log_safety import install_log_redaction
+install_log_redaction()
 settings = get_settings()
 
 API_PREFIX = "/api/v1"
@@ -109,6 +111,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from app.core.http_security import HttpSecurityMiddleware
+app.add_middleware(HttpSecurityMiddleware)
 
 # ── Error handlers ─────────────────────────────────────────────────────────────
 

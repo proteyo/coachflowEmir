@@ -194,6 +194,9 @@ async def link_client(
     Coach can link a client only with active subscription and available client limit.
     """
     client_code = data.client_code.strip().upper()
+    from app.core.rate_limit import consume_limit
+    await consume_limit(db, "client-discovery-minute", coach.id, 10, 60)
+    await consume_limit(db, "client-discovery-day", coach.id, 50, 86400)
 
     res = await db.execute(
         select(User)
@@ -250,6 +253,9 @@ async def invite_client_by_email(
     Coach can invite a client only with active subscription and available client limit.
     """
     email = data.email.strip().lower()
+    from app.core.rate_limit import consume_limit
+    await consume_limit(db, "client-discovery-minute", coach.id, 10, 60)
+    await consume_limit(db, "client-discovery-day", coach.id, 50, 86400)
 
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")

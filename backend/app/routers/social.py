@@ -86,7 +86,10 @@ async def group_socket(group_id: str, websocket: WebSocket, token: str = ""):
             user_id = user.id
         await ws_manager.connect(user_id, websocket, token)
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            if len(raw) > 16_384:
+                await websocket.close(code=1009)
+                return
             async with AsyncSessionLocal() as db:
                 user = await _get_user_by_token(token, db)
                 if not user:

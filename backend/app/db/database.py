@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.exceptions import HTTPException
 
 from app.core.config import get_settings
 
@@ -104,6 +105,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
 
+        except HTTPException:
+            # A denied request is expected; its exception chain can contain
+            # provider URLs or user-supplied credentials and must not be logged.
+            await session.rollback()
+            raise
         except Exception:
             await session.rollback()
             logger.exception("Database session rollback after request error.")

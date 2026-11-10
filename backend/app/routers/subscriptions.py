@@ -410,12 +410,13 @@ def verify_google_play_subscription_sync(
         )
 
     except HttpError as exc:
-        logger.exception("Google Play subscription verification failed")
+        # HttpError includes the request URL with its purchase token in the path.
+        logger.warning("Google Play subscription verification failed")
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google Play purchase verification failed.",
-        ) from exc
+        ) from None
 
     subscription_state = purchase.get("subscriptionState", "")
     line_items = purchase.get("lineItems") or []
@@ -466,12 +467,12 @@ def verify_google_play_subscription_sync(
             acknowledged = True
 
         except Exception as exc:
-            logger.exception("Could not acknowledge Google Play subscription")
+            logger.warning("Could not acknowledge Google Play subscription")
 
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Purchase was verified but could not be acknowledged.",
-            ) from exc
+            ) from None
 
     return GooglePlaySubscriptionResult(
         product_id=product_id,

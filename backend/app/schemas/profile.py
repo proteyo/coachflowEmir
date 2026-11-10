@@ -1,5 +1,5 @@
 from typing import Annotated, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class CoachProfileOut(BaseModel):
@@ -60,13 +60,15 @@ class UpdateClientProfileRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    avatar_url: Optional[str] = None
+    model_config = {"extra": "forbid"}
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    avatar_url: Optional[str] = Field(default=None, max_length=2000)
 
 
 class LinkClientRequest(BaseModel):
-    client_code: str
+    model_config = {"extra": "forbid"}
+    client_code: str = Field(min_length=1, max_length=32)
 
 
 class ClientWithProfileOut(BaseModel):
@@ -87,7 +89,8 @@ class ClientWithProfileOut(BaseModel):
 
 
 class InviteClientRequest(BaseModel):
-    email: str
+    model_config = {"extra": "forbid"}
+    email: EmailStr
 
 
 class ClientInviteOut(BaseModel):

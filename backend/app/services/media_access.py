@@ -19,6 +19,20 @@ MEDIA_PREFIXES = {
 SAFE_MEDIA_NAME = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$")
 
 
+def owned_avatar_url(url: str | None, user_id: str) -> str | None:
+    """Profile images must be our own uploads, never third-party tracking URLs."""
+    if not url or not url.strip():
+        return None
+    reference = canonical_avatar_url(url.strip())
+    settings = get_settings()
+    if settings.APP_PUBLIC_URL and reference.startswith(settings.APP_PUBLIC_URL.rstrip("/") + "/"):
+        reference = reference[len(settings.APP_PUBLIC_URL.rstrip("/")):]
+    prefix = re.sub(r"[^A-Za-z0-9_.-]", "_", user_id)
+    if not re.fullmatch(r"/api/v1/uploads/avatars/" + re.escape(prefix) + r"_[a-f0-9]{16}\.jpg", reference):
+        raise HTTPException(400, "Invalid profile image")
+    return reference
+
+
 def canonical_avatar_url(url: str | None) -> str | None:
     if not url:
         return url

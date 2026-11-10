@@ -49,7 +49,10 @@ async def enforce_auth_rate_limit(request: Request, db: AsyncSession = Depends(g
     if request.method != "POST" or action not in POLICIES:
         return
     account_limit, window, ip_limit = POLICIES[action]
-    body = await request.json()
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "Invalid JSON body")
     if not isinstance(body, dict):
         return
     identity = str(body.get("email") or body.get("token") or "").strip().lower()

@@ -117,11 +117,19 @@ class WebSocketConnectionManager:
             try:
                 async with AsyncSessionLocal() as db:
                     valid_user = await _get_user_by_token(self.connection_tokens.get(websocket, ""), db)
+                    if valid_user:
+                        await _ensure_coach_subscription_if_needed(valid_user, db)
                 if not valid_user:
                     dead_connections.append(websocket)
                     await websocket.close(code=1008)
                     continue
                 await websocket.send_json(payload)
+            except HTTPException:
+                dead_connections.append(websocket)
+                try:
+                    await websocket.close(code=1008)
+                except RuntimeError:
+                    pass
             except Exception:
                 dead_connections.append(websocket)
 
@@ -1178,12 +1186,23 @@ async def messages_ws(
 
         while True:
             raw = await websocket.receive_text()
+            if len(raw) > 16_384:
+                await websocket.close(code=1009)
+                return
             authenticated_user = await _get_user_by_token(token, db)
             if not authenticated_user:
                 ws_manager.disconnect(current_user.id, websocket)
                 await websocket.close(code=1008)
                 return
             current_user = authenticated_user
+            # Access can change while this connection is already open.
+            try:
+                await _ensure_coach_subscription_if_needed(current_user, db)
+                partner = await _ensure_user_exists(partner_id, db)
+                await _ensure_chat_relationship(current_user, partner, db)
+            except HTTPException:
+                await websocket.close(code=1008)
+                return
 
             try:
                 data = json.loads(raw)
@@ -1196,6 +1215,9 @@ async def messages_ws(
                 )
                 continue
 
+            if not isinstance(data, dict):
+                await websocket.send_json({"type": "error", "message": "Expected a JSON object"})
+                continue
             event_type = data.get("type")
 
             if event_type == "ping":
@@ -1294,11 +1316,13 @@ async def messages_ws(
     except WebSocketDisconnect:
         ws_manager.disconnect(current_user.id, websocket)
 
-    except Exception as exc:
-        print("[messages_ws] error:", exc)
+    except Exception:
+        # Never print connection URLs/tokens or private message payloads.
         ws_manager.disconnect(current_user.id, websocket)
 
         try:
             await websocket.close(code=1011)
         except Exception:
             pass
+    finally:
+        ws_manager.disconnect(current_user.id, websocket)

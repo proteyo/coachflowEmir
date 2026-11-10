@@ -163,7 +163,7 @@ class CrmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.session.scalars(select(User)).all()), 3)
 
     async def test_empty_bio_does_not_break_cover_save_or_public_profile(self):
-        cover = "/api/v1/uploads/avatars/u_coach_new.jpg"
+        cover = "/api/v1/uploads/avatars/u_coach_0123456789abcdef.jpg"
         response = await self.http.patch("/api/v1/users/me/coach-profile", json={"bio": "", "specialty": "", "cover_image_url": cover})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["bio"], "")

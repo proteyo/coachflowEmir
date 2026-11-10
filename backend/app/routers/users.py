@@ -19,6 +19,7 @@ from app.db.database import get_db
 from app.models.notification import NotificationSetting
 from app.models.profile import ClientProfile, CoachProfile
 from app.models.user import User
+from app.services.media_access import owned_avatar_url
 from app.schemas.auth import UserOut
 from app.schemas.other import NotificationSettingOut, NotificationSettingUpdate
 from app.schemas.profile import (
@@ -132,7 +133,7 @@ async def patch_me(
         current_user.phone = clean_optional_string(data.phone)
 
     if data.avatar_url is not None:
-        current_user.avatar_url = clean_optional_string(data.avatar_url)
+        current_user.avatar_url = owned_avatar_url(data.avatar_url, current_user.id)
 
     db.add(current_user)
     await db.commit()
@@ -214,10 +215,10 @@ async def patch_coach_profile(
         )
 
     if data.profile_image_url is not None:
-        profile.profile_image_url = clean_optional_string(data.profile_image_url)
+        profile.profile_image_url = owned_avatar_url(data.profile_image_url, current_user.id)
 
     if data.cover_image_url is not None:
-        profile.cover_image_url = clean_optional_string(data.cover_image_url)
+        profile.cover_image_url = owned_avatar_url(data.cover_image_url, current_user.id)
 
     db.add(profile)
     await db.commit()
