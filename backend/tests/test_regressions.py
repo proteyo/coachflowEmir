@@ -98,9 +98,10 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
         self.session.commit()
         return create_access_token(user.id, user.password_hash, sid)
 
-    async def request(self, method, url, body=None, token=None):
+    async def request(self, method, url, body=None, token=None, extra_headers=None):
         parsed = urlsplit(url)
         headers = [(b"content-type", b"application/json")]
+        headers.extend((name.lower().encode(), value.encode()) for name,value in (extra_headers or {}).items())
         if token: headers.append((b"authorization", f"Bearer {token}".encode()))
         scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"}, "http_version": "1.1",
                  "method": method, "scheme": "http", "path": parsed.path, "raw_path": parsed.path.encode(),

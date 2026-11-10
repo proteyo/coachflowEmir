@@ -1,5 +1,5 @@
 import asyncio
-import html
+from app.services.email_templates import render_email, email_language
 import logging
 import os
 import smtplib
@@ -86,24 +86,6 @@ def _is_valid_email_address(email: str) -> bool:
     )
 
 
-def _html_section_title(text: str) -> str:
-    return (
-        '<h3 style="margin:22px 0 8px;font-size:18px;line-height:1.35;'
-        'color:#111827;">'
-        f"{text}"
-        "</h3>"
-    )
-
-
-def _html_paragraph(text: str, color: str = "#374151") -> str:
-    return (
-        f'<p style="font-size:15px;line-height:1.65;color:{color};'
-        'margin:8px 0;">'
-        f"{text}"
-        "</p>"
-    )
-
-
 def _build_reset_link(token: str) -> str:
     """
     Builds password reset link.
@@ -139,297 +121,20 @@ def _build_reset_link(token: str) -> str:
     )
 
 
-def _build_reset_plain_text_email(name: str, reset_link: str, token: str) -> str:
-    safe_name = name.strip() or "there"
+def _build_reset_plain_text_email(name: str, reset_link: str, token: str, language="en") -> str:
+    return render_email("reset", name, token, language, reset_link).plain
 
-    return f"""
-Hi {safe_name},
 
-We received a request to reset your CoachFlow password.
+def _build_reset_html_email(name: str, reset_link: str, token: str, language="en") -> str:
+    return render_email("reset", name, token, language, reset_link).html
 
-Tap or open this link to set a new password:
-{reset_link}
 
-If the button or link does not open the app, copy this token and paste it into the reset password screen:
-{token}
+def _build_verification_plain_text_email(name: str, code: str, language="en") -> str:
+    return render_email("verification", name, code, language).plain
 
-This link and token expire in 30 minutes.
 
-If you did not request this, you can safely ignore this email.
-
----
-
-Здравствуйте, {safe_name}!
-
-Мы получили запрос на сброс пароля в CoachFlow.
-
-Откройте эту ссылку, чтобы установить новый пароль:
-{reset_link}
-
-Если кнопка или ссылка не открывает приложение, скопируйте этот токен и вставьте его на экране сброса пароля:
-{token}
-
-Ссылка и токен действуют 30 минут.
-
-Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.
-
----
-
-Сәлеметсіз бе, {safe_name}!
-
-CoachFlow құпиясөзін қалпына келтіру сұранысы алынды.
-
-Жаңа құпиясөз орнату үшін мына сілтемені ашыңыз:
-{reset_link}
-
-Егер батырма немесе сілтеме қолданбаны ашпаса, осы токенді көшіріп, құпиясөзді қалпына келтіру экранына қойыңыз:
-{token}
-
-Сілтеме мен токен 30 минут ішінде жарамды.
-
-Егер бұл сұранысты сіз жібермесеңіз, бұл хатты елемеуге болады.
-
-CoachFlow Team
-""".strip()
-
-
-def _build_reset_html_email(name: str, reset_link: str, token: str) -> str:
-    safe_name = html.escape(name.strip() or "there")
-    safe_reset_link = html.escape(reset_link, quote=True)
-    safe_token = html.escape(token, quote=True)
-
-    return f"""
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>CoachFlow password reset</title>
-  </head>
-
-  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-    <div style="max-width:620px;margin:0 auto;padding:30px 14px;">
-      <div style="background:#07111f;border-radius:24px;padding:24px 22px 26px;border:1px solid #102033;">
-        <div style="display:inline-block;background:#16c784;color:#02140d;
-                    border-radius:999px;padding:7px 12px;font-weight:800;
-                    font-size:13px;letter-spacing:0.3px;">
-          CoachFlow
-        </div>
-
-        <h1 style="margin:18px 0 8px;font-size:26px;line-height:1.25;color:#ffffff;">
-          Password reset / Сброс пароля / Құпиясөзді қалпына келтіру
-        </h1>
-
-        <p style="font-size:15px;line-height:1.65;color:#cbd5e1;margin:0;">
-          Use the button below to set a new password. If it does not open the app,
-          copy the token from this email manually.
-        </p>
-      </div>
-
-      <div style="background:#ffffff;border-radius:22px;padding:26px 22px;margin-top:14px;border:1px solid #e5e7eb;">
-        {_html_section_title("English")}
-        {_html_paragraph(f"Hi {safe_name},")}
-        {_html_paragraph("We received a request to reset your CoachFlow password. Tap the button below to create a new password.")}
-        {_html_paragraph("If the button does not open the app, copy the token below and paste it into the reset password screen.")}
-
-        {_html_section_title("Русский")}
-        {_html_paragraph(f"Здравствуйте, {safe_name}!")}
-        {_html_paragraph("Мы получили запрос на сброс пароля в CoachFlow. Нажмите кнопку ниже, чтобы установить новый пароль.")}
-        {_html_paragraph("Если кнопка не открывает приложение, скопируйте токен ниже и вставьте его на экране сброса пароля.")}
-
-        {_html_section_title("Қазақша")}
-        {_html_paragraph(f"Сәлеметсіз бе, {safe_name}!")}
-        {_html_paragraph("CoachFlow құпиясөзін қалпына келтіру сұранысы алынды. Жаңа құпиясөз орнату үшін төмендегі батырманы басыңыз.")}
-        {_html_paragraph("Егер батырма қолданбаны ашпаса, төмендегі токенді көшіріп, құпиясөзді қалпына келтіру экранына қойыңыз.")}
-
-        <div style="margin:26px 0 18px;text-align:center;">
-          <a href="{safe_reset_link}"
-             style="display:inline-block;background:#16c784;color:#06140f;text-decoration:none;
-                    padding:15px 24px;border-radius:14px;font-weight:800;font-size:16px;">
-            Reset password
-          </a>
-        </div>
-
-        <div style="margin:18px 0;padding:16px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;">
-          <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 8px;font-weight:700;">
-            Reset token / Токен сброса / Қалпына келтіру токені
-          </p>
-
-          <p style="font-size:15px;line-height:1.6;color:#111827;word-break:break-all;margin:0;font-family:Consolas,Monaco,monospace;">
-            {safe_token}
-          </p>
-        </div>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:16px 0 6px;">
-          The link and token expire in 30 minutes.
-        </p>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
-          Ссылка и токен действуют 30 минут.
-        </p>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
-          Сілтеме мен токен 30 минут ішінде жарамды.
-        </p>
-
-        <div style="margin-top:18px;padding-top:18px;border-top:1px solid #e5e7eb;">
-          <p style="font-size:12px;line-height:1.6;color:#6b7280;margin:0 0 8px;">
-            If the button does not work, copy and paste this link:
-          </p>
-
-          <p style="font-size:12px;line-height:1.6;color:#6b7280;word-break:break-all;margin:0;">
-            {safe_reset_link}
-          </p>
-        </div>
-
-        <p style="font-size:13px;line-height:1.6;color:#6b7280;margin-top:22px;">
-          If you did not request this, you can safely ignore this email.
-          <br>
-          Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.
-          <br>
-          Егер бұл сұранысты сіз жібермесеңіз, бұл хатты елемеуге болады.
-        </p>
-
-        <p style="font-size:14px;line-height:1.6;color:#111827;margin-top:24px;font-weight:800;">
-          CoachFlow Team
-        </p>
-      </div>
-    </div>
-  </body>
-</html>
-""".strip()
-
-
-def _build_verification_plain_text_email(name: str, code: str) -> str:
-    safe_name = name.strip() or "there"
-
-    return f"""
-Hi {safe_name},
-
-Your CoachFlow email verification code is:
-
-{code}
-
-Enter this code in the app to activate your account.
-
-This code expires in 15 minutes.
-
-If you did not create a CoachFlow account, you can ignore this email.
-
----
-
-Здравствуйте, {safe_name}!
-
-Ваш код подтверждения почты в CoachFlow:
-
-{code}
-
-Введите этот код в приложении, чтобы активировать аккаунт.
-
-Код действует 15 минут.
-
-Если вы не создавали аккаунт CoachFlow, просто проигнорируйте это письмо.
-
----
-
-Сәлеметсіз бе, {safe_name}!
-
-CoachFlow почтасын растау коды:
-
-{code}
-
-Аккаунтты белсендіру үшін осы кодты қолданбаға енгізіңіз.
-
-Код 15 минут ішінде жарамды.
-
-Егер CoachFlow аккаунтын сіз жасамаған болсаңыз, бұл хатты елемеуге болады.
-
-CoachFlow Team
-""".strip()
-
-
-def _build_verification_html_email(name: str, code: str) -> str:
-    safe_name = html.escape(name.strip() or "there")
-    safe_code = html.escape(code, quote=True)
-
-    return f"""
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>CoachFlow email verification</title>
-  </head>
-
-  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-    <div style="max-width:620px;margin:0 auto;padding:30px 14px;">
-      <div style="background:#07111f;border-radius:24px;padding:24px 22px 26px;border:1px solid #102033;">
-        <div style="display:inline-block;background:#16c784;color:#02140d;
-                    border-radius:999px;padding:7px 12px;font-weight:800;
-                    font-size:13px;letter-spacing:0.3px;">
-          CoachFlow
-        </div>
-
-        <h1 style="margin:18px 0 8px;font-size:26px;line-height:1.25;color:#ffffff;">
-          Email verification / Подтверждение почты / Поштаны растау
-        </h1>
-
-        <p style="font-size:15px;line-height:1.65;color:#cbd5e1;margin:0;">
-          Enter this code in the app to activate your account.
-        </p>
-      </div>
-
-      <div style="background:#ffffff;border-radius:22px;padding:26px 22px;margin-top:14px;border:1px solid #e5e7eb;">
-        {_html_section_title("English")}
-        {_html_paragraph(f"Hi {safe_name},")}
-        {_html_paragraph("Your CoachFlow verification code is shown below. Enter it in the app to activate your account.")}
-
-        {_html_section_title("Русский")}
-        {_html_paragraph(f"Здравствуйте, {safe_name}!")}
-        {_html_paragraph("Ваш код подтверждения CoachFlow указан ниже. Введите его в приложении, чтобы активировать аккаунт.")}
-
-        {_html_section_title("Қазақша")}
-        {_html_paragraph(f"Сәлеметсіз бе, {safe_name}!")}
-        {_html_paragraph("CoachFlow растау коды төменде көрсетілген. Аккаунтты белсендіру үшін оны қолданбаға енгізіңіз.")}
-
-        <div style="margin:26px 0;padding:20px;border-radius:18px;background:#f8fafc;border:1px solid #e2e8f0;text-align:center;">
-          <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 10px;font-weight:700;">
-            Verification code / Код подтверждения / Растау коды
-          </p>
-
-          <p style="font-size:34px;line-height:1.2;color:#111827;letter-spacing:8px;margin:0;font-family:Consolas,Monaco,monospace;font-weight:900;">
-            {safe_code}
-          </p>
-        </div>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:16px 0 6px;">
-          This code expires in 15 minutes.
-        </p>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
-          Код действует 15 минут.
-        </p>
-
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:6px 0;">
-          Код 15 минут ішінде жарамды.
-        </p>
-
-        <p style="font-size:13px;line-height:1.6;color:#6b7280;margin-top:22px;">
-          If you did not create a CoachFlow account, you can ignore this email.
-          <br>
-          Если вы не создавали аккаунт CoachFlow, просто проигнорируйте это письмо.
-          <br>
-          Егер CoachFlow аккаунтын сіз жасамаған болсаңыз, бұл хатты елемеуге болады.
-        </p>
-
-        <p style="font-size:14px;line-height:1.6;color:#111827;margin-top:24px;font-weight:800;">
-          CoachFlow Team
-        </p>
-      </div>
-    </div>
-  </body>
-</html>
-""".strip()
+def _build_verification_html_email(name: str, code: str, language="en") -> str:
+    return render_email("verification", name, code, language).html
 
 
 def _send_email_sync(
@@ -446,11 +151,13 @@ def _send_email_sync(
     subject: str,
     plain_body: str,
     html_body: str,
+    language: str = "en",
 ) -> None:
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = smtp_from
     message["To"] = to_email
+    message["Content-Language"] = email_language(language)
     message.set_content(plain_body)
     message.add_alternative(html_body, subtype="html")
 
@@ -482,6 +189,7 @@ async def send_password_reset_email(
     email: str,
     name: str,
     token: str,
+    language: str = "en",
 ) -> None:
     """
     Sends password reset email without blocking FastAPI event loop.
@@ -550,9 +258,8 @@ async def send_password_reset_email(
             "Use SMTP_USE_TLS=true for port 587 or SMTP_USE_SSL=true for port 465."
         )
 
-    subject = "CoachFlow password reset / Сброс пароля / Құпиясөзді қалпына келтіру"
-    plain_body = _build_reset_plain_text_email(name, reset_link, clean_token)
-    html_body = _build_reset_html_email(name, reset_link, clean_token)
+    content = render_email("reset", name, clean_token, language, reset_link)
+    subject, plain_body, html_body = content
 
     try:
         await asyncio.to_thread(
@@ -569,6 +276,7 @@ async def send_password_reset_email(
             subject=subject,
             plain_body=plain_body,
             html_body=html_body,
+            language=language,
         )
 
         logger.info("Password reset email sent")
@@ -586,6 +294,7 @@ async def send_email_verification_code(
     email: str,
     name: str,
     code: str,
+    language: str = "en",
 ) -> None:
     """
     Sends email verification code without blocking FastAPI event loop.
@@ -634,9 +343,8 @@ async def send_email_verification_code(
             "Use SMTP_USE_TLS=true for port 587 or SMTP_USE_SSL=true for port 465."
         )
 
-    subject = "CoachFlow email verification code / Код подтверждения / Растау коды"
-    plain_body = _build_verification_plain_text_email(name, clean_code)
-    html_body = _build_verification_html_email(name, clean_code)
+    content = render_email("verification", name, clean_code, language)
+    subject, plain_body, html_body = content
 
     try:
         await asyncio.to_thread(
@@ -653,6 +361,7 @@ async def send_email_verification_code(
             subject=subject,
             plain_body=plain_body,
             html_body=html_body,
+            language=language,
         )
 
         logger.info("Verification email sent")

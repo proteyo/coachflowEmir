@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -285,12 +285,13 @@ def require_email_available() -> None:
         raise HTTPException(503, "Email delivery is disabled while testing.") from None
 
 
-async def send_verification_code_or_503(user: User, raw_code: str) -> None:
+async def send_verification_code_or_503(user: User, raw_code: str, language: str = "en") -> None:
     try:
         await send_email_verification_code(
             email=user.email,
             name=user.name,
             code=raw_code,
+            language=language,
         )
     except EmailDisabledError:
         raise HTTPException(503, "Email delivery is disabled while testing.")
@@ -366,6 +367,7 @@ async def create_password_reset_token(
 async def register(
     data: RegisterRequest,
     db: AsyncSession = Depends(get_db),
+    language: str = Header(default="en", alias="Accept-Language", max_length=200),
 ) -> RegisterPendingResponse:
     require_email_available()
     email = clean_email(data.email)
@@ -483,7 +485,7 @@ async def register(
         raise HTTPException(409, "Email already registered") from None
     await db.refresh(user)
 
-    await send_verification_code_or_503(user, raw_code)
+    await send_verification_code_or_503(user, raw_code, language)
 
     return RegisterPendingResponse(
         email=user.email,
@@ -562,6 +564,7 @@ async def verify_email(
 async def resend_verification_code(
     data: ResendEmailVerificationRequest,
     db: AsyncSession = Depends(get_db),
+    language: str = Header(default="en", alias="Accept-Language", max_length=200),
 ) -> RegisterPendingResponse:
     require_email_available()
     email = clean_email(data.email)
@@ -607,7 +610,7 @@ async def resend_verification_code(
     await db.commit()
     await db.refresh(user)
 
-    await send_verification_code_or_503(user, raw_code)
+    await send_verification_code_or_503(user, raw_code, language)
 
     return RegisterPendingResponse(
         email=user.email,
@@ -713,6 +716,7 @@ async def me(
 async def forgot_password(
     data: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
+    language: str = Header(default="en", alias="Accept-Language", max_length=200),
 ):
     """
     Starts password reset flow.
@@ -747,6 +751,7 @@ async def forgot_password(
             email=user.email,
             name=user.name,
             token=raw_token,
+            language=language,
         )
 
     except EmailDisabledError:

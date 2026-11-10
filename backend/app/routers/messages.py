@@ -214,6 +214,12 @@ async def _ensure_chat_relationship(sender: User, receiver: User, db: AsyncSessi
     if await blocked(sender.id, receiver.id, db):
         raise HTTPException(403, "User is blocked")
     if receiver.id not in await contacts(sender, db):
+        # Current training peers may answer one another's stories. This does
+        # not list all peers as empty chats or grant access to health records.
+        if sender.role == "client" and receiver.role == "client":
+            from app.services.story_audience import story_circle
+            if receiver.id in await story_circle(sender, db):
+                return
         raise HTTPException(403, "Conversation access denied")
 
 

@@ -172,13 +172,16 @@ class SocialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
         self.assertFalse(result[0]["liked"])
 
-    async def test_feed_includes_public_stories_without_leaking_private_or_blocked_ones(self):
+    async def test_unrelated_public_posts_are_profile_only_not_in_the_chat_feed(self):
         self.session.add_all([Story(user_id=self.stranger.id, media_url="/api/v1/uploads/images/u_stranger_public.jpg", media_type="image", visibility="public"), Story(user_id=self.stranger.id, media_url="/api/v1/uploads/images/u_stranger_private.jpg", media_type="image", visibility="contacts")]); self.session.commit()
         feed = (await self.http.get("/api/v1/social/stories")).json()
-        self.assertEqual(len(feed), 1)
-        self.assertIn("public", feed[0]["mediaUrl"])
+        self.assertEqual(feed, [])
+        profile_posts = (await self.http.get(f"/api/v1/social/stories?owner_id={self.stranger.id}")).json()
+        self.assertEqual(len(profile_posts), 1)
+        self.assertIn("public", profile_posts[0]["mediaUrl"])
         await self.http.patch(f"/api/v1/social/blocks/{self.stranger.id}", json={"blocked": True})
         self.assertEqual((await self.http.get("/api/v1/social/stories")).json(), [])
+        self.assertEqual((await self.http.get(f"/api/v1/social/stories?owner_id={self.stranger.id}")).json(), [])
 
     async def test_inbox_read_receipts_belong_to_the_message_sender(self):
         item = Message(sender_id=self.client.id, receiver_id=self.coach.id, content="Hello", read=False)

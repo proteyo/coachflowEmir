@@ -481,7 +481,12 @@ async def can_view_story(story, user, db):
         return True
     if await blocked(user.id, story.user_id, db):
         return False
-    return story.visibility == "public" or story.user_id in await contacts(user, db)
+    if story.visibility == "public":
+        return True
+    if story.visibility == "contacts":
+        return story.user_id in await contacts(user, db)
+    from app.services.story_audience import story_circle
+    return story.visibility == "circle" and story.user_id in await story_circle(user, db)
 
 
 class StoryIn(BaseModel):
@@ -489,7 +494,7 @@ class StoryIn(BaseModel):
     media_url: str
     media_type: Literal["image", "video"]
     caption: str = Field(default="", max_length=500)
-    visibility: Literal["contacts", "public"] = "contacts"
+    visibility: Literal["contacts", "circle", "public"] = "circle"
     post: bool = False
     replies_enabled: bool = True
 
@@ -498,7 +503,7 @@ class StoryEdit(BaseModel):
     model_config = {"extra": "forbid"}
     replies_enabled: bool = True
     caption: str = Field(max_length=500)
-    visibility: Literal["contacts", "public"] = "contacts"
+    visibility: Literal["contacts", "circle", "public"] | None = None
 
 
 def story_out(story, owner):
@@ -507,16 +512,21 @@ def story_out(story, owner):
 
 @router.get("/stories")
 async def stories(owner_id: str | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    ids = (await contacts(user, db)) | {user.id}
-    query = select(Story, User).join(User, Story.user_id == User.id).where(or_(Story.expires_at.is_(None), Story.expires_at > now()))
-    query = query.where(Story.user_id == owner_id) if owner_id else query.where(or_(Story.user_id.in_(ids), Story.visibility == "public"))
+    from app.services.story_audience import story_circle
+    ids = await story_circle(user, db)
+    current = now()
+    query = select(Story, User).join(User, Story.user_id == User.id).where(User.role.in_(("coach", "client")), or_(Story.expires_at.is_(None), Story.expires_at > current))
+    # Saved profile posts remain in profiles, but leave the chat strip after 24h.
+    query = query.where(Story.user_id == owner_id) if owner_id else query.where(Story.user_id.in_(ids), Story.created_at > current - timedelta(hours=24))
     rows = (await db.execute(query.order_by(Story.created_at.desc()).limit(200))).all()
+    legacy_contacts = (await contacts(user, db)) | {user.id} if any(story.visibility == "contacts" for story, _ in rows) else {user.id}
     block_rows = (await db.execute(select(UserBlock).where(or_(UserBlock.user_id == user.id, UserBlock.target_id == user.id)))).scalars().all()
     blocked_ids = {item.target_id if item.user_id == user.id else item.user_id for item in block_rows}
     views = {view.story_id: view for view in (await db.execute(select(StoryView).where(StoryView.user_id == user.id, StoryView.story_id.in_([story.id for story, _ in rows])))).scalars().all()}
     result = []
     for story, owner in rows:
-        if story.user_id == user.id or (story.user_id not in blocked_ids and (story.visibility == "public" or story.user_id in ids)):
+        permitted = story.visibility == "public" or (story.visibility == "circle" and story.user_id in ids) or (story.visibility == "contacts" and story.user_id in legacy_contacts)
+        if story.user_id == user.id or (story.user_id not in blocked_ids and permitted):
             view = views.get(story.id)
             result.append({**story_out(story, owner), "seen": story.user_id == user.id or bool(view), "liked": bool(story.user_id != user.id and view and view.liked)})
     return result
@@ -548,7 +558,9 @@ async def edit_story(story_id: str, data: StoryEdit, user: User = Depends(get_cu
     item = await db.get(Story, story_id)
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Story not found")
-    item.caption, item.visibility = data.caption, data.visibility
+    item.caption = data.caption
+    if data.visibility is not None:
+        item.visibility = data.visibility
     if "replies_enabled" in data.model_fields_set:
         item.replies_enabled = data.replies_enabled
     await db.commit()
